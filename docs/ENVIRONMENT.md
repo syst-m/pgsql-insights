@@ -47,7 +47,7 @@ problem), and **two different major PG versions** (16 and 17).
 | kube-prometheus-stack (`prom-operator`) in `monitoring` | Yes — `prometheus-prom-operator-kube-prometh-prometheus-0`, grafana, node-exporter DaemonSet (5 pods) | Our `/metrics` must be scrapeable by *this* Prometheus. `ServiceMonitor`/`PodMonitor`/`PrometheusRule` CRDs exist (`monitoring.coreos.com/v1`) → ship a ServiceMonitor in the Helm chart |
 | `prometheus-operator-prometheus-node-exporter` | Yes, 5 pods (one per node) | Real OS metrics available for the System Insights side, beyond what Postgres can see |
 | `metrics-server` (kube-system) | Yes | Pod/node CPU+memory available via `metrics.k8s.io` |
-| CNPG `spec.metrics` on our 4 clusters | **Not set on any cluster** | **No postgres_exporter sidecars exist today.** Our collector must not *require* enabling CNPG metrics — see below |
+| CNPG `spec.monitoring` on our 4 clusters | **Not set on any cluster** | Nothing to scrape from a *custom-queries* config; but per `docs/research/cloudnativepg.md` §4.1 there is no exporter sidecar in CNPG 1.30 at all — the exporter is compiled into the instance manager, so `:9187` is up regardless. Our collector must not *require* `spec.monitoring` — see below |
 
 ### The single most important environment finding
 
@@ -70,9 +70,12 @@ Inspecting `ai-api-gateway/rev-proxy-pg-2` shows the postgres container declares
 | **8000** | **`status`** | CNPG instance manager HTTP status/probe API — always present |
 
 So there are two always-available, zero-config sources per instance: **direct SQL on 5432** and
-**the instance manager on 9187/8000**. The postgres_exporter sidecar (from `spec.metrics`) is a
-third, opt-in source. The spec's collector is built on the first two and treats the third as a
-bonus, which is what makes zero-config rollout possible.
+**the instance manager on 9187/8000**. `pkg/management/url/url.go` defines exactly these ports
+(8010 local, 9187 Postgres metrics, 9127 PgBouncer metrics, 8000 status) — there is no 9101, and
+there is no exporter sidecar to opt into: `spec.monitoring` only chooses *which queries* the
+built-in exporter runs. A community `postgres_exporter` sidecar remains an optional third source
+for teams that want its 36 collectors (notably `stat_statements`, which CNPG's built-in set omits),
+but the spec never requires it. Building on the first two is what makes zero-config rollout possible.
 
 ### Discovery metadata (exact, observed on a real pod)
 
