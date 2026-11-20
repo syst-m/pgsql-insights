@@ -1,0 +1,318 @@
+# HELP cnpg_pgbouncer_collection_duration_seconds Collection time duration in seconds
+# TYPE cnpg_pgbouncer_collection_duration_seconds gauge
+cnpg_pgbouncer_collection_duration_seconds{collector="Collect.up"} 0.003429046
+# HELP cnpg_pgbouncer_collections_total Total number of times PostgreSQL was accessed for metrics.
+# TYPE cnpg_pgbouncer_collections_total counter
+cnpg_pgbouncer_collections_total 1
+# HELP cnpg_pgbouncer_last_collection_error 1 if the last collection ended with error, 0 otherwise.
+# TYPE cnpg_pgbouncer_last_collection_error gauge
+cnpg_pgbouncer_last_collection_error 0
+# HELP cnpg_pgbouncer_lists_databases Count of databases.
+# TYPE cnpg_pgbouncer_lists_databases gauge
+cnpg_pgbouncer_lists_databases 3
+# HELP cnpg_pgbouncer_lists_dns_names Count of DNS names in the cache.
+# TYPE cnpg_pgbouncer_lists_dns_names gauge
+cnpg_pgbouncer_lists_dns_names 1
+# HELP cnpg_pgbouncer_lists_dns_pending Not used.
+# TYPE cnpg_pgbouncer_lists_dns_pending gauge
+cnpg_pgbouncer_lists_dns_pending 0
+# HELP cnpg_pgbouncer_lists_dns_queries Count of in-flight DNS queries.
+# TYPE cnpg_pgbouncer_lists_dns_queries gauge
+cnpg_pgbouncer_lists_dns_queries -1388
+# HELP cnpg_pgbouncer_lists_dns_zones Count of DNS zones in the cache.
+# TYPE cnpg_pgbouncer_lists_dns_zones gauge
+cnpg_pgbouncer_lists_dns_zones 0
+# HELP cnpg_pgbouncer_lists_free_clients Count of free clients.
+# TYPE cnpg_pgbouncer_lists_free_clients gauge
+cnpg_pgbouncer_lists_free_clients 48
+# HELP cnpg_pgbouncer_lists_free_servers Count of free servers.
+# TYPE cnpg_pgbouncer_lists_free_servers gauge
+cnpg_pgbouncer_lists_free_servers 45
+# HELP cnpg_pgbouncer_lists_login_clients Count of clients in login state.
+# TYPE cnpg_pgbouncer_lists_login_clients gauge
+cnpg_pgbouncer_lists_login_clients 0
+# HELP cnpg_pgbouncer_lists_pools Count of pools.
+# TYPE cnpg_pgbouncer_lists_pools gauge
+cnpg_pgbouncer_lists_pools 3
+# HELP cnpg_pgbouncer_lists_used_clients Count of used clients.
+# TYPE cnpg_pgbouncer_lists_used_clients gauge
+cnpg_pgbouncer_lists_used_clients 2
+# HELP cnpg_pgbouncer_lists_used_servers Count of used servers.
+# TYPE cnpg_pgbouncer_lists_used_servers gauge
+cnpg_pgbouncer_lists_used_servers 5
+# HELP cnpg_pgbouncer_lists_users Count of users.
+# TYPE cnpg_pgbouncer_lists_users gauge
+cnpg_pgbouncer_lists_users 3
+# HELP cnpg_pgbouncer_pools_cl_active Client connections that are linked to server connection and can process queries.
+# TYPE cnpg_pgbouncer_pools_cl_active gauge
+cnpg_pgbouncer_pools_cl_active{database="gateway",user="revproxy"} 1
+cnpg_pgbouncer_pools_cl_active{database="pgbouncer",user="pgbouncer"} 1
+cnpg_pgbouncer_pools_cl_active{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_cl_active_cancel_req Client connections that have forwarded query cancellations to the server and are waiting for the server response.
+# TYPE cnpg_pgbouncer_pools_cl_active_cancel_req gauge
+cnpg_pgbouncer_pools_cl_active_cancel_req{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_cl_active_cancel_req{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_cl_active_cancel_req{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_cl_cancel_req Client connections that have not forwarded query cancellations to the server yet.
+# TYPE cnpg_pgbouncer_pools_cl_cancel_req gauge
+cnpg_pgbouncer_pools_cl_cancel_req{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_cl_cancel_req{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_cl_cancel_req{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_cl_waiting Client connections that have sent queries but have not yet got a server connection.
+# TYPE cnpg_pgbouncer_pools_cl_waiting gauge
+cnpg_pgbouncer_pools_cl_waiting{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_cl_waiting{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_cl_waiting{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_cl_waiting_cancel_req Client connections that have not forwarded query cancellations to the server yet.
+# TYPE cnpg_pgbouncer_pools_cl_waiting_cancel_req gauge
+cnpg_pgbouncer_pools_cl_waiting_cancel_req{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_cl_waiting_cancel_req{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_cl_waiting_cancel_req{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_load_balance_hosts Number of hosts not load balancing between hosts
+# TYPE cnpg_pgbouncer_pools_load_balance_hosts gauge
+cnpg_pgbouncer_pools_load_balance_hosts{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_load_balance_hosts{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_load_balance_hosts{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_maxwait How long the first (oldest) client in the queue has waited, in seconds. If this starts increasing, then the current pool of servers does not handle requests quickly enough. The reason may be either an overloaded server or just too small of a pool_size setting.
+# TYPE cnpg_pgbouncer_pools_maxwait gauge
+cnpg_pgbouncer_pools_maxwait{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_maxwait{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_maxwait{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_maxwait_us Microsecond part of the maximum waiting time.
+# TYPE cnpg_pgbouncer_pools_maxwait_us gauge
+cnpg_pgbouncer_pools_maxwait_us{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_maxwait_us{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_maxwait_us{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_pool_mode The pooling mode in use. 1 for session, 2 for transaction, 3 for statement, -1 if unknown
+# TYPE cnpg_pgbouncer_pools_pool_mode gauge
+cnpg_pgbouncer_pools_pool_mode{database="gateway",user="revproxy"} 2
+cnpg_pgbouncer_pools_pool_mode{database="pgbouncer",user="pgbouncer"} 3
+cnpg_pgbouncer_pools_pool_mode{database="postgres",user="cnpg_pooler_pgbouncer"} 2
+# HELP cnpg_pgbouncer_pools_sv_active Server connections that are linked to a client.
+# TYPE cnpg_pgbouncer_pools_sv_active gauge
+cnpg_pgbouncer_pools_sv_active{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_sv_active{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_active{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_sv_active_cancel Server connections that are currently forwarding a cancel request
+# TYPE cnpg_pgbouncer_pools_sv_active_cancel gauge
+cnpg_pgbouncer_pools_sv_active_cancel{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_sv_active_cancel{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_active_cancel{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_sv_idle Server connections that are unused and immediately usable for client queries.
+# TYPE cnpg_pgbouncer_pools_sv_idle gauge
+cnpg_pgbouncer_pools_sv_idle{database="gateway",user="revproxy"} 1
+cnpg_pgbouncer_pools_sv_idle{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_idle{database="postgres",user="cnpg_pooler_pgbouncer"} 1
+# HELP cnpg_pgbouncer_pools_sv_login Server connections currently in the process of logging in.
+# TYPE cnpg_pgbouncer_pools_sv_login gauge
+cnpg_pgbouncer_pools_sv_login{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_sv_login{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_login{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_sv_tested Server connections that are currently running either server_reset_query or server_check_query.
+# TYPE cnpg_pgbouncer_pools_sv_tested gauge
+cnpg_pgbouncer_pools_sv_tested{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_sv_tested{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_tested{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_sv_used Server connections that have been idle for more than server_check_delay, so they need server_check_query to run on them before they can be used again.
+# TYPE cnpg_pgbouncer_pools_sv_used gauge
+cnpg_pgbouncer_pools_sv_used{database="gateway",user="revproxy"} 3
+cnpg_pgbouncer_pools_sv_used{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_used{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_pools_sv_wait_cancels Servers that normally could become idle, but are waiting to do so until all in-flight cancel requests have completed that were sent to cancel a query on this server.
+# TYPE cnpg_pgbouncer_pools_sv_wait_cancels gauge
+cnpg_pgbouncer_pools_sv_wait_cancels{database="gateway",user="revproxy"} 0
+cnpg_pgbouncer_pools_sv_wait_cancels{database="pgbouncer",user="pgbouncer"} 0
+cnpg_pgbouncer_pools_sv_wait_cancels{database="postgres",user="cnpg_pooler_pgbouncer"} 0
+# HELP cnpg_pgbouncer_stats_avg_bind_count Average number of prepared statements readied for execution by clients and forwarded to PostgreSQL by pgbouncer.
+# TYPE cnpg_pgbouncer_stats_avg_bind_count gauge
+cnpg_pgbouncer_stats_avg_bind_count{database="gateway"} 0
+cnpg_pgbouncer_stats_avg_bind_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_bind_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_client_parse_count Average number of prepared statements created by clients.
+# TYPE cnpg_pgbouncer_stats_avg_client_parse_count gauge
+cnpg_pgbouncer_stats_avg_client_parse_count{database="gateway"} 0
+cnpg_pgbouncer_stats_avg_client_parse_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_client_parse_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_query_count Average queries per second in last stat period.
+# TYPE cnpg_pgbouncer_stats_avg_query_count gauge
+cnpg_pgbouncer_stats_avg_query_count{database="gateway"} 1
+cnpg_pgbouncer_stats_avg_query_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_query_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_query_time Average query duration, in microseconds.
+# TYPE cnpg_pgbouncer_stats_avg_query_time gauge
+cnpg_pgbouncer_stats_avg_query_time{database="gateway"} 1354
+cnpg_pgbouncer_stats_avg_query_time{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_query_time{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_recv Average received (from clients) bytes per second.
+# TYPE cnpg_pgbouncer_stats_avg_recv gauge
+cnpg_pgbouncer_stats_avg_recv{database="gateway"} 164
+cnpg_pgbouncer_stats_avg_recv{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_recv{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_sent Average sent (to clients) bytes per second.
+# TYPE cnpg_pgbouncer_stats_avg_sent gauge
+cnpg_pgbouncer_stats_avg_sent{database="gateway"} 256
+cnpg_pgbouncer_stats_avg_sent{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_sent{database="postgres"} 6
+# HELP cnpg_pgbouncer_stats_avg_server_parse_count Average number of prepared statements created by pgbouncer on a server.
+# TYPE cnpg_pgbouncer_stats_avg_server_parse_count gauge
+cnpg_pgbouncer_stats_avg_server_parse_count{database="gateway"} 0
+cnpg_pgbouncer_stats_avg_server_parse_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_server_parse_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_wait_time Time spent by clients waiting for a server, in microseconds (average per second).
+# TYPE cnpg_pgbouncer_stats_avg_wait_time gauge
+cnpg_pgbouncer_stats_avg_wait_time{database="gateway"} 0
+cnpg_pgbouncer_stats_avg_wait_time{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_wait_time{database="postgres"} 524
+# HELP cnpg_pgbouncer_stats_avg_xact_count Average transactions per second in last stat period.
+# TYPE cnpg_pgbouncer_stats_avg_xact_count gauge
+cnpg_pgbouncer_stats_avg_xact_count{database="gateway"} 1
+cnpg_pgbouncer_stats_avg_xact_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_xact_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_avg_xact_time Average transaction duration, in microseconds.
+# TYPE cnpg_pgbouncer_stats_avg_xact_time gauge
+cnpg_pgbouncer_stats_avg_xact_time{database="gateway"} 1501
+cnpg_pgbouncer_stats_avg_xact_time{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_avg_xact_time{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_bind_count Total number of prepared statements readied for execution by clients and forwarded to PostgreSQL by pgbouncer
+# TYPE cnpg_pgbouncer_stats_total_bind_count gauge
+cnpg_pgbouncer_stats_total_bind_count{database="gateway"} 17
+cnpg_pgbouncer_stats_total_bind_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_bind_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_client_parse_count Total number of prepared statements created by clients.
+# TYPE cnpg_pgbouncer_stats_total_client_parse_count gauge
+cnpg_pgbouncer_stats_total_client_parse_count{database="gateway"} 3
+cnpg_pgbouncer_stats_total_client_parse_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_client_parse_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_query_count Total number of SQL queries pooled by pgbouncer.
+# TYPE cnpg_pgbouncer_stats_total_query_count gauge
+cnpg_pgbouncer_stats_total_query_count{database="gateway"} 1.5965722e+07
+cnpg_pgbouncer_stats_total_query_count{database="pgbouncer"} 3
+cnpg_pgbouncer_stats_total_query_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_query_time Total number of microseconds spent by pgbouncer when actively connected to PostgreSQL, executing queries.
+# TYPE cnpg_pgbouncer_stats_total_query_time gauge
+cnpg_pgbouncer_stats_total_query_time{database="gateway"} 1.8654081077e+10
+cnpg_pgbouncer_stats_total_query_time{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_query_time{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_received Total volume in bytes of network traffic received by pgbouncer.
+# TYPE cnpg_pgbouncer_stats_total_received gauge
+cnpg_pgbouncer_stats_total_received{database="gateway"} 2.066694062e+09
+cnpg_pgbouncer_stats_total_received{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_received{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_sent Total volume in bytes of network traffic sent by pgbouncer.
+# TYPE cnpg_pgbouncer_stats_total_sent gauge
+cnpg_pgbouncer_stats_total_sent{database="gateway"} 3.66182213e+09
+cnpg_pgbouncer_stats_total_sent{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_sent{database="postgres"} 2.7384944e+07
+# HELP cnpg_pgbouncer_stats_total_server_parse_count Total number of prepared statements created by pgbouncer on a server.
+# TYPE cnpg_pgbouncer_stats_total_server_parse_count gauge
+cnpg_pgbouncer_stats_total_server_parse_count{database="gateway"} 2
+cnpg_pgbouncer_stats_total_server_parse_count{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_server_parse_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_wait_time Time spent by clients waiting for a server, in microseconds.
+# TYPE cnpg_pgbouncer_stats_total_wait_time gauge
+cnpg_pgbouncer_stats_total_wait_time{database="gateway"} 1.45578951e+08
+cnpg_pgbouncer_stats_total_wait_time{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_wait_time{database="postgres"} 7.9327774e+07
+# HELP cnpg_pgbouncer_stats_total_xact_count Total number of SQL transactions pooled by pgbouncer.
+# TYPE cnpg_pgbouncer_stats_total_xact_count gauge
+cnpg_pgbouncer_stats_total_xact_count{database="gateway"} 1.4134805e+07
+cnpg_pgbouncer_stats_total_xact_count{database="pgbouncer"} 3
+cnpg_pgbouncer_stats_total_xact_count{database="postgres"} 0
+# HELP cnpg_pgbouncer_stats_total_xact_time Total number of microseconds spent by pgbouncer when connected to PostgreSQL in a transaction, either idle in transaction or executing queries.
+# TYPE cnpg_pgbouncer_stats_total_xact_time gauge
+cnpg_pgbouncer_stats_total_xact_time{database="gateway"} 1.931092688e+10
+cnpg_pgbouncer_stats_total_xact_time{database="pgbouncer"} 0
+cnpg_pgbouncer_stats_total_xact_time{database="postgres"} 0
+# HELP go_gc_duration_seconds A summary of the wall-time pause (stop-the-world) duration in garbage collection cycles.
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} 5.7768e-05
+go_gc_duration_seconds{quantile="0.25"} 7.4331e-05
+go_gc_duration_seconds{quantile="0.5"} 0.000107562
+go_gc_duration_seconds{quantile="0.75"} 0.000135495
+go_gc_duration_seconds{quantile="1"} 0.000496192
+go_gc_duration_seconds_sum 4.187437006
+go_gc_duration_seconds_count 35886
+# HELP go_gc_gogc_percent Heap size target percentage configured by the user, otherwise 100. This value is set by the GOGC environment variable, and the runtime/debug.SetGCPercent function. Sourced from /gc/gogc:percent.
+# TYPE go_gc_gogc_percent gauge
+go_gc_gogc_percent 100
+# HELP go_gc_gomemlimit_bytes Go runtime memory limit configured by the user, otherwise math.MaxInt64. This value is set by the GOMEMLIMIT environment variable, and the runtime/debug.SetMemoryLimit function. Sourced from /gc/gomemlimit:bytes.
+# TYPE go_gc_gomemlimit_bytes gauge
+go_gc_gomemlimit_bytes 9.223372036854776e+18
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 16
+# HELP go_info Information about the Go environment.
+# TYPE go_info gauge
+go_info{version="go1.26.4"} 1
+# HELP go_memstats_alloc_bytes Number of bytes allocated in heap and currently in use. Equals to /memory/classes/heap/objects:bytes.
+# TYPE go_memstats_alloc_bytes gauge
+go_memstats_alloc_bytes 4.293904e+06
+# HELP go_memstats_alloc_bytes_total Total number of bytes allocated in heap until now, even if released already. Equals to /gc/heap/allocs:bytes.
+# TYPE go_memstats_alloc_bytes_total counter
+go_memstats_alloc_bytes_total 5.134374112e+09
+# HELP go_memstats_buck_hash_sys_bytes Number of bytes used by the profiling bucket hash table. Equals to /memory/classes/profiling/buckets:bytes.
+# TYPE go_memstats_buck_hash_sys_bytes gauge
+go_memstats_buck_hash_sys_bytes 1.579023e+06
+# HELP go_memstats_frees_total Total number of heap objects frees. Equals to /gc/heap/frees:objects + /gc/heap/tiny/allocs:objects.
+# TYPE go_memstats_frees_total counter
+go_memstats_frees_total 1.2409743e+07
+# HELP go_memstats_gc_sys_bytes Number of bytes used for garbage collection system metadata. Equals to /memory/classes/metadata/other:bytes.
+# TYPE go_memstats_gc_sys_bytes gauge
+go_memstats_gc_sys_bytes 3.551984e+06
+# HELP go_memstats_heap_alloc_bytes Number of heap bytes allocated and currently in use, same as go_memstats_alloc_bytes. Equals to /memory/classes/heap/objects:bytes.
+# TYPE go_memstats_heap_alloc_bytes gauge
+go_memstats_heap_alloc_bytes 4.293904e+06
+# HELP go_memstats_heap_idle_bytes Number of heap bytes waiting to be used. Equals to /memory/classes/heap/released:bytes + /memory/classes/heap/free:bytes.
+# TYPE go_memstats_heap_idle_bytes gauge
+go_memstats_heap_idle_bytes 5.65248e+06
+# HELP go_memstats_heap_inuse_bytes Number of heap bytes that are in use. Equals to /memory/classes/heap/objects:bytes + /memory/classes/heap/unused:bytes
+# TYPE go_memstats_heap_inuse_bytes gauge
+go_memstats_heap_inuse_bytes 6.176768e+06
+# HELP go_memstats_heap_objects Number of currently allocated objects. Equals to /gc/heap/objects:objects.
+# TYPE go_memstats_heap_objects gauge
+go_memstats_heap_objects 20755
+# HELP go_memstats_heap_released_bytes Number of heap bytes released to OS. Equals to /memory/classes/heap/released:bytes.
+# TYPE go_memstats_heap_released_bytes gauge
+go_memstats_heap_released_bytes 5.316608e+06
+# HELP go_memstats_heap_sys_bytes Number of heap bytes obtained from system. Equals to /memory/classes/heap/objects:bytes + /memory/classes/heap/unused:bytes + /memory/classes/heap/released:bytes + /memory/classes/heap/free:bytes.
+# TYPE go_memstats_heap_sys_bytes gauge
+go_memstats_heap_sys_bytes 1.1829248e+07
+# HELP go_memstats_last_gc_time_seconds Number of seconds since 1970 of last garbage collection.
+# TYPE go_memstats_last_gc_time_seconds gauge
+go_memstats_last_gc_time_seconds 1.795172336814027e+09
+# HELP go_memstats_mallocs_total Total number of heap objects allocated, both live and gc-ed. Semantically a counter version for go_memstats_heap_objects gauge. Equals to /gc/heap/allocs:objects + /gc/heap/tiny/allocs:objects.
+# TYPE go_memstats_mallocs_total counter
+go_memstats_mallocs_total 1.2430498e+07
+# HELP go_memstats_mcache_inuse_bytes Number of bytes in use by mcache structures. Equals to /memory/classes/metadata/mcache/inuse:bytes.
+# TYPE go_memstats_mcache_inuse_bytes gauge
+go_memstats_mcache_inuse_bytes 4592
+# HELP go_memstats_mcache_sys_bytes Number of bytes used for mcache structures obtained from system. Equals to /memory/classes/metadata/mcache/inuse:bytes + /memory/classes/metadata/mcache/free:bytes.
+# TYPE go_memstats_mcache_sys_bytes gauge
+go_memstats_mcache_sys_bytes 16072
+# HELP go_memstats_mspan_inuse_bytes Number of bytes in use by mspan structures. Equals to /memory/classes/metadata/mspan/inuse:bytes.
+# TYPE go_memstats_mspan_inuse_bytes gauge
+go_memstats_mspan_inuse_bytes 104960
+# HELP go_memstats_mspan_sys_bytes Number of bytes used for mspan structures obtained from system. Equals to /memory/classes/metadata/mspan/inuse:bytes + /memory/classes/metadata/mspan/free:bytes.
+# TYPE go_memstats_mspan_sys_bytes gauge
+go_memstats_mspan_sys_bytes 163200
+# HELP go_memstats_next_gc_bytes Number of heap bytes when next garbage collection will take place. Equals to /gc/heap/goal:bytes.
+# TYPE go_memstats_next_gc_bytes gauge
+go_memstats_next_gc_bytes 8.916018e+06
+# HELP go_memstats_other_sys_bytes Number of bytes used for other system allocations. Equals to /memory/classes/other:bytes.
+# TYPE go_memstats_other_sys_bytes gauge
+go_memstats_other_sys_bytes 561601
+# HELP go_memstats_stack_inuse_bytes Number of bytes obtained from system for stack allocator in non-CGO environments. Equals to /memory/classes/heap/stacks:bytes.
+# TYPE go_memstats_stack_inuse_bytes gauge
+go_memstats_stack_inuse_bytes 753664
+# HELP go_memstats_stack_sys_bytes Number of bytes obtained from system for stack allocator. Equals to /memory/classes/heap/stacks:bytes + /memory/classes/os-stacks:bytes.
+# TYPE go_memstats_stack_sys_bytes gauge
+go_memstats_stack_sys_bytes 753664
+# HELP go_memstats_sys_bytes Number of bytes obtained from system. Equals to /memory/classes/total:byte.
+# TYPE go_memstats_sys_bytes gauge
+go_memstats_sys_bytes 1.8454792e+07
+# HELP go_sched_gomaxprocs_threads The current runtime.GOMAXPROCS setting, or the number of operating system threads that can execute user-level Go code simultaneously. Sourced from /sched/gomaxprocs:threads.
+# TYPE go_sched_gomaxprocs_threads gauge
+go_sched_gomaxprocs_threads 2
+# HELP go_threads Number of OS threads created.
+# TYPE go_threads gauge
+go_threads 10

@@ -32,7 +32,7 @@ targets the **CNPG 1.30 `postgresql.cnpg.io/v1` API surface**.
 |---|---|---|---|---|---|---|---|
 | `ai-api-gateway` | `rev-proxy-pg` | 2 | Cluster in healthy state | `rev-proxy-pg-2` | `postgresql:17` | 10Gi | **Has a Pooler** (`rev-proxy-pg-pooler`, pgbouncer, `poolMode: transaction`, 2 instances, `type: rw`, `default_pool_size 20`, `max_client_conn 400`, `min_pool_size 4`) |
 | `cookbook` | `cookbook-pg` | 1 | Cluster in healthy state | `cookbook-pg-1` | `postgresql:17` | 10Gi | Single-instance: no replicas, so replication views are empty — tests the degenerate path |
-| `freeidp` | `freeidp-pg` | 2 | **Not enough disk space** | `freeidp-pg-1` | `postgresql:17` | 10Gi | `freeidp-pg-2` is **Pending** (unschedulable). Real degraded cluster: exercises disk-pressure + missing-replica + pending-pod surfaces |
+| `freeidp` | `freeidp-pg` | 2 | **Not enough disk space** | `freeidp-pg-1` | `postgresql:17` | 10Gi | `freeidp-pg-2` is **Pending** (unschedulable) **and `freeidp-pg-1`'s postgres container is in `CrashLoopBackOff`** — the CR reports 2 instances but zero are serving. Exercises disk-pressure + missing-replica + crash-looping-primary + the app pods above it also being unready |
 | `open-webui` | `open-webui-pg` | 2 | Cluster in healthy state | `open-webui-pg-2` | `postgresql:16` | 2Gi | PG **16** (others are 17) — exercises the version matrix (e.g. `pg_stat_io` differences) |
 
 This set is unusually good for validation because it includes: a healthy 2-instance cluster, a
@@ -121,5 +121,8 @@ than a `SELECT version()` per poll.
 | Node / npm | v25.8.0 / 11.16.0 |
 | `kubectl cnpg` plugin | **not installed locally** (available via `kubectl cnpg` on clusters that ship it) |
 
-Platform is `darwin/arm64`, so container images must be built `linux/arm64` + `linux/amd64`
-(k3s nodes are arm64-capable here; the build must be multi-arch regardless for adoption).
+Platform is `darwin/arm64`, but **all five cluster nodes are `amd64`** (verified via
+`kubectl get nodes -o jsonpath` and confirmed by `instanceArch: amd64` in the pod's `/pg/status`).
+A plain `docker build` here produces an arm64 image that cannot schedule on any node in the target
+cluster, so `buildx --platform linux/amd64,linux/arm64` is a Phase 0 blocker, not a nicety. See
+`docs/research/live-probe.md` §7.
