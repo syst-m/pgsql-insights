@@ -9,7 +9,7 @@
  */
 
 import type { SortKey, UrlState } from "../state/urlState";
-import type { ClusterSummary } from "../api/types";
+import type { FleetRow } from "../api/types";
 import { StatusChip } from "./StatusGlyph";
 import { formatNumber, formatPercent, formatSize, formatTimestamp, formatDurationMs, NULL_VALUE } from "../lib/format";
 
@@ -36,7 +36,7 @@ export const COLUMNS: readonly Column[] = [
 ];
 
 export interface ClusterTableProps {
-  rows: readonly ClusterSummary[];
+  rows: readonly FleetRow[];
   state: UrlState;
   onSort: (key: SortKey) => void;
   onOpen: (clusterId: string) => void;
@@ -120,11 +120,11 @@ export function ClusterTable({ rows, state, onSort, onOpen }: ClusterTableProps)
 
 /** The Instances cell's tooltip text, exported so the test can assert R1.2's
  *  three counts are all visible rather than only the spec count. */
-export function instancesTooltip(c: ClusterSummary): string {
+export function instancesTooltip(c: FleetRow): string {
   return `${c.readyInstances} ready, ${c.servingInstances} serving of ${c.instances} (R1.2)`;
 }
 
 /** The Storage cell for the detail page's PVC table. */
-export function pvcCell(size: string): string {
-  return formatSize(size);
+export function pvcCell(size?: string): string {
+  return formatSize(size ?? null);
 }

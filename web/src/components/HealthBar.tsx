@@ -25,10 +25,10 @@ import { useMemo, useState } from "react";
 import { scaleLinear } from "d3-scale";
 
 import { HEALTH_ORDER, presentationFor } from "../api/health";
-import type { ClusterHealth, ClusterSummary } from "../api/types";
+import type { ClusterHealth, FleetRow } from "../api/types";
 
 export interface HealthBarProps {
-  clusters: readonly ClusterSummary[];
+  clusters: readonly FleetRow[];
   /** CSS pixels. The card is fluid; the SVG scales with a viewBox. */
   width?: number;
 }
@@ -90,7 +90,7 @@ function dataEndPath(w: number, h: number, r: number): string {
   ].join(" ");
 }
 
-export function countsByHealth(clusters: readonly ClusterSummary[]): Record<ClusterHealth, number> {
+export function countsByHealth(clusters: readonly FleetRow[]): Record<ClusterHealth, number> {
   const counts: Record<ClusterHealth, number> = { healthy: 0, degraded: 0, down: 0, unknown: 0 };
   for (const c of clusters) counts[c.health] += 1;
   return counts;
@@ -255,7 +255,7 @@ export function HealthBar({ clusters, width = 720 }: HealthBarProps) {
 
 /** The chart's table twin (R10.23): the same four numbers the bar draws, in
  *  tabular form, so the chart is never the only way to read it. */
-function HealthLegend({ clusters, total }: { clusters: readonly ClusterSummary[]; total: number }) {
+function HealthLegend({ clusters, total }: { clusters: readonly FleetRow[]; total: number }) {
   const counts = countsByHealth(clusters);
   return (
     <table className="legend-table">
@@ -290,7 +290,7 @@ function HealthLegend({ clusters, total }: { clusters: readonly ClusterSummary[]
 }
 
 /** Screen-reader summary of the bar, so the chart has a text equivalent. */
-export function describeDistribution(clusters: readonly ClusterSummary[]): string {
+export function describeDistribution(clusters: readonly FleetRow[]): string {
   const counts = countsByHealth(clusters);
   const parts = HEALTH_ORDER.filter((h) => counts[h] > 0).map((h) => `${counts[h]} ${presentationFor(h).label.toLowerCase()}`);
   const total = HEALTH_ORDER.reduce((n, h) => n + counts[h], 0);

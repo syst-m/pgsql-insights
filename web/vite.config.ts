@@ -13,6 +13,15 @@ export default defineConfig({
   // every deep route would 404 its own bundle and render a blank page. `base:
   // "/"` is the only setting that is correct for a path-routed SPA.
   base: "/",
+  // fixtures.ts imports testdata/api/clusters.json, which sits above `web/`
+  // (R16.8 names that path as the single contract, so it cannot be copied into
+  // src/). Vite's dev server only serves files under its root unless the
+  // workspace root is wider, and this repo has no `workspaces` field for
+  // searchForWorkspaceRoot to find — so the parent has to be allowed
+  // explicitly. `vite build` reads from disk directly and needs none of this.
+  server: {
+    fs: { allow: [".."] },
+  },
   plugins: [react()],
   build: {
     outDir: "dist",

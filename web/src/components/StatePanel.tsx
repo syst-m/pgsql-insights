@@ -12,7 +12,8 @@
  * clusters says so rather than looking complete.
  */
 
-import type { ClusterMetrics, ClusterSummary, FleetResponse } from "../api/types";
+import type { ClusterMetrics, FleetResponse, FleetRow, Meta } from "../api/types";
+import { partialBanner } from "../api/envelope";
 import { FIXTURE_EMPTY, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "../api/fixtures";
 
 export type PanelState = "loading" | "empty" | "partial" | "unavailable" | "ready" | "error";
@@ -42,7 +43,9 @@ export function derivePanelState(input: PanelInput): PanelState {
   }
   if (fleet === null) return "loading";
   if (fleet.clusters.length === 0) return "empty";
-  if (fleet.partial !== null && fleet.partial !== undefined) return "partial";
+  // R10.22's banner is derived from meta.failed / meta.loading — the API has
+  // no `partial` key, and `truncated` alone is pagination, not a warning.
+  if (partialBanner(fleet.meta) !== null) return "partial";
   // Clusters exist but not one of them has a metrics source that can answer:
   // the R10.12 "unavailable (source not configured)" state, which on the
   // reference environment is the normal case (live-probe Finding 1).
@@ -55,8 +58,12 @@ export function derivePanelState(input: PanelInput): PanelState {
  * `unconfigured` and `failed` both mean "there are no numbers here" — one
  * because nothing was set up, one because the scrape broke — so neither counts
  * as a live source. Only `pg_stat_statements` / `cnpg_metrics` do. */
-export function hasLiveMetrics(c: ClusterSummary): boolean {
-  return c.metrics !== null && LIVE_SOURCES.includes(c.metrics.source);
+export function hasLiveMetrics(c: FleetRow): boolean {
+  // `metrics` is optional on the row: Phase 1a's contract has no metrics at
+  // all, and an absent one is exactly as answerless as a null one.
+  const m = c.metrics;
+  if (m === null || m === undefined) return false;
+  return LIVE_SOURCES.includes(m.source);
 }
 
 const LIVE_SOURCES: readonly ClusterMetrics["source"][] = ["pg_stat_statements", "cnpg_metrics"];
@@ -94,8 +101,16 @@ const COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   },
 };
 
-export function copyFor(state: PanelState): PanelCopy | null {
-  return state === "ready" ? null : COPY[state];
+export function copyFor(state: PanelState, meta?: Meta): PanelCopy | null {
+  if (state === "ready") return null;
+  const copy = COPY[state];
+  // R10.22's wording is composed from the payload, not fixed: the page that
+  // served 3 of 4 clusters has to name the fourth, which generic copy cannot.
+  if (state === "partial" && meta !== undefined) {
+    const derived = partialBanner(meta);
+    if (derived !== null) return { ...copy, body: derived };
+  }
+  return copy;
 }
 
 export interface StatePanelProps {

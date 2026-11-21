@@ -11,6 +11,7 @@ import { App } from "../App";
 import {
   FIXTURE_EMPTY,
   FIXTURE_FLEET,
+  FIXTURE_GENERATED_AT,
   FIXTURE_PARTIAL,
   FIXTURE_UNAVAILABLE,
 } from "../api/fixtures";
@@ -38,7 +39,10 @@ describe("Fleet page", () => {
   it("shows the data-as-of stamp in the local zone (R10.21)", () => {
     renderPage("/", FIXTURE_FLEET);
     const stamp = screen.getByText(/^Data as of /);
-    expect(stamp.getAttribute("title")).toBe("2026-11-20T11:04:12Z UTC");
+    // The title carries the UTC instant (R10.21's hover form) while the visible
+    // text is the local rendering. Read from meta.generatedAt, so it is the
+    // contract's timestamp and not one the page made up.
+    expect(stamp.getAttribute("title")).toBe(`${FIXTURE_GENERATED_AT} UTC`);
   });
 
   it("renders the empty state by name", () => {
@@ -77,19 +81,33 @@ describe("Cluster detail page", () => {
   it("renders a cluster from the URL", () => {
     const { container } = renderPage("/c/freeidp/freeidp-pg", FIXTURE_FLEET);
     expect(screen.getByRole("heading", { level: 1, name: /freeidp-pg/ })).toBeInTheDocument();
-    expect(screen.getByText("Not enough disk space")).toBeInTheDocument();
+    // R1.5 renders CNPG's phase verbatim, and the header appends status.phaseReason
+    // after it — so the two share one element and the phase has to be matched as a
+    // prefix, not as the element's whole text.
+    expect(container.querySelector(".page-meta")?.textContent).toContain("Not enough disk space");
     expect(container.querySelectorAll("nav.tabs button")).toHaveLength(6);
   });
 
   it("switches tabs through the URL", () => {
     const { container } = renderPage("/c/ai-api-gateway/rev-proxy-pg?tab=storage", FIXTURE_FLEET);
     expect(screen.getByRole("heading", { level: 2, name: "Storage" })).toBeInTheDocument();
-    expect(container.textContent).toContain("streaming-rev-proxy-pg-1");
+    // The PVC names come from the contract (`rev-proxy-pg-1`, `-2`), not from a
+    // name the page builds off the cluster.
+    expect(container.textContent).toContain("rev-proxy-pg-1");
+    expect(container.textContent).toContain("10Gi");
   });
 
   it("shows the pooler config for the one cluster that has one", () => {
     renderPage("/c/ai-api-gateway/rev-proxy-pg?tab=config", FIXTURE_FLEET);
-    expect(screen.getByText("rev-proxy-pg-pooler")).toBeInTheDocument();
+    // The Pooler's name is also its Service's name (CNPG names them the same),
+    // so the string appears on two rows; assert the sections instead.
+    expect(screen.getByRole("heading", { level: 2, name: "Poolers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Services" })).toBeInTheDocument();
+    // R6's client attribution keys off pool_mode, and R6.2's pool sizing off
+    // spec.pgbouncer.parameters — both now render as the contract's own values
+    // rather than the three numbers the old type flattened them into.
+    expect(screen.getByText("transaction")).toBeInTheDocument();
+    expect(screen.getByText("default_pool_size=20, max_client_conn=400, min_pool_size=4")).toBeInTheDocument();
   });
 
   it("degrades to a card for a cluster id that is not in the fleet", () => {

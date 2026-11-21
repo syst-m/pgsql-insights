@@ -14,13 +14,13 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FIXTURE_CLUSTERS, FIXTURE_EMPTY } from "../api/fixtures";
-import type { ClusterSummary } from "../api/types";
+import type { FleetRow } from "../api/types";
 import { ClusterTable } from "./ClusterTable";
 import { HealthBar, countsByHealth, describeDistribution, measureText } from "./HealthBar";
 import { DEFAULT_STATE } from "../state/urlState";
 
 /** Render a bar over `clusters` and hand back its container. */
-function bar(clusters: readonly ClusterSummary[] = FIXTURE_CLUSTERS, width = 720): HTMLElement {
+function bar(clusters: readonly FleetRow[] = FIXTURE_CLUSTERS, width = 720): HTMLElement {
   return render(<HealthBar clusters={clusters} width={width} />).container;
 }
 
@@ -143,7 +143,7 @@ describe("ClusterTable", () => {
 
   /** Render the table on its own so the assertions cannot be satisfied by
    *  markup from another test's render. */
-  function table(rows: readonly ClusterSummary[] = FIXTURE_CLUSTERS): HTMLElement {
+  function table(rows: readonly FleetRow[] = FIXTURE_CLUSTERS): HTMLElement {
     return render(<ClusterTable rows={rows} state={DEFAULT_STATE} onSort={noop} onOpen={noop} />).container;
   }
 

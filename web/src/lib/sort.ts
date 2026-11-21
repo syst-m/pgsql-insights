@@ -8,12 +8,12 @@
  * ascending list reads as if it were.
  */
 
-import type { ClusterSummary } from "../api/types";
+import type { FleetRow } from "../api/types";
 import type { SortDir, SortKey } from "../state/urlState";
 
 /** The value a column sorts on. Numbers compare numerically, strings by
  *  locale-aware collation, nulls sort last. */
-function sortValue(c: ClusterSummary, key: SortKey): number | string | null {
+function sortValue(c: FleetRow, key: SortKey): number | string | null {
   switch (key) {
     case "name":
       return c.name;
@@ -61,10 +61,10 @@ export function compareCells(a: number | string | null, b: number | string | nul
  * snapshots diffable.
  */
 export function sortClusters(
-  clusters: readonly ClusterSummary[],
+  clusters: readonly FleetRow[],
   key: SortKey,
   dir: SortDir,
-): ClusterSummary[] {
+): FleetRow[] {
   const sign = dir === "asc" ? 1 : -1;
   return [...clusters].sort((a, b) => {
     const primary = compareCells(sortValue(a, key), sortValue(b, key));
@@ -86,9 +86,9 @@ export interface FilterCriteria {
 
 /** Apply the URL's filters to a cluster list, preserving order. */
 export function filterClusters(
-  clusters: readonly ClusterSummary[],
+  clusters: readonly FleetRow[],
   f: FilterCriteria,
-): ClusterSummary[] {
+): FleetRow[] {
   const needle = f.q.trim().toLowerCase();
   return clusters.filter((c) => {
     if (f.ns.length > 0 && !f.ns.includes(c.namespace)) return false;
@@ -102,7 +102,7 @@ export function filterClusters(
 }
 
 /** The namespace list for the filter control, alphabetical with counts. */
-export function namespaceOptions(clusters: readonly ClusterSummary[]): { ns: string; count: number }[] {
+export function namespaceOptions(clusters: readonly FleetRow[]): { ns: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const c of clusters) counts.set(c.namespace, (counts.get(c.namespace) ?? 0) + 1);
   return [...counts.entries()]

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { healthFor } from "../api/health";
 import { FIXTURE_CLUSTERS, FIXTURE_FLEET } from "../api/fixtures";
-import type { ClusterSummary } from "../api/types";
+import type { ClusterView, FleetRow } from "../api/types";
 import { COLUMNS } from "../components/ClusterTable";
 import { compareCells, filterClusters, namespaceOptions, sortClusters } from "./sort";
 
@@ -127,29 +127,36 @@ describe("the fixture set", () => {
   });
 
   it("carries every R1.5 field on every cluster", () => {
-    const required: (keyof ClusterSummary)[] = [
+    // The non-optional members of ClusterView — the fields dto/clusters.go
+    // emits on every cluster. `currentPrimary` and `pgImage` are `omitempty`
+    // in Go but present on all four reference clusters, so they are asserted
+    // here too. `phaseReason` (only freeidp-pg has it) and `pgVersionDetail`
+    // (only freeidp-pg lacks it) are omitted for the same reason: on a type
+    // with `noUncheckedIndexedAccess`, asserting an optional key the fixture
+    // does not always write proves nothing about the contract.
+    const wire: (keyof ClusterView)[] = [
       "namespace",
       "name",
       "phase",
-      "phaseReason",
-      "health",
       "instances",
       "readyInstances",
       "servingInstances",
       "currentPrimary",
       "pgMajor",
-      "instancesList",
+      "pgImage",
+      "instanceList",
       "conditions",
-      "certs",
+      "certificates",
       "pvcs",
       "services",
       "poolers",
-      "metrics",
-      "topFinding",
-      "observedAt",
+      "credentialSource",
+      "createdAt",
     ];
+    // What the page adds on top of the wire type (types.ts's presentation half).
+    const presentation: (keyof FleetRow)[] = ["health", "observedAt"];
     for (const c of FIXTURE_CLUSTERS) {
-      for (const key of required) expect(c).toHaveProperty(key);
+      for (const key of [...wire, ...presentation]) expect(c).toHaveProperty(key);
     }
   });
 

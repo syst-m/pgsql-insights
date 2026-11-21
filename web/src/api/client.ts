@@ -5,16 +5,23 @@
  *   http     — GET /api/v1/clusters on the same origin as the page. Because
  *              the Go binary serves the SPA itself (R10.1), same-origin is the
  *              normal case and no CORS or base-URL config is needed.
- *   fixture  — web/src/api/fixtures.ts, the four reference clusters.
+ *   fixture  — web/src/api/fixtures.ts, which is itself generated from
+ *              testdata/api/clusters.json (R16.8), so the two sources serve the
+ *              same bytes through the same parser.
  *
- * A1 freezes the endpoint in their first Phase 1a commit; until then the
- * fixture is the default so 1b is not blocked on 1a. The switch is a URL flag
- * (`?fixture=0`) or a build-time env (`VITE_PGSI_API_BASE`), never a code
- * change — so flipping to the live client is a rebuild, not a rewrite.
+ * The switch is a URL flag (`?fixture=0`) or a build-time env
+ * (`VITE_PGSI_API_BASE`), never a code change — so flipping to the live client
+ * is a rebuild, not a rewrite.
+ *
+ * The http path does not cast the response. It parses it (see envelope.ts):
+ * `await res.json() as FleetResponse` was how this file shipped an empty Fleet
+ * page against a working API, because the cast accepted a body with no
+ * `clusters` key and `?? []` turned that into a plausible-looking empty state.
  */
 
 import { FIXTURE_EMPTY, FIXTURE_FLEET, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "./fixtures";
-import type { FleetResponse } from "./types";
+import { parseEnvelope, parseErrorBody, toFleetResponse } from "./envelope";
+import type { ErrorCode, FleetResponse } from "./types";
 
 export type Source = "http" | "fixture";
 
@@ -74,8 +81,10 @@ export function resolveConfig(search: string, env: Record<string, string | undef
     return { source: "fixture", apiBase: base, fixture: flag as FixtureName, delayMs };
   }
   if (flag === "1" || flag === "true") return { source: "fixture", apiBase: base, fixture: "fleet", delayMs };
-  // Default: the fixture while the Phase 1a endpoint is unmerged. Once A1's
-  // commit lands this flips to "http" in one line (see IMPLEMENTATION.md §3.3).
+  // Default: the fixture. The Phase 1a endpoint is merged now, so this is a
+  // choice rather than a block — the fixture is the default because it is the
+  // source the R16.7 visual suite pins, and `?fixture=0` on any deployment
+  // reaches the live API without a rebuild (IMPLEMENTATION.md §3.3).
   const fromEnv = env.VITE_PGSI_FIXTURE;
   if (fromEnv === "0") return { source: "http", apiBase: base, fixture: "fleet", delayMs };
   if (fromEnv !== undefined && FIXTURE_NAMES.includes(fromEnv)) {
@@ -100,42 +109,38 @@ export async function fetchFleet(cfg: ClientConfig, opts: FetchOptions = {}): Pr
 
   const url = `${cfg.apiBase.replace(/\/$/, "")}/api/v1/clusters`;
   const res = await fetch(url, { signal: opts.signal, headers: { accept: "application/json" } });
+  const json: unknown = await res.json();
+
   if (!res.ok) {
-    throw new ApiError(res.status, `GET ${url} → ${res.status} ${res.statusText}`);
+    throw new ApiError(res.status, describeFailure(res.status, res.statusText, json), parseErrorBody(json)?.code);
   }
-  const body = (await res.json()) as FleetResponse;
-  return normalizeFleet(body);
+  // Throws ContractError if the body is not an Envelope — the check that the
+  // old cast skipped. No `?? []` anywhere on this path: an empty fleet has to
+  // be an empty `data` array, never a missing key.
+  return toFleetResponse(parseEnvelope(json));
 }
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** R8.5's machine-readable code, when the body carried one. Present for
+     *  every well-formed error from the Go side; absent when a proxy or a
+     *  non-pgsi server answered. */
+    readonly code?: ErrorCode,
   ) {
     super(message);
     this.name = "ApiError";
   }
 }
 
-/** Trust-boundary pass for a server payload.
- *
- * The Go side owns the shape (R1.5); this does not re-validate it, it only
- * fills fields an older binary might omit, so one missing array does not blank
- * the page. `health` in particular is recomputed client-side from the counts
- * when absent, which keeps the UI correct against a Phase 1a response that
- * ships the counts but not the rollup.
- */
-export function normalizeFleet(raw: FleetResponse): FleetResponse {
-  return {
-    generatedAt: raw.generatedAt ?? "",
-    partial: raw.partial ?? null,
-    clusters: (raw.clusters ?? []).map((c) => ({
-      ...c,
-      instancesList: c.instancesList ?? [],
-      conditions: c.conditions ?? [],
-      pvcs: c.pvcs ?? [],
-      services: c.services ?? [],
-      poolers: c.poolers ?? [],
-    })),
-  };
+/** One line for the error panel. The R8.5 `code` is what the panel needs to
+ *  distinguish `NotReady` ("discovery has not synced yet", retry) from
+ *  `Forbidden` ("the ServiceAccount cannot read these namespaces", fix RBAC) —
+ *  both are a 4xx with a message, and only one of them is fixed by waiting. */
+function describeFailure(status: number, statusText: string, json: unknown): string {
+  const detail = parseErrorBody(json);
+  if (detail === null) return `GET → ${status} ${statusText}`;
+  const extra = detail.details.length > 0 ? ` — ${detail.details.join("; ")}` : "";
+  return `GET → ${status} ${detail.code}: ${detail.message}${extra}`;
 }

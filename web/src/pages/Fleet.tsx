@@ -10,7 +10,7 @@
 import { useMemo } from "react";
 
 import type { ClientConfig } from "../api/client";
-import type { ClusterHealth } from "../api/types";
+import type { ClusterHealth, FleetResponse } from "../api/types";
 import { HEALTH_ORDER, presentationFor } from "../api/health";
 import { formatTimestamp } from "../lib/format";
 import { filterClusters, namespaceOptions, sortClusters } from "../lib/sort";
@@ -19,14 +19,13 @@ import { useFleet } from "../state/useFleet";
 import { HealthBar } from "../components/HealthBar";
 import { ClusterTable } from "../components/ClusterTable";
 import { StatePanel, derivePanelState, copyFor } from "../components/StatePanel";
-import { FIXTURE_FLEET } from "../api/fixtures";
 
 export interface FleetPageProps {
   state: UrlState;
   onPatch: (patch: Partial<UrlState>) => void;
   cfg: ClientConfig;
   /** The visual suite renders a named fixture directly instead of fetching. */
-  fixtureOverride?: typeof FIXTURE_FLEET;
+  fixtureOverride?: FleetResponse;
 }
 
 const RANGES: readonly TimeRange[] = ["1h", "24h", "7d", "30d"];
@@ -62,7 +61,7 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
     );
   }
 
-  const bannerCopy = copyFor(panel);
+  const bannerCopy = copyFor(panel, fleet?.meta);
 
   return (
     <div className="page" data-page="fleet">
@@ -114,7 +113,7 @@ function PageHeader({
   onPatch,
 }: {
   state: UrlState;
-  fleet: { generatedAt: string } | null;
+  fleet: FleetResponse | null;
   onPatch: (patch: Partial<UrlState>) => void;
 }) {
   return (
@@ -122,9 +121,11 @@ function PageHeader({
       <div>
         <h1 className="page-title">Fleet</h1>
         {fleet !== null && (
-          <p className="page-meta" title={`${fleet.generatedAt} UTC`}>
-            {/* R10.21: local zone, zone labelled, absolute UTC on hover. */}
-            Data as of {formatTimestamp(fleet.generatedAt)}
+          <p className="page-meta" title={`${fleet.meta.generatedAt} UTC`}>
+            {/* R10.21: local zone, zone labelled, absolute UTC on hover. The
+                stamp is meta.generatedAt — the snapshot's, not the cluster's
+                (that is createdAt, which the row also carries). */}
+            Data as of {formatTimestamp(fleet.meta.generatedAt)}
           </p>
         )}
       </div>

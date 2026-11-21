@@ -1,386 +1,129 @@
-/* The four reference clusters, as the Phase 1a contract describes them.
+/* The R10.12 named fixtures — now generated from the contract, not retyped.
  *
- * A1 freezes `GET /api/v1/clusters` in their first Phase 1a commit; until that
- * lands, the Fleet page renders against this fixture so 1b is not blocked on
- * 1a (spec §7.2 runs the two in parallel against one contract). Every value
- * here is transcribed from docs/ENVIRONMENT.md and docs/research/live-probe.md
- * — the same sources R16.3's Go-side fixtures come from — not invented:
+ * This file used to be 386 lines of hand-transcribed cluster data. That was
+ * R16.8's failure waiting to happen: a second copy of the contract, on this
+ * side, that CI validated the TS types against — and the TS types were written
+ * by the same person who wrote them. When A1 froze the real contract at
+ * `9214534`, the two copies disagreed in every nested type and nothing
+ * complained.
  *
- *   ai-api-gateway/rev-proxy-pg  2 inst  PG17  10Gi  healthy   + Pooler (the only one)
- *   cookbook/cookbook-pg         1 inst  PG17  10Gi  healthy   (single-instance path)
- *   freeidp/freeidp-pg           2 inst  PG17  10Gi  0 serving (CrashLoopBackOff + Pending)
- *   open-webui/open-webui-pg     2 inst  PG16   2Gi  healthy   (the PG16 half of the matrix)
+ * So the duplicate is gone. `FIXTURE_FLEET` is now `testdata/api/clusters.json`
+ * — the file R16.8 names as the byte-level contract, the same one the Go
+ * `TestGoldenFixtureIsCanonical` re-marshals — run through the same
+ * `parseEnvelope`/`toFleetResponse` path the live client uses. Two things
+ * follow:
  *
- * `metrics.source` is "unconfigured" on all four because pg_stat_statements is
- * absent on every reachable cluster (live-probe Finding 1) — which is exactly
- * R10.12's "unavailable (source not configured)" state, so the Phase 1b visual
- * suite can assert it against real data rather than a mock.
+ *   - the annotation on `FIXTURE_ENVELOPE` below makes a json tag renamed on the
+ *     Go side a *compile* error here, because `resolveJsonModule` gives the
+ *     import a structural type and `Envelope<ClusterView>` has to accept it;
+ *   - the fixture and the live payload now go through identical code, so the
+ *     fixture cannot pass by being shaped differently from the API.
+ *
+ * The four reference clusters themselves (ai-api-gateway/rev-proxy-pg with the
+ * only Pooler, cookbook/cookbook-pg single-instance, freeidp/freeidp-pg with
+ * two instances and zero serving, open-webui/open-webui-pg on PG16) are
+ * unchanged in content — they came from docs/ENVIRONMENT.md and
+ * docs/research/live-probe.md and are now maintained on the Go side.
  */
 
-import type { ClusterSummary, FleetResponse } from "./types";
+import apiClustersJson from "../../../testdata/api/clusters.json";
 
-/** Fixed so the visual-regression snapshots and the R10.21 timezone tests are
- *  deterministic; the live response carries the real clock instead. */
-export const FIXTURE_GENERATED_AT = "2026-11-20T11:04:12Z";
+import { emptyEnvelope, toFleetResponse, type RowExtras } from "./envelope";
+import type { ClusterMetrics, ClusterView, Envelope, Finding, FleetResponse, FleetRow } from "./types";
 
-const REV_PROXY_PG: ClusterSummary = {
-  namespace: "ai-api-gateway",
-  name: "rev-proxy-pg",
-  phase: "Cluster in healthy state",
-  phaseReason: "",
-  health: "healthy",
-  instances: 2,
-  readyInstances: 2,
-  servingInstances: 2,
-  currentPrimary: "rev-proxy-pg-2",
-  pgMajor: 17,
-  instancesList: [
-    {
-      pod: "rev-proxy-pg-1",
-      role: "replica",
-      node: "dmaf5-1",
-      ready: true,
-      serving: true,
-      restarts: 1,
-      startedAt: "2026-11-18T07:22:41Z",
-    },
-    {
-      // The fixture's /pg/status for this pod: isPrimary true, one streaming
-      // replica (rev-proxy-pg-1, quorum sync), WAL archived at 10:58:08Z.
-      pod: "rev-proxy-pg-2",
-      role: "primary",
-      node: "dmaf5-2",
-      ready: true,
-      serving: true,
-      restarts: 0,
-      startedAt: "2026-11-16T09:11:03Z",
-    },
-  ],
-  conditions: [
-    { type: "Ready", status: "True", lastTransitionTime: "2026-11-18T07:23:02Z" },
-    { type: "Online", status: "True", lastTransitionTime: "2026-11-18T07:23:02Z" },
-  ],
-  certs: {
-    server: "2027-06-30T09:12:04Z",
-    client: "2027-06-30T09:12:04Z",
-    replication: "2027-06-30T09:12:04Z",
-  },
-  pvcs: [
-    {
-      name: "streaming-rev-proxy-pg-1",
-      size: "10Gi",
-      storageClass: "iscsi-ext4",
-      phase: "Bound",
-      accessModes: ["ReadWriteOnce"],
-    },
-    {
-      name: "streaming-rev-proxy-pg-2",
-      size: "10Gi",
-      storageClass: "iscsi-ext4",
-      phase: "Bound",
-      accessModes: ["ReadWriteOnce"],
-    },
-  ],
-  services: [
-    { name: "rev-proxy-pg-rw", type: "rw", clusterIP: "10.43.14.71", ports: [5432] },
-    { name: "rev-proxy-pg-ro", type: "ro", clusterIP: "10.43.9.204", ports: [5432] },
-    { name: "rev-proxy-pg-any", type: "any", clusterIP: "10.43.51.6", ports: [5432] },
-  ],
-  // The only Pooler in the reference environment (ENVIRONMENT.md §3):
-  // pgbouncer, transaction pool mode, 2 instances, default_pool_size 20,
-  // max_client_conn 400, min_pool_size 4.
-  poolers: [
-    {
-      name: "rev-proxy-pg-pooler",
-      mode: "transaction",
-      instances: 2,
-      defaultPoolSize: 20,
-      maxClientConn: 400,
-      minPoolSize: 4,
-      kind: "pgbouncer",
-    },
-  ],
-  metrics: {
-    tps: null,
-    p95LatencyMs: null,
-    connectionsPct: null,
-    diskPct: null,
-    source: "unconfigured",
-    collectedAt: null,
-  },
-  topFinding: null,
-  observedAt: FIXTURE_GENERATED_AT,
+/** The drift check, in one line.
+ *
+ *  `apiClustersJson`'s type is inferred from the JSON by `resolveJsonModule`;
+ *  assigning it to `Envelope<ClusterView>` only compiles while the two agree.
+ *  Rename a json tag in internal/api/dto/clusters.go without regenerating the
+ *  fixture and `make typecheck-web` fails — which is the R16.8 guarantee,
+ *  enforced by the compiler instead of by review. */
+export const FIXTURE_ENVELOPE: Envelope<ClusterView> = apiClustersJson;
+
+/** Now read from the contract instead of being a second copy of it. The old
+ *  value ("2026-11-20T11:04:12Z") was invented here; the contract's is
+ *  "2026-11-20T09:12:00Z". Still fixed, so the visual snapshots and the
+ *  R10.21 timezone tests stay deterministic. */
+export const FIXTURE_GENERATED_AT: string = FIXTURE_ENVELOPE.meta.generatedAt;
+
+/* The presentation extras the wire does not carry (see types.ts): `metrics` is
+ * Phase 5's R9 contract and `topFinding` Phase 6's insight engine. They are
+ * declared here as presentation data — which is what they are — rather than
+ * being added to the wire type, where they would be a lie about the endpoint.
+ *
+ * `unconfigured` on three clusters is live-probe Finding 1 (pg_stat_statements
+ * is absent on every reachable cluster); `failed` on freeidp-pg is Finding 3
+ * (the endpoint is unreachable at all, so the scrape broke rather than never
+ * being set up). R10.12's "unavailable (source not configured)" state needs the
+ * distinction and the fixture is where it is asserted. */
+const UNCONFIGURED: ClusterMetrics = {
+  tps: null,
+  p95LatencyMs: null,
+  connectionsPct: null,
+  diskPct: null,
+  source: "unconfigured",
+  collectedAt: null,
 };
 
-const COOKBOOK_PG: ClusterSummary = {
-  namespace: "cookbook",
-  name: "cookbook-pg",
-  phase: "Cluster in healthy state",
-  phaseReason: "",
-  health: "healthy",
-  instances: 1,
-  readyInstances: 1,
-  servingInstances: 1,
-  currentPrimary: "cookbook-pg-1",
-  pgMajor: 17,
-  instancesList: [
-    {
-      // Single-instance cluster: no replicas, so the replication views are
-      // empty — the degenerate path R1.6's zero-prerequisite rule exercises.
-      pod: "cookbook-pg-1",
-      role: "primary",
-      node: "k8s-wrk-1",
-      ready: true,
-      serving: true,
-      restarts: 0,
-      startedAt: "2026-09-12T06:53:31Z",
-    },
-  ],
-  conditions: [
-    { type: "Ready", status: "True", lastTransitionTime: "2026-09-12T06:54:22Z" },
-    { type: "Online", status: "True", lastTransitionTime: "2026-09-12T06:54:22Z" },
-  ],
-  certs: {
-    server: "2026-12-11T06:52:19Z",
-    client: "2026-12-11T06:52:19Z",
-    replication: "2026-12-11T06:52:19Z",
-  },
-  pvcs: [
-    {
-      name: "streaming-cookbook-pg-1",
-      size: "10Gi",
-      storageClass: "iscsi-ext4",
-      phase: "Bound",
-      accessModes: ["ReadWriteOnce"],
-    },
-  ],
-  services: [
-    { name: "cookbook-pg-rw", type: "rw", clusterIP: "10.43.22.18", ports: [5432] },
-    { name: "cookbook-pg-ro", type: "ro", clusterIP: "10.43.77.3", ports: [5432] },
-    { name: "cookbook-pg-any", type: "any", clusterIP: "10.43.64.90", ports: [5432] },
-  ],
-  poolers: [],
-  metrics: {
-    tps: null,
-    p95LatencyMs: null,
-    connectionsPct: null,
-    diskPct: null,
-    source: "unconfigured",
-    collectedAt: null,
-  },
-  topFinding: null,
-  observedAt: FIXTURE_GENERATED_AT,
+const FAILED: ClusterMetrics = {
+  tps: null,
+  p95LatencyMs: null,
+  connectionsPct: null,
+  diskPct: null,
+  source: "failed",
+  collectedAt: null,
 };
 
-const FREEIDP_PG: ClusterSummary = {
-  namespace: "freeidp",
-  name: "freeidp-pg",
-  // ENVIRONMENT.md's Status column, verbatim. This is the cluster R1.2 exists
-  // for: the CR reports 2 instances and zero of them serve.
-  phase: "Not enough disk space",
-  phaseReason: "Not enough disk space",
-  health: "down",
-  instances: 2,
-  readyInstances: 0,
-  servingInstances: 0,
-  currentPrimary: "freeidp-pg-1",
-  pgMajor: 17,
-  instancesList: [
-    {
-      // live-probe §6: pod `Running`, ready=false, the postgres container is in
-      // CrashLoopBackOff, and `kubectl exec` answers "container not found".
-      pod: "freeidp-pg-1",
-      role: "primary",
-      node: "um760-1",
-      ready: false,
-      serving: false,
-      restarts: 37,
-      startedAt: "2026-11-19T22:41:55Z",
-    },
-    {
-      // live-probe §6: Pending / PodInitializing, unschedulable.
-      pod: "freeidp-pg-2",
-      role: "replica",
-      node: "",
-      ready: false,
-      serving: false,
-      restarts: 0,
-      startedAt: null,
-    },
-  ],
-  conditions: [
-    {
-      type: "Ready",
-      status: "False",
-      reason: "NotEnoughDiskSpace",
-      message: "no space left on device on streaming-freeidp-pg-1",
-      lastTransitionTime: "2026-11-19T22:40:11Z",
-    },
-    {
-      type: "Online",
-      status: "False",
-      reason: "PodPending",
-      message: "pod freeidp-pg-2 is pending",
-      lastTransitionTime: "2026-11-19T22:40:11Z",
-    },
-  ],
-  certs: {
-    server: "2027-01-04T18:09:44Z",
-    client: "2027-01-04T18:09:44Z",
-    replication: "2027-01-04T18:09:44Z",
-  },
-  pvcs: [
-    {
-      name: "streaming-freeidp-pg-1",
-      size: "10Gi",
-      storageClass: "iscsi-ext4",
-      phase: "Bound",
-      accessModes: ["ReadWriteOnce"],
-    },
-    {
-      name: "streaming-freeidp-pg-2",
-      size: "10Gi",
-      storageClass: "iscsi-xfs",
-      phase: "Pending",
-      accessModes: ["ReadWriteOnce"],
-    },
-  ],
-  services: [
-    { name: "freeidp-pg-rw", type: "rw", clusterIP: "10.43.41.129", ports: [5432] },
-    { name: "freeidp-pg-ro", type: "ro", clusterIP: "10.43.8.55", ports: [5432] },
-    { name: "freeidp-pg-any", type: "any", clusterIP: "10.43.19.77", ports: [5432] },
-  ],
-  poolers: [],
-  metrics: {
-    tps: null,
-    p95LatencyMs: null,
-    connectionsPct: null,
-    diskPct: null,
-    // live-probe §3: the endpoint is not reachable at all, so this is a failed
-    // source rather than an unconfigured one — R10.12's "partial" evidence.
-    source: "failed",
-    collectedAt: null,
-  },
-  topFinding: {
-    code: "disk-pressure",
-    severity: "critical",
-    summary: "No space left on device; postgres container in CrashLoopBackOff",
-  },
-  observedAt: FIXTURE_GENERATED_AT,
+const DISK_PRESSURE: Finding = {
+  code: "disk-pressure",
+  severity: "critical",
+  summary: "No space left on device; postgres container in CrashLoopBackOff",
 };
 
-const OPEN_WEBUI_PG: ClusterSummary = {
-  namespace: "open-webui",
-  name: "open-webui-pg",
-  phase: "Cluster in healthy state",
-  phaseReason: "",
-  health: "healthy",
-  instances: 2,
-  readyInstances: 2,
-  servingInstances: 2,
-  currentPrimary: "open-webui-pg-2",
-  // The only PG16 cluster — the version matrix half of R1.3/R2.4.
-  pgMajor: 16,
-  instancesList: [
-    {
-      pod: "open-webui-pg-1",
-      role: "replica",
-      node: "k8s-ctrl",
-      ready: true,
-      serving: true,
-      restarts: 0,
-      startedAt: "2026-11-15T08:02:19Z",
-    },
-    {
-      pod: "open-webui-pg-2",
-      role: "primary",
-      node: "dmaf5-1",
-      ready: true,
-      serving: true,
-      restarts: 0,
-      startedAt: "2026-11-15T08:01:47Z",
-    },
-  ],
-  conditions: [
-    { type: "Ready", status: "True", lastTransitionTime: "2026-11-15T08:03:02Z" },
-    { type: "Online", status: "True", lastTransitionTime: "2026-11-15T08:03:02Z" },
-  ],
-  certs: {
-    server: "2027-05-20T07:58:33Z",
-    client: "2027-05-20T07:58:33Z",
-    replication: "2027-05-20T07:58:33Z",
-  },
-  pvcs: [
-    {
-      name: "streaming-open-webui-pg-1",
-      size: "2Gi",
-      storageClass: "iscsi-ext4",
-      phase: "Bound",
-      accessModes: ["ReadWriteOnce"],
-    },
-    {
-      name: "streaming-open-webui-pg-2",
-      size: "2Gi",
-      storageClass: "iscsi-ext4",
-      phase: "Bound",
-      accessModes: ["ReadWriteOnce"],
-    },
-  ],
-  services: [
-    { name: "open-webui-pg-rw", type: "rw", clusterIP: "10.43.60.12", ports: [5432] },
-    { name: "open-webui-pg-ro", type: "ro", clusterIP: "10.43.60.13", ports: [5432] },
-    { name: "open-webui-pg-any", type: "any", clusterIP: "10.43.60.14", ports: [5432] },
-  ],
-  poolers: [],
-  metrics: {
-    tps: null,
-    p95LatencyMs: null,
-    connectionsPct: null,
-    diskPct: null,
-    source: "unconfigured",
-    collectedAt: null,
-  },
-  topFinding: null,
-  observedAt: FIXTURE_GENERATED_AT,
+const PRESENTATION: Record<string, RowExtras> = {
+  "ai-api-gateway/rev-proxy-pg": { metrics: UNCONFIGURED },
+  "cookbook/cookbook-pg": { metrics: UNCONFIGURED },
+  "freeidp/freeidp-pg": { metrics: FAILED, topFinding: DISK_PRESSURE },
+  "open-webui/open-webui-pg": { metrics: UNCONFIGURED },
 };
 
-/** The four clusters, in the order the reference environment lists them. */
-export const FIXTURE_CLUSTERS: readonly ClusterSummary[] = [
-  REV_PROXY_PG,
-  COOKBOOK_PG,
-  FREEIDP_PG,
-  OPEN_WEBUI_PG,
-];
+/** The four clusters as the contract serialises them, plus the derived row
+ *  fields. Exported so tests can address a single row without rebuilding the
+ *  envelope. */
+export const FIXTURE_CLUSTERS: readonly FleetRow[] = toFleetResponse(FIXTURE_ENVELOPE, PRESENTATION).clusters;
 
-export const FIXTURE_FLEET: FleetResponse = {
-  generatedAt: FIXTURE_GENERATED_AT,
-  clusters: [...FIXTURE_CLUSTERS],
-  partial: null,
-};
+/** The plain fleet: all four reference clusters, no partial render.
+ *
+ *  With Phase 1a shipping discovery only, this is also R10.12's *unavailable*
+ *  state — no cluster has a metrics source that can answer — which is why
+ *  `?fixture=fleet` and `?fixture=unavailable` render the same banner. That is
+ *  not a fixture bug: it is the reference environment's real condition (R10.12
+ *  names it, live-probe Finding 1 causes it), and it stops being true the
+ *  moment Phase 5 populates `metrics`. */
+export const FIXTURE_FLEET: FleetResponse = toFleetResponse(FIXTURE_ENVELOPE, PRESENTATION);
 
-/** R10.12's four panel states, as named fixtures the visual suite renders one
- *  at a time (R16.7's "named fixture" requirement, applied at Fleet scope). */
-export const FIXTURE_EMPTY: FleetResponse = {
-  generatedAt: FIXTURE_GENERATED_AT,
-  clusters: [],
-  partial: null,
-};
+/** R10.12's empty state: a valid envelope that served zero clusters. */
+export const FIXTURE_EMPTY: FleetResponse = toFleetResponse(emptyEnvelope(FIXTURE_GENERATED_AT));
 
-/** R10.22: three of four clusters present, the fourth still loading. */
-export const FIXTURE_PARTIAL: FleetResponse = {
-  generatedAt: FIXTURE_GENERATED_AT,
-  clusters: [REV_PROXY_PG, COOKBOOK_PG, OPEN_WEBUI_PG],
-  partial: {
-    loadingNamespaces: ["freeidp"],
-    failedNamespaces: [],
-    message: "1 namespace still in its first discovery pass",
+/** R10.22's partial render: three of the four clusters, with the fourth's
+ *  namespace named in `meta.loading` rather than in a `partial` key.
+ *
+ *  `meta.total` is 3, not 4 — the contract counts what the response serves and
+ *  names the missing namespace instead, so "attempted" never has to be encoded
+ *  in a field that already means "served". */
+const PARTIAL_ENV: Envelope<ClusterView> = {
+  data: FIXTURE_ENVELOPE.data.filter((c) => c.namespace !== "freeidp"),
+  meta: {
+    total: FIXTURE_ENVELOPE.data.filter((c) => c.namespace !== "freeidp").length,
+    truncated: false,
+    generatedAt: FIXTURE_GENERATED_AT,
+    loading: ["freeidp"],
   },
 };
 
-/** R10.12's "unavailable (source not configured)": clusters are discovered,
- *  but no metrics source exists for them (live-probe Finding 1). */
-export const FIXTURE_UNAVAILABLE: FleetResponse = {
-  generatedAt: FIXTURE_GENERATED_AT,
-  clusters: [REV_PROXY_PG, COOKBOOK_PG, FREEIDP_PG, OPEN_WEBUI_PG],
-  partial: null,
-};
+export const FIXTURE_PARTIAL: FleetResponse = toFleetResponse(PARTIAL_ENV, PRESENTATION);
+
+/** R10.12's "unavailable (source not configured)". A separate object from
+ *  FIXTURE_FLEET so the two stay addressable individually even while their
+ *  content is the same — see the note on FIXTURE_FLEET. */
+export const FIXTURE_UNAVAILABLE: FleetResponse = toFleetResponse(FIXTURE_ENVELOPE, PRESENTATION);

@@ -8,9 +8,15 @@
  * The replication tab is deliberately an empty state: replication statistics
  * are Phase 1a's collector work (R1.6), and showing a placeholder chart would
  * be the R10.12 failure mode (a state that looks like data).
+ *
+ * The cert section renders the whole `certificates.expirations` map rather than
+ * three fixed rows, because that is what the contract emits: CNPG reports one
+ * entry per secret, and a cluster with a custom server cert or a pooler client
+ * cert has more than the three named ones. The three named secret fields say
+ * which entry is which; the map is the source of truth for how many exist.
  */
 
-import type { ClusterSummary } from "../api/types";
+import type { FleetRow, PoolerView, ServiceView } from "../api/types";
 import type { ClusterTab, UrlState } from "../state/urlState";
 import { StatusChip } from "../components/StatusGlyph";
 import { daysUntil, formatNumber, formatSize, formatTimestamp, NULL_VALUE } from "../lib/format";
@@ -26,7 +32,7 @@ const TABS: readonly { key: ClusterTab; label: string }[] = [
 ];
 
 export interface ClusterDetailProps {
-  cluster: ClusterSummary;
+  cluster: FleetRow;
   state: UrlState;
   onPatch: (patch: Partial<UrlState>) => void;
 }
@@ -51,7 +57,7 @@ export function ClusterDetailPage({ cluster, state, onPatch }: ClusterDetailProp
               pgsi's own judgement, derived from the counts. */}
           <p className="page-meta">
             {cluster.phase}
-            {cluster.phaseReason !== "" && cluster.phaseReason !== cluster.phase
+            {cluster.phaseReason !== undefined && cluster.phaseReason !== cluster.phase
               ? ` · ${cluster.phaseReason}`
               : ""}
           </p>
@@ -79,7 +85,7 @@ export function ClusterDetailPage({ cluster, state, onPatch }: ClusterDetailProp
 
       {tab === "overview" && <Overview cluster={cluster} />}
       {tab === "instances" && (
-        <Instances cluster={cluster} selectedRow={state.row} onSelect={(pod) => onPatch({ row: pod })} />
+        <Instances cluster={cluster} selectedRow={state.row} onSelect={(name) => onPatch({ row: name })} />
       )}
       {tab === "replication" && (
         <StatePanel state="empty" onAction={() => onPatch({ tab: "instances" })} />
@@ -91,43 +97,121 @@ export function ClusterDetailPage({ cluster, state, onPatch }: ClusterDetailProp
   );
 }
 
-function Overview({ cluster }: { cluster: ClusterSummary }) {
+function Overview({ cluster }: { cluster: FleetRow }) {
   const rows: [string, string][] = [
-    ["Instances", `${cluster.servingInstances} serving · ${cluster.readyInstances} ready · ${cluster.instances} in spec`],
-    ["Current primary", cluster.currentPrimary === "" ? NULL_VALUE : cluster.currentPrimary],
-    ["PostgreSQL major", cluster.pgMajor === null ? NULL_VALUE : String(cluster.pgMajor)],
-    ["Server cert", certCell(cluster.certs.server)],
-    ["Client cert", certCell(cluster.certs.client)],
-    ["Replication cert", certCell(cluster.certs.replication)],
     [
-      "Metrics",
-      cluster.metrics === null
-        ? "no collector"
-        : cluster.metrics.source === "unconfigured"
-          ? "unconfigured (R10.12 unavailable)"
-          : cluster.metrics.source,
+      "Instances",
+      `${cluster.servingInstances} serving · ${cluster.readyInstances} ready · ${cluster.instances} in spec`,
     ],
+    ["Current primary", cluster.currentPrimary ?? NULL_VALUE],
+    ["PostgreSQL major", cluster.pgMajor === null ? NULL_VALUE : String(cluster.pgMajor)],
+    // R1.3 keeps the image alongside the major: the pod label's "17" cannot
+    // express 17.11, and R2.4's matrix keys off the exact minor.
+    ["Image", cluster.pgImage ?? NULL_VALUE],
+    ["Version", cluster.pgVersionDetail ?? NULL_VALUE],
+    // R1.6's zero-prerequisite acceptance reads this field: which of R1.8's
+    // four precedence levels supplied the credentials.
+    ["Credentials", cluster.credentialSource],
+    ["Created", formatTimestamp(cluster.createdAt, { withZone: false })],
+    ["Metrics", metricsCell(cluster)],
+  ];
+  return (
+    <>
+      <section className="card">
+        <div className="card-head">
+          <h2 className="card-title">Overview</h2>
+        </div>
+        <dl className="kv">
+          {rows.map(([k, v]) => (
+            <div className="kv-row" key={k}>
+              <dt>{k}</dt>
+              <dd className={/cert|Instances|major|Created/.test(k) ? "num" : undefined}>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <Certificates cluster={cluster} />
+    </>
+  );
+}
+
+/** R10.4's metrics cell, in words. Phase 1a publishes no metrics at all, so
+ *  the honest answer is "not yet published" — not a dash, which would read as
+ *  "zero" next to a real number. */
+function metricsCell(cluster: FleetRow): string {
+  const m = cluster.metrics;
+  if (m === null || m === undefined) return "not yet published (Phase 5)";
+  if (m.source === "unconfigured") return "unconfigured (R10.12 unavailable)";
+  if (m.source === "failed") return "collector failed (R10.12)";
+  return m.source;
+}
+
+/** Every certificate the cluster reports, not a fixed set of three. */
+function Certificates({ cluster }: { cluster: FleetRow }) {
+  const entries = Object.entries(cluster.certificates.expirations);
+  const named: [string, string | undefined][] = [
+    ["clientCA", cluster.certificates.clientCA],
+    ["serverTLSSecret", cluster.certificates.serverTLSSecret],
+    ["replicationTLSSecret", cluster.certificates.replicationTLSSecret],
   ];
   return (
     <section className="card">
       <div className="card-head">
-        <h2 className="card-title">Overview</h2>
+        <h2 className="card-title">Certificates</h2>
+        <span className="card-meta num">{entries.length}</span>
       </div>
-      <dl className="kv">
-        {rows.map(([k, v]) => (
-          <div className="kv-row" key={k}>
-            <dt>{k}</dt>
-            <dd className={/cert|Instances|major/.test(k) ? "num" : undefined}>{v}</dd>
-          </div>
-        ))}
-      </dl>
+      {entries.length === 0 ? (
+        <p className="card-note">
+          No certificate expirations reported. {named.filter(([, v]) => v === undefined).length === 3
+            ? "No secret names are set either, so this cluster uses secrets CNPG did not create."
+            : "The secret names are set but CNPG has not reported their notAfter yet."}
+        </p>
+      ) : (
+        <div className="table-scroll">
+          <table className="data">
+            <caption className="sr-only">Certificates on {cluster.name}</caption>
+            <thead>
+              <tr>
+                <th scope="col">Secret</th>
+                <th scope="col">Role</th>
+                <th scope="col" className="num">
+                  Expires
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(([secret, notAfter]) => (
+                <tr key={secret}>
+                  <td>{secret}</td>
+                  <td>{roleForSecret(cluster, secret) ?? NULL_VALUE}</td>
+                  <td className="num" title={`${notAfter} UTC`}>
+                    {certCell(notAfter)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
 
+/** Which of CNPG's three named secrets this entry is, if it is one of them.
+ *  Extra secrets (a custom server cert, a pooler client cert) have no role to
+ *  name, and rendering "—" there is honest where the old three-field type had
+ *  to drop them entirely. */
+function roleForSecret(cluster: FleetRow, secret: string): string | undefined {
+  const c = cluster.certificates;
+  if (secret === c.clientCA) return "client CA";
+  if (secret === c.serverTLSSecret) return "server TLS";
+  if (secret === c.replicationTLSSecret) return "replication TLS";
+  return undefined;
+}
+
 /** Cert cell with the days-left count, which is the part a reader acts on. */
-function certCell(value: string | null): string {
-  if (value === null) return NULL_VALUE;
+function certCell(value?: string): string {
+  if (value === undefined) return NULL_VALUE;
   const days = daysUntil(value);
   return days === null ? value : `${formatShort(value)} · ${days}d`;
 }
@@ -145,15 +229,15 @@ function Instances({
   selectedRow,
   onSelect,
 }: {
-  cluster: ClusterSummary;
+  cluster: FleetRow;
   selectedRow: string | null;
-  onSelect: (pod: string) => void;
+  onSelect: (name: string) => void;
 }) {
   return (
     <section className="card">
       <div className="card-head">
         <h2 className="card-title">Instances</h2>
-        <span className="card-meta num">{cluster.instancesList.length}</span>
+        <span className="card-meta num">{cluster.instanceList.length}</span>
       </div>
       <div className="table-scroll">
         <table className="data">
@@ -165,31 +249,35 @@ function Instances({
               <th scope="col">Node</th>
               <th scope="col">Ready</th>
               <th scope="col">Serving</th>
+              <th scope="col">Container</th>
               <th scope="col" className="num">
                 Restarts
               </th>
               <th scope="col" className="num">
                 Started
               </th>
+              <th scope="col">Endpoints</th>
             </tr>
           </thead>
           <tbody>
-            {cluster.instancesList.map((i) => (
-              <tr
-                key={i.pod}
-                data-selected={selectedRow === i.pod || undefined}
-                onClick={() => onSelect(i.pod)}
-              >
-                <td>{i.pod}</td>
-                <td>{i.role}</td>
-                <td>{i.node === "" ? NULL_VALUE : i.node}</td>
+            {cluster.instanceList.map((i) => (
+              <tr key={i.name} data-selected={selectedRow === i.name || undefined} onClick={() => onSelect(i.name)}>
+                <td>{i.name}</td>
+                {/* R1.2: role is absent until CNPG assigns one — freeidp-pg-2
+                    has no role at all, which is a state, not a blank cell. */}
+                <td>{i.role === undefined || i.role === "" ? "unassigned" : i.role}</td>
+                <td>{i.node ?? NULL_VALUE}</td>
                 <td>{yesNo(i.ready)}</td>
                 {/* R1.2: `serving` is the container-level truth, not `ready`. */}
                 <td>{yesNo(i.serving)}</td>
-                <td className="num">{formatNumber(i.restarts)}</td>
-                <td className="num" title={i.startedAt === null ? "no start time" : `${i.startedAt} UTC`}>
-                  {formatTimestamp(i.startedAt, { withZone: false })}
+                {/* The field that makes a crash loop legible rather than just a
+                    wrong count (live-probe §6). */}
+                <td>{i.containerStatus}</td>
+                <td className="num">{formatNumber(i.restartCount)}</td>
+                <td className="num" title={i.startedAt === null || i.startedAt === undefined ? "no start time" : `${i.startedAt} UTC`}>
+                  {formatTimestamp(i.startedAt ?? null, { withZone: false })}
                 </td>
+                <td>{endpointsCell(i.endpoints)}</td>
               </tr>
             ))}
           </tbody>
@@ -199,11 +287,25 @@ function Instances({
   );
 }
 
+/** R1.10's per-port transport table, as the contract emits it. The scheme is
+ *  per-port data, not a guess — an HTTP probe of the status port answers
+ *  "Client sent an HTTP request to an HTTPS server." (live-probe §4,
+ *  Finding 6) — so the URLs are rendered as given rather than rebuilt here.
+ *  A pod with no address serialises as `endpoints: {}` (freeidp-pg-2). */
+function endpointsCell(e: FleetRow["instanceList"][number]["endpoints"]): string {
+  const parts: string[] = [];
+  if (e.postgres !== undefined) parts.push(`pg ${e.postgres}`);
+  if (e.metrics !== undefined) parts.push(e.metrics);
+  if (e.status !== undefined) parts.push(e.status);
+  if (e.local !== undefined) parts.push(e.local);
+  return parts.length === 0 ? NULL_VALUE : parts.join(" · ");
+}
+
 function yesNo(v: boolean): string {
   return v ? "yes" : "no";
 }
 
-function Storage({ cluster }: { cluster: ClusterSummary }) {
+function Storage({ cluster }: { cluster: FleetRow }) {
   return (
     <section className="card">
       <div className="card-head">
@@ -216,6 +318,7 @@ function Storage({ cluster }: { cluster: ClusterSummary }) {
           <thead>
             <tr>
               <th scope="col">PVC</th>
+              <th scope="col">Instance</th>
               <th scope="col" className="num">
                 Size
               </th>
@@ -228,10 +331,13 @@ function Storage({ cluster }: { cluster: ClusterSummary }) {
             {cluster.pvcs.map((p) => (
               <tr key={p.name}>
                 <td>{p.name}</td>
-                <td className="num">{formatSize(p.size)}</td>
-                <td>{p.storageClass}</td>
-                <td>{p.phase}</td>
-                <td>{p.accessModes.join(", ")}</td>
+                {/* Carried explicitly rather than derived from the name, so a
+                    renamed or orphaned volume still renders on the right row. */}
+                <td>{p.instance ?? NULL_VALUE}</td>
+                <td className="num">{formatSize(p.size ?? null)}</td>
+                <td>{p.storageClass ?? NULL_VALUE}</td>
+                <td>{p.phase ?? NULL_VALUE}</td>
+                <td>{p.accessModes?.join(", ") ?? NULL_VALUE}</td>
               </tr>
             ))}
           </tbody>
@@ -241,7 +347,16 @@ function Storage({ cluster }: { cluster: ClusterSummary }) {
   );
 }
 
-function Config({ cluster }: { cluster: ClusterSummary }) {
+function Config({ cluster }: { cluster: FleetRow }) {
+  return (
+    <>
+      <Poolers cluster={cluster} />
+      <Services cluster={cluster} />
+    </>
+  );
+}
+
+function Poolers({ cluster }: { cluster: FleetRow }) {
   if (cluster.poolers.length === 0) {
     return (
       <section className="card">
@@ -267,33 +382,19 @@ function Config({ cluster }: { cluster: ClusterSummary }) {
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col">Kind</th>
-              <th scope="col">Mode</th>
+              <th scope="col">Type</th>
+              <th scope="col">Pool mode</th>
               <th scope="col" className="num">
-                Instances
+                Ready
               </th>
-              <th scope="col" className="num">
-                Default pool
-              </th>
-              <th scope="col" className="num">
-                Min pool
-              </th>
-              <th scope="col" className="num">
-                Max clients
-              </th>
+              <th scope="col">Service</th>
+              <th scope="col">Image</th>
+              <th scope="col">Parameters</th>
             </tr>
           </thead>
           <tbody>
             {cluster.poolers.map((p) => (
-              <tr key={p.name}>
-                <td>{p.name}</td>
-                <td>{p.kind}</td>
-                <td>{p.mode}</td>
-                <td className="num">{formatNumber(p.instances)}</td>
-                <td className="num">{formatNumber(p.defaultPoolSize)}</td>
-                <td className="num">{formatNumber(p.minPoolSize)}</td>
-                <td className="num">{formatNumber(p.maxClientConn)}</td>
-              </tr>
+              <PoolerRow key={`${p.namespace}/${p.name}`} p={p} />
             ))}
           </tbody>
         </table>
@@ -302,21 +403,110 @@ function Config({ cluster }: { cluster: ClusterSummary }) {
   );
 }
 
-function Findings({ cluster }: { cluster: ClusterSummary }) {
-  if (cluster.topFinding === null) {
+function PoolerRow({ p }: { p: PoolerView }) {
+  return (
+    <tr>
+      <td>{p.name}</td>
+      <td>{p.type ?? NULL_VALUE}</td>
+      {/* R6's client-attribution problem keys off this value. */}
+      <td>{p.poolMode ?? NULL_VALUE}</td>
+      <td className="num">
+        {p.readyInstances}/{p.instances}
+      </td>
+      <td>{p.service ?? NULL_VALUE}</td>
+      <td>{p.image ?? NULL_VALUE}</td>
+      {/* spec.pgbouncer.parameters verbatim. The old type flattened three of
+          them into numbers; the contract keeps the whole map, so a parameter
+          we never anticipated is still visible. */}
+      <td>{formatParams(p.parameters)}</td>
+    </tr>
+  );
+}
+
+/** `k=v` pairs, sorted so the cell is stable across renders. */
+function formatParams(params: Record<string, string> | undefined): string {
+  if (params === undefined || Object.keys(params).length === 0) return NULL_VALUE;
+  return Object.entries(params)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+}
+
+/** R1.5's "services". CNPG creates -rw, -ro and -r per cluster plus one per
+ *  Pooler; the port list is objects, not numbers, because CNPG names its ports
+ *  and a bare `5432` loses which one is postgres and which is pgbouncer. */
+function Services({ cluster }: { cluster: FleetRow }) {
+  if (cluster.services.length === 0) {
+    return (
+      <section className="card">
+        <div className="card-head">
+          <h2 className="card-title">Services</h2>
+        </div>
+        <p className="card-note">No Services reported for this cluster.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">Services</h2>
+        <span className="card-meta num">{cluster.services.length}</span>
+      </div>
+      <div className="table-scroll">
+        <table className="data">
+          <caption className="sr-only">Services attached to {cluster.name}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Role</th>
+              <th scope="col">Type</th>
+              <th scope="col">Ports</th>
+              <th scope="col">Cluster IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cluster.services.map((s) => (
+              <ServiceRow key={s.name} s={s} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ServiceRow({ s }: { s: ServiceView }) {
+  return (
+    <tr>
+      <td>{s.name}</td>
+      {/* rw | ro | r | pooler, read by the API from the name suffix — the CNPG
+          label differs between 1.29 and 1.30, so the label is not stable. */}
+      <td>{s.role ?? NULL_VALUE}</td>
+      <td>{s.type ?? NULL_VALUE}</td>
+      <td className="num">
+        {s.ports === undefined || s.ports.length === 0
+          ? NULL_VALUE
+          : s.ports.map((pt) => (pt.name === undefined ? `${pt.port}` : `${pt.name}:${pt.port}`)).join(", ")}
+      </td>
+      <td>{s.clusterIP ?? NULL_VALUE}</td>
+    </tr>
+  );
+}
+
+function Findings({ cluster }: { cluster: FleetRow }) {
+  const f = cluster.topFinding;
+  if (f === null || f === undefined) {
     return (
       <section className="card">
         <div className="card-head">
           <h2 className="card-title">Findings</h2>
         </div>
         <p className="card-note">
-          No findings. Findings need a metrics source (R10.4); this cluster reports{" "}
-          {cluster.metrics === null ? "no collector" : cluster.metrics.source}.
+          No findings. Findings need a metrics source (R10.4); this cluster reports {metricsCell(cluster)}.
         </p>
       </section>
     );
   }
-  const f = cluster.topFinding;
   return (
     <section className="card">
       <div className="card-head">
