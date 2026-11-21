@@ -1,6 +1,14 @@
 # Binaries and build output
 bin/
 dist/
+# ...except the web bundle, which IS committed: R11.4 reports its size as a
+# number of its own, and go:embed (web/embed.go) needs it so `go build` works
+# on a machine with no node toolchain.
+!/web/dist/
+web/node_modules/
+web/e2e/.artifacts/
+web/e2e/report/
+web/coverage/
 *.exe
 *.test
 *.out
@@ -22,3 +30,4 @@ go.work.sum
 
 # OS
 .DS_Store
+__pycache__/

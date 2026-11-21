@@ -36,8 +36,8 @@ REGISTRY ?= 10.10.111.134:5000
 REPO     ?= frankellis/pgsql-insights
 TAG      ?= dev
 
-.PHONY: all build test cover vet lint lint-go tidy-check helm-lint render render-check \
-       image image-size push-local licenses deploy verify clean help
+.PHONY: all build test cover vet lint lint-go tidy-check web test-web typecheck-web \
+       helm-lint render render-check image image-size push-local licenses deploy verify clean help
 
 all: build
 
@@ -52,6 +52,23 @@ build:
 ## test: unit tests (R11.11)
 test:
 	go test ./... -count=1
+
+## web: build the SPA bundle into web/dist for go:embed (R10.1, R11.4).
+# `npm run build` is `tsc --noEmit && vite build`, so this target typechecks too.
+web:
+	@cd web && npm ci --no-audit --no-fund && npm run build
+
+## typecheck-web: tsc --noEmit over web/src + vite.config.ts (R16.7)
+typecheck-web:
+	@cd web && npm run typecheck
+
+## test-web: the R16.7 web harness — Vitest unit tests, then the Playwright
+# visual suite against the built bundle. `web` runs first so Playwright
+# screenshots the exact files go:embed ships, not a dev-server transform.
+test-web: web typecheck-web
+	@cd web && npm run test
+	@cd web && npx playwright install --with-deps chromium
+	@cd web && npm run test:e2e
 
 ## cover: coverage report against the 70% gate on internal/... (R11.11)
 cover:
@@ -116,7 +133,7 @@ image-size:
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
 		-t $(IMAGE) -o type=oci,dest=bin/pgsi-amd64.oci.tar .
 	@python3 scripts/image-size.py --max-mb $(IMAGE_MAX_MB) bin/pgsi-amd64.oci.tar
-	@echo "SPA bundle: n/a in Phase 0 (Phase 5) — R11.4 reports it separately from the image size"
+	@# R11.4's second number, from the same tool: the embedded bundle's bytes.
 
 ## push-local: publish both platforms without docker login (scripts/push-oci.py, IMPL §5)
 push-local:

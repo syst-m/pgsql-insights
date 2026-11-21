@@ -1,10 +1,16 @@
 # Keep the build context small and deterministic: the Dockerfile copies only
-# cmd/ and internal/, so everything else must stay out of the context.
+# cmd/, internal/ and web/, so everything else must stay out of the context.
 .git
 .gitignore
 .github
 bin/
 dist/
+# web/dist is committed and IS needed by the build (go:embed); only the node
+# toolchain's own directories stay out of the context.
+web/node_modules/
+web/e2e/
+web/coverage/
+web/report/
 chart/
 deploy/
 docs/

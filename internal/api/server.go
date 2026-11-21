@@ -1,14 +1,18 @@
 // Package api is pgsi's HTTP surface (R8.1).
 //
-// Phase 0 ships the four endpoints the packaging requirements need and nothing
-// more, so that R11.14's deploy-and-observe acceptance ("GET /healthz answers
-// through the Service") can be satisfied by real code rather than by a stub
-// binary:
+// Phase 0 shipped the four endpoints the packaging requirements need; Phase 1b
+// added the SPA at `/` (R10.1). Together they satisfy R11.14's deploy-and-
+// observe acceptance ("GET /healthz answers through the Service") with real code
+// rather than a stub binary:
 //
 //	GET /healthz          liveness probe target (R8.7, R11.2 httpGet probes)
 //	GET /readyz           readiness probe target (R8.7)
 //	GET /api/v1/version   build metadata (R11.3)
 //	GET /metrics          pgsi_build_info only (R11.3; the full R9.2 catalogue lands in Phase 2)
+//	GET /                 the embedded SPA and its assets (R10.1 — see spa.go)
+//
+// R10.16's client-side routes (/c/<ns>/<name>) also answer from `GET /`, which
+// returns the shell for any non-API path so the router can render the view.
 //
 // The R8.2 resource catalogue, the auth gate (R8.8) and the PromQL pair
 // (R8.9/R8.10) are Phase 1 and Phase 5 work. R14.7 requires every route in
@@ -72,6 +76,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	// R10.1: the SPA is served by this binary. `GET /` is the mux's root
+	// pattern — it matches every GET the patterns above do not, because a
+	// trailing-slash pattern is a subtree match.
+	mux.HandleFunc("GET /", s.handleSPA)
 	return mux
 }
 

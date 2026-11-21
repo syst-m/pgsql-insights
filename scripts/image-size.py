@@ -22,17 +22,21 @@ Exit code is non-zero if any linux/amd64 target exceeds --max-mb (default 100, t
 R11.4 CI failure threshold). Sizes above the < 60 MB *target* print WARN but do not
 fail the build, so a regression is visible before it turns CI red.
 
-R11.4's other number — the SPA's gzipped JS — is deliberately not here: it is a web
-bundle measurement, not an image measurement, and CI reports it separately.
+R11.4's other number — the SPA's gzipped JS — is reported here too, via
+--spa-bundle (default: web/dist, when present). It is a bundle measurement, not
+an image measurement, so it is printed as its own section and never gates: the
+image-size failure threshold applies to the image alone.
 """
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import sys
 import tarfile
 import urllib.request
+from pathlib import Path
 
 INDEX_TYPES = (
     "application/vnd.oci.image.index.v1+json",
@@ -138,11 +142,32 @@ def report(target: str) -> list[dict]:
     return rows
 
 
+def spa_bundle(dist: str) -> list[dict]:
+    """R11.4's second number: the SPA bundle's raw and gzipped bytes per file.
+
+    Vite emits un-hashed names (web/vite.config.ts) so this report can name the
+    exact file the binary embeds; the gzip column is what R11.4 quotes."""
+    root = Path(dist)
+    if not root.is_dir():
+        return []
+    out = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        data = p.read_bytes()
+        out.append({"path": p.relative_to(root).as_posix(), "bytes": len(data),
+                    "gzip": len(gzip.compress(data, 9))})
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="R11.4 compressed image size report")
     ap.add_argument("targets", nargs="+", help="OCI layout dir, OCI tarball, or registry ref")
     ap.add_argument("--max-mb", type=float, default=100.0, help="CI failure threshold (default 100)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--spa-bundle", default="web/dist",
+                    help="directory holding the built SPA to report (R11.4); "
+                         "pass '' to skip it (default: web/dist if it exists)")
     args = ap.parse_args()
 
     rows: dict[str, list[dict]] = {}
@@ -153,8 +178,10 @@ def main() -> int:
             if r["platform"] == "linux/amd64" and r["mib"] is not None and r["mib"] > args.max_mb:
                 failures.append(f"{target}: linux/amd64 {r['mib']} MiB > {args.max_mb} MiB")
 
+    bundle = spa_bundle(args.spa_bundle) if args.spa_bundle else []
+
     if args.json:
-        print(json.dumps(rows, indent=2))
+        print(json.dumps({"images": rows, "spa_bundle": bundle}, indent=2))
     else:
         print(f"R11.4 compressed image size — CI fails above {args.max_mb} MiB, target < 60 MiB")
         for target, entries in rows.items():
@@ -166,7 +193,15 @@ def main() -> int:
                 flag = "OK" if r["mib"] <= 60 else ("WARN" if r["mib"] <= args.max_mb else "FAIL")
                 print(f"  {r['platform']:<16}{r['mib']:>9.3f} MiB {r['bytes']:>12} B  [{flag}]"
                       f"  {r['digest'][:23]}…")
-        print("\nThe SPA's gzipped JS is a separate CI number (R11.4) and is not part of this report.")
+        if bundle:
+            total_raw = sum(e["bytes"] for e in bundle)
+            total_gz = sum(e["gzip"] for e in bundle)
+            print("\nR11.4 SPA bundle (web/dist, embedded by web/embed.go)")
+            for e in bundle:
+                print(f"  {e['path']:<24}{e['bytes']:>9} B{e['gzip']:>10} B gz")
+            print(f"  {'total':<24}{total_raw:>9} B{total_gz:>10} B gz")
+        else:
+            print("\nR11.4 SPA bundle: not built (run `make web` to produce web/dist)")
 
     for failure in failures:
         print(f"error: {failure}", file=sys.stderr)

@@ -1,8 +1,8 @@
 # R11.11 / R11.16 — CI is the source of truth; the Makefile is its local mirror.
 # Every job here has a `make` equivalent so a developer can reproduce a red CI run
 # without guessing (R11.11). Job order mirrors the spec's pipeline:
-#   build -> lint -> unit tests -> helm lint -> helm template snapshots -> image
-#   build (multi-arch) -> image publication.
+#   build -> lint -> unit tests -> web (R10.1/R16.7) -> helm lint ->
+#   helm template snapshots -> image build (multi-arch) -> image publication.
 name: ci
 
 on:
@@ -76,6 +76,55 @@ jobs:
       - name: coverage gate (R14.5)
         run: make cover
 
+  # R10.1 + R16.7 — the web half of the test surface. It is a separate job (not a
+  # step in `test`) because it needs a node toolchain the Go jobs don't, and
+  # because its two harnesses fail for different reasons: Vitest points at
+  # component logic, Playwright points at the rendered bundle.
+  web:
+    name: web (R10.1, R16.7)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # web/package.json engines is >=22.12.0. Pinned to 22, not to the
+          # bleeding edge: vitest 4.x excludes node 25, so a floating "node"
+          # tag would silently break the harness on its next major.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: install
+        run: npm ci --no-audit --no-fund
+        working-directory: web
+      - name: build (tsc --noEmit + vite build, R10.1)
+        run: npm run build
+        working-directory: web
+      # R11.4's second number, reported separately from the image size.
+      - name: SPA bundle size (R11.4)
+        run: |
+          js=web/dist/assets/index.js
+          echo "$(wc -c < "$js" | tr -d ' ') raw / $(gzip -9 -c "$js" | wc -c | tr -d ' ') gzipped  $js"
+          for f in web/dist/assets/*; do
+            echo "$(wc -c < "$f" | tr -d ' ') raw / $(gzip -9 -c "$f" | wc -c | tr -d ' ') gzipped  $f"
+          done
+      - name: unit tests (Vitest, R16.7)
+        run: npm run test
+        working-directory: web
+      - name: visual regression (Playwright, R16.7)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+        working-directory: web
+      # The screenshots are the artefact a reviewer looks at: R16.7's visual
+      # tests are only reviewable if the captured PNGs survive the run.
+      - name: upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/e2e/report
+          retention-days: 14
+
   helm:
     name: helm lint + template snapshots
     runs-on: ubuntu-latest
@@ -99,7 +148,7 @@ jobs:
   image:
     name: multi-arch image (R11.2, R11.4)
     runs-on: ubuntu-latest
-    needs: [build, lint, test, helm]
+    needs: [build, lint, test, web, helm]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -107,7 +156,7 @@ jobs:
           driver: docker-container
       # R11.2: one command must produce linux/amd64 AND linux/arm64. On a PR we build
       # to an OCI tarball (no push) so the R11.4 size gate still runs.
-      - name: build both platforms (PR: no push)
+      - name: "build both platforms (PR: no push)"
         if: github.ref != 'refs/heads/main'
         run: |
           docker buildx build --platform linux/amd64,linux/arm64 \
@@ -126,13 +175,6 @@ jobs:
             -t ${{ env.IMAGE_REPO }}:${GITHUB_SHA::7} \
             --push .
           docker buildx imagetools inspect ${{ env.IMAGE_REPO }}:dev
-      # R11.4's second number: the SPA's gzipped JS, reported separately from the
-      # image size. Phase 0 has no web/ bundle yet, so this prints n/a and Phase 5
-      # turns it into a real measurement (bundle.js.gz byte count).
-      - name: SPA bundle size (separate from the R11.4 image size)
-        run: |
-          if [ -f web/dist/assets/index.js ]; then
-            echo "web/dist/assets/index.js: $(wc -c < web/dist/assets/index.js) raw, $(gzip -9 -c web/dist/assets/index.js | wc -c) gzipped"
-          else
-            echo "SPA bundle: n/a in Phase 0 (lands in Phase 5) — reported separately from the image size per R11.4"
-          fi
+      # R11.4's second number — the SPA's gzipped JS — is printed by the same
+      # command now that web/dist exists (scripts/image-size.py reports it as its
+      # own section; it never gates, since the size limit applies to the image).

@@ -1,0 +1,191 @@
+/* ============================================================================
+ * Design tokens — the R10.2 design system.
+ *
+ * Every value here is the `dataviz` skill's reference palette
+ * (IMPLEMENTATION.md §4 D12), transcribed verbatim — not eyeballed. The chart
+ * code never writes a hex: it references these roles, so a theme switch is a
+ * one-place change and a chart cannot drift from the system.
+ *
+ * Theme mechanism (palette.md "How to use these values"): the dark values are
+ * declared under BOTH scopes —
+ *   @media (prefers-color-scheme: dark) :root:where(:not([data-theme="light"]))
+ *   :root[data-theme="dark"]
+ * so the OS setting is honoured *and* the R10.13 in-app toggle wins both ways.
+ * `:where()` keeps the media block's specificity below the toggle's, and the
+ * `:not([data-theme="light"])` guard lets an explicit light stamp beat OS-dark.
+ * ========================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* --- surfaces (chart chrome & ink table) ------------------------------ */
+  --page: #f9f9f7;         /* page plane */
+  --surface-1: #fcfcfb;    /* chart / card surface */
+
+  /* --- ink -------------------------------------------------------------- */
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;   /* axis labels, captions — one token, both modes */
+
+  /* --- chrome ----------------------------------------------------------- */
+  --gridline: #e1e0d9;     /* hairline, solid, never dashed */
+  --baseline: #c3c2b7;     /* axis rule */
+  --border: rgba(11, 11, 11, 0.10);
+  --surface-gap: 2px;      /* the surface gap that separates touching marks */
+
+  /* --- categorical slots: fixed order, never cycled --------------------- *
+   * Slot order is the CVD-safety mechanism, not cosmetic. Assign in order
+   * 1→8; a 9th series folds into "Other", it is never a generated hue.     */
+  --series-1: #2a78d6; /* blue    */
+  --series-2: #eb6834; /* orange  */
+  --series-3: #1baf7a; /* aqua    */
+  --series-4: #eda100; /* yellow  */
+  --series-5: #e87ba4; /* magenta */
+  --series-6: #008300; /* green   */
+  --series-7: #4a3aa7; /* violet  */
+  --series-8: #e34948; /* red     */
+  --series-other: #898781; /* the fold for series 9+ */
+
+  /* --- sequential ramp (blue, light→dark) ------------------------------- *
+   * Two sequential contexts at once would take orange as its own ramp.     */
+  --blue-100: #cde2fb;
+  --blue-150: #b7d3f6;
+  --blue-200: #9ec5f4;
+  --blue-250: #86b6ef; /* lightest step allowed for an ordinal ramp (2.06:1) */
+  --blue-300: #6da7ec;
+  --blue-350: #5598e7;
+  --blue-400: #3987e5;
+  --blue-450: #2a78d6;
+  --blue-500: #256abf;
+  --blue-550: #1c5cab;
+  --blue-600: #184f95;
+  --blue-650: #104281;
+  --blue-700: #0d366b;
+
+  /* --- diverging pair --------------------------------------------------- *
+   * blue ↔ red (warm/cool poles). Midpoint is gray, never a hue.           */
+  --diverge-mid: #f0efec;
+  --diverge-neg: #2a78d6;
+  --diverge-pos: #e34948;
+
+  /* --- status palette: fixed, never themed, never reused as "series 4" -- *
+   * Ships with icon + label — the colour never carries meaning alone, which
+   * is the mitigation for warning/serious sitting below 3:1 on light.      */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  /* --- deltas ----------------------------------------------------------- */
+  --delta-up-good: #006300; /* success text, not the status green */
+  --delta-down-bad: #d03b3b;
+
+  /* --- type ------------------------------------------------------------- *
+   * System sans everywhere, including the hero figure. No display/serif.   */
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* --- radii / spacing -------------------------------------------------- */
+  --radius-mark: 4px; /* the rounded data-end; the baseline end stays square */
+  --radius-card: 8px;
+}
+
+/* OS-level dark, unless an explicit light stamp overrides it. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+
+    /* The dark column is the same eight hues stepped for the dark surface,
+       not a separate palette (validated set: worst adjacent CVD ΔE 8.4,
+       normal-vision ΔE 19.3). */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --series-other: #898781;
+
+    --blue-100: #cde2fb;
+    --blue-150: #b7d3f6;
+    --blue-200: #9ec5f4;
+    --blue-250: #86b6ef;
+    --blue-300: #6da7ec;
+    --blue-350: #5598e7;
+    --blue-400: #3987e5;
+    --blue-450: #2a78d6;
+    --blue-500: #256abf;
+    --blue-550: #1c5cab;
+    --blue-600: #184f95; /* darkest step allowed for an ordinal ramp (2.15:1) */
+    --blue-650: #104281;
+    --blue-700: #0d366b;
+
+    --diverge-mid: #383835;
+    --diverge-neg: #3987e5;
+    --diverge-pos: #e66767;
+
+    /* status: same four steps in dark — all clear 3:1 on #1a1a19 */
+    --delta-up-good: #0ca30c;
+    --delta-down-bad: #d03b3b;
+  }
+}
+
+/* In-app theme toggle (R10.13), which must win both ways. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-other: #898781;
+
+  --blue-100: #cde2fb;
+  --blue-150: #b7d3f6;
+  --blue-200: #9ec5f4;
+  --blue-250: #86b6ef;
+  --blue-300: #6da7ec;
+  --blue-350: #5598e7;
+  --blue-400: #3987e5;
+  --blue-450: #2a78d6;
+  --blue-500: #256abf;
+  --blue-550: #1c5cab;
+  --blue-600: #184f95;
+  --blue-650: #104281;
+  --blue-700: #0d366b;
+
+  --diverge-mid: #383835;
+  --diverge-neg: #3987e5;
+  --diverge-pos: #e66767;
+
+  --delta-up-good: #0ca30c;
+  --delta-down-bad: #d03b3b;
+}

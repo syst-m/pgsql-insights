@@ -24,6 +24,11 @@ RUN go mod download
 
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+# R10.1: the SPA is embedded via go:embed (web/embed.go), so `web/` is part of
+# the Go build's inputs — omitting it breaks `go build ./...` with
+# "pattern all:dist: no matching files found". web/dist is committed, so this
+# stage needs no node toolchain; the node build is `make web` / the CI web job.
+COPY web/ ./web/
 
 # R11.3: the ldflags-injected version/commit are the same values the Makefile
 # injects locally, and they surface in pgsi_build_info, /api/v1/version and the

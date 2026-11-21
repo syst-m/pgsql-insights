@@ -1,0 +1,482 @@
+/* ============================================================================
+ * Base styles — layout, type, tables, cards, tooltip, panel states.
+ * Everything is written against the roles in tokens.css; no hex appears here
+ * except inside the skeleton shimmer (which is a chrome gradient, not data).
+ * ========================================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The app is responsive to 1280 px (R10.13); below that the shell scrolls
+   horizontally rather than reflowing the table into unreadability. */
+#root {
+  min-width: 1280px;
+}
+
+/* --- typography ---------------------------------------------------------- */
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 20px;
+}
+
+h2 {
+  font-size: 15px;
+}
+
+h3 {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* Numbers in columns align: tabular figures are for columns only. A large
+   standalone value keeps the font's proportional figures (marks-and-anatomy). */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.secondary {
+  color: var(--text-secondary);
+}
+
+/* Text never wears the data colour — identity comes from a mark beside it. */
+.caption {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* --- shell --------------------------------------------------------------- */
+
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 24px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: 15px;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.topbar nav a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.topbar nav a[aria-current="page"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  font-weight: 600;
+}
+
+.topbar nav a:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.asof {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.main {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* --- cards --------------------------------------------------------------- */
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card-head .title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* --- tables -------------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.data caption {
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-bottom: 8px;
+}
+
+table.data th,
+table.data td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+table.data thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  /* The header row sits on the card surface; the hairline is the border. */
+}
+
+table.data tbody tr:hover,
+table.data tbody tr[aria-selected="true"] {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+table.data tbody tr:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: -2px;
+}
+
+th.sortable {
+  padding: 0;
+}
+
+th.sortable button {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+}
+
+th.sortable button:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: -2px;
+}
+
+th.sortable .caret {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+th[aria-sort="ascending"] .caret,
+th[aria-sort="descending"] .caret {
+  color: var(--text-primary);
+}
+
+/* --- buttons / controls -------------------------------------------------- */
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 1px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented button {
+  all: unset;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.segmented button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.segmented button:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: -2px;
+}
+
+/* --- filter row (interaction.md: one row, above everything it scopes) --- */
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-row label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.filter-row select,
+.filter-row input[type="search"] {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+/* --- tooltip (interaction.md: values lead, labels follow) --------------- */
+
+.viz-tooltip {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  min-width: 120px;
+}
+
+.viz-tooltip .tt-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-tooltip .tt-label {
+  color: var(--text-secondary);
+}
+
+.viz-tooltip .tt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+/* A short stroke of the series colour, not a filled box, keys a tooltip row. */
+.viz-tooltip .line-key {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* --- panel states (R10.12) ---------------------------------------------- */
+
+.state-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+  padding: 24px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.state-panel .state-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.state-panel .state-detail {
+  font-size: 13px;
+  max-width: 60ch;
+}
+
+/* R10.22: a refetch holds the previous render at reduced opacity — no
+   skeleton flash, no layout jump. The skeleton is only allowed on first load. */
+.hold-previous {
+  opacity: 0.55;
+  transition: opacity 120ms linear;
+}
+
+.skeleton {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text-primary) 5%, transparent) 0%,
+    color-mix(in srgb, var(--text-primary) 9%, transparent) 50%,
+    color-mix(in srgb, var(--text-primary) 5%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* R10.22 partial-data banner. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-warning);
+  border-radius: 6px;
+  background: var(--surface-1);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.banner.critical {
+  border-left-color: var(--status-critical);
+}
+
+/* --- status chips (R10.23: colour + icon + label, never colour alone) --- */
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.status-chip .glyph {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  /* shape carries the state too: filled circle / triangle / square / cross */
+}
+
+/* --- misc ---------------------------------------------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+a.cluster-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  text-underline-offset: 2px;
+}
+
+a.cluster-link:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
