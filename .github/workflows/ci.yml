@@ -51,6 +51,8 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: spec parity matrix (requirements.md §6 vs the §7.3 index)
+        run: bash scripts/check-parity-matrix.sh
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet

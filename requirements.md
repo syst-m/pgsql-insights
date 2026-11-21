@@ -5,10 +5,9 @@
 | **Version** | `0.3.0` (Phase 1 split into 1a/1b — the UI is no longer scheduled last) |
 | **Date** | 2026-11-20 |
 | **Status** | Reviewed and consolidated — **Phase 0 complete, Phases 1a/1b unblocked** |
-| **Supersedes** | `0.2.0` (round-1 reviews incorporated) |
+| **Supersedes** | `0.2.0` (round-1 reviews incorporated) ← `0.1.0-draft` (`97172a4`) ← the pre-review draft |
 | **Owners** | Frank Ellis (product), Claude (spec author) |
 | **Applies to** | CloudNativePG **1.29–1.30** on Kubernetes **1.34–1.36**, PostgreSQL **15–18** (13–14 documented, unvalidated — see R13.9). Target env: CNPG 1.30.0, PG **16.11 + 17.11**, k3s v1.37.2+k3s1 |
-| **Supersedes** | `0.1.0-draft` (`97172a4`), `0.1.0-draft` pre-review |
 
 **Provenance.** Every factual claim this spec builds on is drawn from one of four grounded
 documents, not from model memory:
@@ -408,9 +407,9 @@ no phase is a spec defect (round-1 finding A3-M7).
 | ID | Requirement |
 |---|---|
 | R10.1 | Single-page app (React + TypeScript + Vite), built and embedded into the Go binary via `go:embed`; no separate web server, no CDN dependency, works fully offline inside the cluster. |
-| R10.2 | **Chart library and design system are chosen by the `dataviz` skill**, which must be read before any chart code is written, and its choice recorded in `IMPLEMENTATION.md`. To make the requirement verifiable (A3-N7): if the skill yields no named library, the fallback is **`@visx` over `d3-scale`** (no Chart.js/Recharts wrapper), and the decision — chosen *or* fallen back — is recorded in `IMPLEMENTATION.md` §4 as a dated entry. A deferred choice with no default is not a requirement. |
+| R10.2 | **Two claims, split per A3-N2 (v0.3.0).** **(a) Design system** — the colour roles, fixed categorical order, mark specs and interaction contract come from the **`dataviz` skill**, which must be read before any chart code is written, and the resulting tokens recorded in `IMPLEMENTATION.md` §4 as a dated entry. **(b) Chart library** — the skill is a *method* skill and names no library by design, so the library is the named default **`@visx` over `d3-scale`** (no Chart.js/Recharts wrapper), with the skill consulted first in case a later version names one. The v0.2.0 wording ("Chart library ... chosen by the `dataviz` skill") made (b) read as skill-chosen when the skill's own `components.md` prescribes plain HTML/SVG, so the fallback branch fired always and the headline could never be literally true. A deferred choice with no default is not a requirement. |
 | R10.3 | **Pages**: Fleet, Cluster Overview, Queries, Query Detail, Active Queries, Wait Events, **Databases**, **Users**, **Tags**, **Client Addresses**, System Insights, Poolers, Recommendations, Events Timeline. The four rollup pages are required by R3.7 and R8.2 and were missing from this list in 0.1.0. Each maps to a requirement above. |
-| R10.4 | **Fleet**: health distribution (one stacked bar + counts), a sortable table of every cluster with phase, instances, PG major, TPS, p95 latency, connections %, disk %, and the top finding; click-through to any cluster. This is the biggest structural gap in the CNPG ecosystem today (the existing surface is a three-level dropdown). |
+| R10.4 | **Fleet**: health distribution (one stacked bar + counts), a sortable table of every cluster with phase, instances, PG major, TPS, p95 latency, connections %, disk %, and the top finding; click-through to any cluster. This is the biggest structural gap in the CNPG ecosystem today (the existing surface is a three-level dropdown). **Column scoping across phases (A3-B4):** the *inventory columns* — health distribution, phase, instances, PG major, click-through — are **1b**, sourced from `/api/v1/clusters`; the *metric columns* — TPS, p95 latency, connections %, disk % — and the *top finding* are **5**, sourced from R9.4 (Phase 4), R2.2/R5.3 (2/7) and R7.2–R7.6 (8). A column whose source phase has not run renders `—` with a source-pending marker, and the requirement is **re-validated**, not first validated, when the source lands — the rule R10.5(b) already states. Without it, 1b's acceptance silently narrows R10.4 from eight columns to three. |
 | R10.5 | **Cluster Overview**, split into the two graphs Cloud SQL actually has rather than one impossible four-series chart: **(a) Query load** — stacked area of total execution time and IO time, from S2/R9.4. **(b) Resource load** — CPU capacity vs. usage and memory working set, rendered **only when S7/`metrics.k8s.io` is present** (R5.3's degradation rule applies), with a "not available" note when it is not. Plus the R5.1 summary cards, a replication topology view sourced from **S4** (R5.5), and instance chips with roles. |
 | R10.6 | **Queries**: the R3.2 table with sparklines per row (served by R8.11's batched endpoint, not 50 requests), inline load bars, filter chips (database, user, tag), search over normalized text, and a saved-view concept (**scoped to shared/cluster-scoped saved views** — per-user saved views are impossible under R8.8's single shared bearer token and are deferred with OIDC). Sorting must be by any column with server-side pagination (R8.10). |
 | R10.7 | **Query Detail**: header (fingerprint, database, user, first-seen), the per-minute load chart for that query, latency panel (P50/P95/P99 or the R3.9 fallback), plan samples list with a JSON/plan viewer, and recommendations. |
@@ -492,7 +491,8 @@ no phase is a spec defect (round-1 finding A3-M7).
 | ID | Requirement |
 |---|---|
 | R14.1 | **`IMPLEMENTATION.md` is the handoff file**, created in Phase 0 before any other code and updated in the **same commit** as every phase's code. It contains: the work-breakdown table with per-task status, the current phase and its state, deviations from this spec with reasons, decisions log, known gaps, and "how to run this right now". **The "same commit" rule is scoped to be workable across four agents** (A4-M12): the update lands in the **last commit of the phase**, not literally every commit. |
-| R14.2 | Every phase ends with a **validation entry** in `IMPLEMENTATION.md`: what was checked against which requirement IDs, what passed, what deviated, and the fix or the follow-up. Plus a **`Last validated` section** listing, per requirement ID, the date and method of the most recent validation — the traceability artifact R14.1 promised but did not specify. |
+| R14.2 | Every phase ends with a **validation entry** in `IMPLEMENTATION.md`: what was checked against which requirement IDs, what passed, what deviated, and the fix or the follow-up. Plus a **`Last validated` section** listing, per requirement ID, the date and method of the most recent validation — the traceability artifact R14.1 promised but did not specify. **Split phases (see R14.9):** a phase with more than one owner writes **one entry per owner**, and each later phase gates on the entries belonging to its own owner. |
+| R14.9 | **Split-phase validation entries** (A3 filed this as a new top-level ID "R25"; filed under R14 per the §11 rule-4 precedent). R14.2 was written when every phase had exactly one owner. Post-split, the shared 1a/1b entry serializes A1's Phase 2 behind A4's SPA — reintroducing on the critical path the very dependency the split exists to remove. Each owner writes their own entry: Phase 2 gates on **1a's** entry only; Phases 5 and 6a gate on **1b's** as well. Generalizes to any future split phase. |
 | R14.3 | `README.md` with: what it is, a GIF/screenshot, the two-command quickstart, a capability matrix vs Cloud SQL, the metrics catalogue, and a link to this file. |
 | R14.4 | `docs/` holds this spec, the two research documents, the live probe, `ENVIRONMENT.md`, `reviews/`, per-feature runbooks, and an architecture doc with the diagram from §3.1. |
 | R14.5 | `CONTRIBUTING.md` with the dev loop (build, test, run locally against a kind cluster), code layout map, and the release process. |
@@ -518,7 +518,8 @@ no phase is a spec defect (round-1 finding A3-M7).
 | R16.4 | Golden tests for the Helm chart (`helm template` output committed for all three profiles). |
 | R16.5 | A **live validation script** (`scripts/validate-env.sh`) that runs the §8 acceptance checks against the reference environment and prints a pass/fail table; this is what makes "[A]" requirements actually checkable. **Scheduled in Phase 2** — 0.1.0 defined it and scheduled it nowhere, which is the mechanism §8 depends on. |
 | **R16.6** | **Ground-truth correctness fixture** (A4-B7). 8 of §8's 10 checks are presence checks — a deployment where every TPS gauge reads `0` passes them all. Seed a Postgres fixture with a known workload (N inserts, M selects, known rows) and assert our computed values equal the seeded ground truth, not merely that a value exists. Phase 2. |
-| **R16.7** | **UI tests** (A4-M13). R10 has 28 requirements and 0.1.0's R16 had zero UI tests. Add a **Vitest** component suite, a **Playwright** end-to-end suite over the R10.3 page set, and **visual-regression** snapshots for the R10.28 empty-state catalogue. Phase 5 onward. |
+| **R16.8** | **API response fixtures** (A3 filed this as a new top-level ID "R24"; filed under R16 per the §11 rule-4 precedent that R1–R16 is the taxonomy and new findings extend an existing group rather than mint R17+). A checked-in JSON fixture per endpoint under `testdata/api/`, created by the phase that first serves it — Phase 1a: `testdata/api/clusters.json` with the 4 reference clusters — consumed by the SPA's Vitest suite and R16.7's visual-regression snapshots. Today the only machine-readable copy of the Phase 1a contract is `web/src/api/fixtures.ts`: the *consumer's* language, in A4's tree. R16.3 covers metric expositions and `pg-status` JSON but not API responses. Phase 1a. |
+| **R16.7** | **UI tests** (A4-M13). R10 has 28 requirements and 0.1.0's R16 had zero UI tests. Add a **Vitest** component suite, a **Playwright** end-to-end suite, and **visual-regression** snapshots. **Phase 1b onward** (v0.3.0 — the harness is created with the SPA, not at Phase 5, which the v0.2.0 text's "Phase 5 onward" had become false — A3-M1), scoped at each phase to *the page set and the empty-state catalogue that exist at that phase*: 1b tests the Fleet page and its four R10.12 states, and the R10.3 page set (→5) and R10.28 catalogue (→6b) join the suite as those phases land them. |
 
 ---
 
@@ -573,9 +574,11 @@ the 30 s figure, not the 15 s one. The per-query row also said "N × databases" 
 ## 6. Parity matrix
 
 Every Cloud SQL capability, its source in Google's product, our requirement ID, and the phase that
-delivers it. **The Phase column is generated from §7.2's requirement→phase index** — in 0.1.0 four
-cells named phases that did not own the IDs in the same row (A3-M8), and a hand-maintained column is
-how that happens.
+delivers it. **The Phase column is generated from §7.3's requirement→phase index** — §7.2 is the
+phase table, §7.3 is the index, and v0.2.0's preamble cited §7.2 while the cells stayed hand-written,
+so four of them disagreed with the index (A3-M5 in the v0.3.0 review, after A3-M8 in round 1). The
+cells below are regenerated from §7.3, and `scripts/check-parity-matrix.sh` diffs the Phase column
+against the index in CI, so the claim is enforced rather than re-broken by the next edit.
 
 | Cloud SQL capability | Google's source | Our source | Req | Phase |
 |---|---|---|---|---|
@@ -590,20 +593,20 @@ how that happens.
 | Databases tab | `insights` by db | `pg_stat_database`, `pg_database` | R3.7, R5.2 | 3 (R3.7), 7 (R5.2) |
 | Users tab | `insights` by user | `pg_stat_activity`, `pg_stat_statements` | R3.7 | 3 |
 | Tags tab | app-set query tags | `application_name` + `/* pgsi: */` convention | R3.12 | 6b |
-| Client addresses tab | `client_addr` label | `pg_stat_activity.client_addr` + pooler fix | R3.13, R6.4 | 6b (R3.13), 8 (R6.4) |
+| Client addresses tab | `client_addr` label | `pg_stat_activity.client_addr` + pooler fix | R3.13, R6.4 | 3 (R3.13), 8 (R6.4) |
 | Active queries (top 50) | live query | `pg_stat_activity` | R4.1–R4.2 | 6a |
 | Blocked-query tree (3 levels) | lock analysis | `pg_locks` graph | R4.4 | 6a |
 | Terminate connection | E+ action | `pg_terminate_backend` | R4.5 | 6a |
 | System Insights summary cards | OS+DB metrics | S2/S3/S7 (+S10 for Log errors) | R5.1, R5.10 | 7 |
 | System Insights metric families | `database/postgresql/*` | S2 + S3 | R5.2 | 7 |
 | OS metrics (CPU/mem/disk/net) | `database/{cpu,memory,disk,network}/*` | cAdvisor/node-exporter/metrics-server | R5.3 | 7 |
-| Compare up to 5 instances | UI feature | stable instance identity | R5.7, R9.3 | 7 |
+| Compare up to 5 instances | UI feature | stable instance identity | R5.7, R9.3 | 7 (R5.7), 2 (R9.3) |
 | Download PNG / CSV | chart toolbar | per-chart toolbar | R5.6 | 7 |
-| HA / replication view | `replica_byte_lag`, `replication/state`, `available_for_failover` | **S4 `replicationInfo[]`/`replicationSlotsInfo[]`**, S2 | R5.5 | 2 |
+| HA / replication view | `replica_byte_lag`, `replication/state`, `available_for_failover` | **S4 `replicationInfo[]`/`replicationSlotsInfo[]`**, S2 | R5.5 | 7 |
 | Retention (7 d EE / 30 d EEP) | instance disk | store retention config | R3.14, R5.8 | 3 (R3.14), 7 (R5.8) |
 | Events timeline | events | k8s events + phase transitions + backups | R5.9 | 8 |
 | Index advisor (E+) | query plans | statement text + index usage | R7.1 | **post-0.1** |
-| Recommenders (E+): bloat, autovacuum, TXID | multiple | R7.2, R7.4, R7.5 | R7.2, R7.4, R7.5 | 8 |
+| Recommenders (E+): bloat, autovacuum, TXID | multiple | `pg_stat_user_tables` dead-tuple estimates, `pg_stat_*_tables` autovacuum stats, `pg_current_xact_id()` | R7.2, R7.4, R7.5 | 8 |
 | Recommenders: out-of-disk, idle-instance | two named recommenders | disk % + connections % (R10.4) | R7.6 | 8 |
 | Rightsizing recommender (E+) | managed-instance sizing | pod requests vs. cgroup usage (**CNPG-derived**) | R7.3 | **post-0.1** |
 | Flag recommender | Cloud SQL | not in v0.1 | — | post-0.1 |
@@ -614,7 +617,7 @@ how that happens.
 | Alerting UI (Notification, annotations-on-charts, Slack/PagerDuty/email/SMS) | Cloud SQL monitoring | Prometheus API + R9.11 rules + `runbook_url` | R10.26 | 6a |
 | Custom dashboards | Cloud SQL | not in v0.1 | — | post-0.1 |
 | AI troubleshooting (E+) | Gemini | deferred; API slot reserved | §1.3 | post-0.1 |
-| Admin API | `cloudsqladmin v1beta4` | REST + OpenAPI | R8.1–R8.2 | 1→5 |
+| Admin API | `cloudsqladmin v1beta4` | REST + OpenAPI | R8.1–R8.2 | 1a (R8.1), 3 (R8.2), 5 (full surface) |
 | MCP PromQL-in/out API | `databaseinsights.googleapis.com/mcp` | `/api/v1/metrics/{query,system}` | R8.3 | 5 |
 | `InsightsConfig` equivalents | `queryInsightsEnabled`, `queryStringLength`, `recordApplicationTags`, `recordClientAddress`, `queryPlansPerMinute`, `enhancedQueryInsightsEnabled` | flags + ConfigMap keys, same names where meaningful | R3.6, R3.10, R3.13, R11.8 | 3 (R3.6), 6b (R3.10), 3 (R3.13), 2 (R11.8) |
 | Edition tiers | Enterprise / Enterprise Plus | single tier at the E+ feature set | §1.2 | — |
@@ -624,7 +627,7 @@ how that happens.
 
 ## 7. Delivery plan
 
-Ten phases, **eleven slots** — Phase 6 split into 6a/6b per A4-B6, and Phase 1 split into **1a/1b**
+Ten phases, **twelve slots** — Phase 6 split into 6a/6b per A4-B6, and Phase 1 split into **1a/1b**
 in v0.3.0 so the web UI ships alongside the first real API instead of four phases after it. Each
 phase lists deliverables, the requirement IDs it satisfies, its acceptance criteria, and the assigned
 agent. **No phase starts before the previous phase's validation entry is written into
@@ -654,12 +657,12 @@ phase §7.2 gives it (4, 5, 6b, 7).
 | Phase | Scope | Req IDs | Owner | Acceptance criteria |
 |---|---|---|---|---|
 | **0** | Repo skeleton, `go.mod`, Makefile, multi-arch Dockerfile, chart skeleton + `values-default.yaml`, generated `deploy/plain-yaml/all.yaml`, CI, image publication, LICENSE, `IMPLEMENTATION.md` | R11.1–R11.7, R11.9–R11.16, R12.1–R12.3, R13.9, R13.10, R14.1, R15.1, R15.2 | A4 | **R11.14**: image built **and deployed to the reference cluster**, pod `Running`, `/healthz` answers via the Service. Plus: `go build ./...` clean; `buildx --platform linux/amd64,linux/arm64` succeeds; `helm lint` clean; all three profiles render; CI green; `IMPLEMENTATION.md` exists with the WBS |
-| **1a** | Discovery + kube client (per-port transport table) + `/api/v1/clusters` + `/healthz` + `/readyz` | R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7, R12.1–R12.3, R13.7, R13.8 | A1 | **All 4 reference clusters returned by `/api/v1/clusters`** with correct phase, instance counts, **servingInstances**, primary and PG major (16 vs 17 distinguished); `freeidp-pg` renders its degraded state (R1.2 **[A]**); `rev-proxy-pg` shows its Pooler; R1.6 passes |
-| **1b** | **The web UI, pulled forward from Phase 5** (see the note below this table): `web/` React + TypeScript + Vite app built and `go:embed`-ed into the binary (R10.1), the R10.2 design system, and the **Fleet** page rendering `/api/v1/clusters` (R10.4), with the R16.7 visual-regression harness stood up at the same time. Runs **in parallel with 1a** against the same `/api/v1/clusters` contract. | R10.1, R10.2, R10.4, R10.16, R16.7 | A4 | The SPA is served by the Go binary at `/` (no separate web server), and the Fleet page renders all 4 reference clusters from live API data: health distribution, sortable table with phase/instances/PG major, `freeidp-pg` showing its degraded state. R10.2's library decision recorded in `IMPLEMENTATION.md` §4 as a dated entry; R16.7 harness runs in CI and has ≥1 passing visual test per R10.12 state it can reach at this phase. |
+| **1a** | Discovery + kube client (per-port transport table) + `/api/v1/clusters` + `/healthz` + `/readyz` + **`web/embed.go` and the `GET /` + `GET /c/**` routes** that serve the 1b SPA (R10.1's Go-side half, **1b-owned**: A4 wrote `web/embed.go` *and* `internal/api/spa.go` in the 1b commit `14d4df0`, so 1a must not duplicate them — A1's 1a work integrates against those routes rather than supplying them) + **`testdata/api/clusters.json`** | R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7, R12.1–R12.3, R13.7, R13.8, R16.8 | A1 | **All 4 reference clusters returned by `/api/v1/clusters`** with correct phase, instance counts, **servingInstances**, primary and PG major (16 vs 17 distinguished); `freeidp-pg` renders its degraded state (R1.2 **[A]**); `rev-proxy-pg` shows its Pooler; R1.6 passes |
+| **1b** | **The web UI, pulled forward from Phase 5** (see the note below this table): `web/` React + TypeScript + Vite app built and `go:embed`-ed into the binary (R10.1), the R10.2 design system, and the **Fleet** page rendering `/api/v1/clusters` (R10.4), with the R16.7 visual-regression harness stood up at the same time. Runs **in parallel with 1a** against the same `/api/v1/clusters` contract. | R10.1, R10.2, R10.4 *(inventory columns)*, R10.12, R10.16 *(page, sort)*, R16.7 | A4 | The SPA is served by the Go binary at `/` (no separate web server), and the Fleet page renders all 4 reference clusters from live API data: health distribution, sortable table with phase/instances/PG major, `freeidp-pg` showing its degraded state. R10.2's library decision recorded in `IMPLEMENTATION.md` §4 as a dated entry; R16.7 harness runs in CI and has ≥1 passing visual test per R10.12 state it can reach at this phase. |
 | **2** | Collector framework + PG version matrix + `database`/`settings`/`replication`/`wal` collectors + `/metrics` v1 (aggregate) + `pgsi_up` + global scheduler budget + **`pg_stat_statements` enablement flow** + `validate-env.sh` + ground-truth fixture + clock contract | R2.1–R2.9, R3.15, R8.1, R8.7, R9.2–R9.4, R9.7 (partial), R9.12, R11.8, R12.4, R12.5, R13.1, R13.2, R13.5, R13.11, R16.1, R16.2, R16.3, R16.5, R16.6 | A1 | Collection round < 3 s / < 40 round-trips per cluster (R13.1) on all 4 clusters; PG16 and PG17 both collect via the version matrix (R2.4 **[A]**); `/metrics` passes `promtool check metrics`; `scripts/validate-env.sh` prints a pass/fail table; the seeded fixture's values match ground truth (R16.6) |
 | **3** | `pg_stat_statements` collector + normalizer + query store + top-N API + per-query metrics family + rollup endpoints | R3.1–R3.8, R3.13, R3.14, R8.2 (insights endpoints), R8.4, R8.5, R9.5, R9.5b, R16.3 | A1 | Top-N table for each cluster matches a manual `SELECT … FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 50` within tolerance; normalizer output matches the fixture corpus; counter-reset test passes; series count within the §5 budget |
 | **4** | ServiceMonitor/PodMonitor, PrometheusRule with `critical` tier, cardinality assertion, end-to-end scrape by the reference env's kube-prometheus-stack | R9.1, R9.6, R9.8–R9.11, R13.3 (API p50/p95), R13.4, R16.4 | A2 | **The existing `prom-operator` Prometheus scrapes us and the series are queryable** (R9.9 **[A]**); `promtool check rules` passes; all 4 clusters' series present with correct labels |
-| **5** | Full API surface + OpenAPI + auth + PromQL pair + the **Cluster Overview** page and the remaining shell requirements (page set R10.3, themes R10.13, load budget R10.14, time range R10.15, ⌘K search R10.17, cluster switcher R10.24). The SPA shell, Fleet page and test harness moved to **1b** in v0.3.0. | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | `GET /api/v1/metrics/query?query=pgsi_up` returns a Prometheus-shaped result; OpenAPI doc committed and CI-validated; Cluster Overview renders R10.5(a) query-load from R9.4 data and degrades R10.5(b) correctly when `metrics.k8s.io` is absent; `helm install` from a tarball works (R11.6 **[A]**); Vitest + Playwright suites green |
+| **5** | Full API surface + OpenAPI + auth + PromQL pair + the **Cluster Overview** page and the remaining shell requirements (page set R10.3, themes R10.13, load budget R10.14, time range R10.15, ⌘K search R10.17, cluster switcher R10.24). The SPA shell, Fleet page and test harness moved to **1b** in v0.3.0. | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | `GET /api/v1/metrics/query?query=pgsi_up` returns a Prometheus-shaped result; OpenAPI doc committed and CI-validated; Cluster Overview renders R10.5(a) query-load from R9.4 data and degrades R10.5(b) correctly when `metrics.k8s.io` is absent; `helm install` from a tarball works (R11.6 **[A]**); the 1b-owned Vitest + Playwright suites still pass and cover the pages added at this phase |
 | **6a** | Active queries + blocking chain + wait events + terminate + Active Queries & Wait Events pages + alerts surface | R4.1–R4.8, R10.8, R10.9, R10.25, R10.26 | A1 | Active list matches `pg_stat_activity` exactly on all 4 clusters (R4.1 **[A]**, R4.8 value equality); a real blocking pair renders as a chain; terminate works behind its gate |
 | **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A2 | Queries page renders the R3.2 column set exactly (incl. `Load by lock wait` = `n/a`); Query Detail renders load + latency + plans; the R10.27 not-installed screen renders for every cluster lacking the extension |
 | **7** | System Insights (OS + DB families, summary cards, compare-5, PNG/CSV export) + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | The five summary cards render for all 4 clusters (R5.1 **[A]**, values matched per R4.8's rule); CSV export byte-compares against a golden; PNG export produces a valid image; compare-5 works with 4 available clusters |
@@ -680,16 +683,25 @@ to use graphs and visualizations"). **v0.3.0 splits Phase 1 into 1a (backend, A1
 SPA + Fleet page, A4), in parallel.** Two reasons beyond taste: (i) it costs no agent budget — the
 Phase 1 backend was always A1's, and the Phase 4/5 backend that A2 owns doesn't start until Phase 4,
 so the UI work slots into A4's capacity after Phase 0 without touching anyone else's critical path;
-and (ii) it de-risks **R8.11** and **R10.14** — the batched series endpoint and the <1.5 s load budget
-are designed *for* the UI, and building them at Phase 5 with no consumer in the room is how they get
-built wrong and reworked. Phase 5 keeps the Cluster Overview page and the shell requirements that
+and (ii) it de-risks **R10.14** — Fleet's own <1.5 s load budget is specified *for* that page, and
+writing it at Phase 5 with no Fleet page in the room is how it gets built wrong and reworked. (The
+first draft of this note also claimed R8.11; A3-N4 is right that the batched series endpoint serves
+the Queries page at 6b, which 1b does not render, so the argument does not extend to it.) Phase 5 keeps the Cluster Overview page and the shell requirements that
 genuinely need Phase 2–4 data.
 
 ### 7.3 Requirement → phase index
 
-Generated from §7.2; every ID in §4 appears exactly once. This table is the fix for the 0.1.0 defect
-where 18 IDs were defined and scheduled in no phase (A3-M7), and it is the source for §6's Phase
-column and for `IMPLEMENTATION.md`'s R14.8 traceability table.
+Generated from §7.2; every ID in §4 appears exactly once **as a primary assignment**. This table is
+the fix for the 0.1.0 defect where 18 IDs were defined and scheduled in no phase (A3-M7), and it is
+the source for §6's Phase column and for `IMPLEMENTATION.md`'s R14.8 traceability table.
+
+**The annotation convention (A3-B3, v0.3.0).** An ID may appear under more than one phase only when
+the extra appearance is annotated: `X → n` names the phase that **owns** it, and `also re-validated
+at m` names a phase that re-tests it without owning it. A bare second assignment is a defect — two
+phases claiming one requirement with no statement of who is on the hook. The four annotated cases in
+v0.3.0 are R8 (1a and 3 partials, re-validated at 5), R11.6 (owned by 0, re-validated at 5 and 9),
+R12.1–12.3 (owned by 0, re-validated at 1a), and R10.4, which uses the column-scope form
+`10.4 *(inventory columns)* → 1b · *(metric columns)* → 5` — the same `(a)/(b)` form R10.5 already uses.
 
 | Group | IDs → phase |
 |---|---|
@@ -700,15 +712,15 @@ column and for `IMPLEMENTATION.md`'s R14.8 traceability table.
 | R5 | 5.1–5.8, 5.10 → **7** · 5.9 → **8** |
 | R6 | 6.1–6.5 → **8** |
 | R7 | 7.2, 7.4, 7.5, 7.6 → **8** · 7.1, 7.3 → **post-0.1** |
-| R8 | 8.1, 8.7 → **1a** · 8.2, 8.4, 8.5 → **3** · 8.1–8.9, 8.10, 8.11 → **5** (full surface) |
+| R8 | 8.1, 8.7 → **1a** *(partial)* · 8.2, 8.4, 8.5 → **3** *(partial)* · 8.1–8.9, 8.10, 8.11 → **5** *(full surface; re-validates the 1a and 3 partials)* |
 | R9 | 9.2–9.4, 9.7 (partial), 9.12 → **2** · 9.1, 9.6, 9.8–9.11 → **4** · 9.5, 9.5b → **3** · 9.7 (complete) → **7** · 9.13 → **6b** |
-| R10 | 10.1, 10.2, 10.4, 10.16 → **1b** · 10.3, 10.13, 10.14, 10.15, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.10 → **7** · 10.11 → **8** |
-| R11 | 11.1–11.7, 11.9–11.16 → **0** (11.6 also re-validated at **5** and **9**) |
-| R12 | 12.1–12.3 → **0** · 12.4, 12.5 → **2** · 12.6–12.9 → **0** |
+| R10 | 10.1, 10.2, 10.4 *(inventory columns)*, 10.12, 10.16 *(page, sort)* → **1b** · 10.3, 10.4 *(metric columns + top finding)*, 10.13, 10.14, 10.15, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.10 → **7** · 10.11 → **8** |
+| R11 | 11.1–11.7, 11.9–11.16 → **0** · **11.8 → 2** · (11.6 also re-validated at **5** and **9**) |
+| R12 | 12.1–12.3 → **0** *(also re-validated at **1a**)* · 12.4, 12.5 → **2** · 12.6–12.9 → **0** |
 | R13 | 13.9, 13.10 → **0** · 13.1, 13.2, 13.5, 13.11 → **2** · 13.7, 13.8 → **1a** · 13.4 → **4** · 13.3 → **4** · 13.6 → **9** |
-| R14 | 14.1 → **0** · 14.8 → **0** (updated every phase) · 14.3–14.7 → **9** · 14.2 → **every phase** |
+| R14 | 14.1 → **0** · 14.8 → **0** (updated every phase) · 14.3–14.7 → **9** · 14.2 → **every phase** · 14.9 → **1a** (first applies at the 1a/1b split) |
 | R15 | 15.1, 15.2 → **0** · 15.3 → **9** |
-| R16 | 16.1, 16.2, 16.3, 16.5, 16.6 → **2** · 16.4 → **4** · 16.7 → **1b** (harness created with the SPA) |
+| R16 | 16.1, 16.2, 16.3, 16.5, 16.6 → **2** · 16.4 → **4** · 16.7 → **1b** (harness created with the SPA) · 16.8 → **1a** |
 
 ---
 
@@ -731,9 +743,9 @@ there is no Postgres to query there at all.
 8 and 9 run against **the 3 clusters with a serving postgres**; `freeidp` is validated through S1
 and S4 only:
 
-1. `GET /api/v1/clusters` returns exactly the 4 clusters with correct phase/instances/**servingInstances**/primary/major. *(R1.5, Phase 1)*
-2. The `freeidp-pg` entry reports the disk-pressure `phaseReason`, the Pending instance, **and `servingInstances: 0`**. *(R1.2, Phase 1)*
-3. `pgsi_up{cluster="cookbook-pg"} == 1` and its replication section renders "single instance". *(R9.12, R5.5, Phase 2)*
+1. `GET /api/v1/clusters` returns exactly the 4 clusters with correct phase/instances/**servingInstances**/primary/major. *(R1.5, Phase 1a)*
+2. The `freeidp-pg` entry reports the disk-pressure `phaseReason`, the Pending instance, **and `servingInstances: 0`**. *(R1.2, Phase 1a)*
+3. `pgsi_up{cluster="cookbook-pg"} == 1` and its replication section renders "single instance". *(R9.12, Phase 2 — the API's replication section; the UI that renders it, R5.5, lands at 7)*
 4. Version-matrix unit tests cover PG 13–18 (13/14 marked `impossible` per R13.9); live collection succeeds on PG 16 **and** PG 17. *(R2.4, Phase 2)*
 5. `promtool check metrics < our /metrics` exits 0; `promtool check rules chart/templates/prometheusrule.yaml` exits 0. *(R9.9, R9.11, Phase 4)*
 6. The **existing** `monitoring/prom-operator` Prometheus, with no config change beyond applying our ServiceMonitor, returns series for all 4 clusters. *(R9.9, Phase 4)*
