@@ -1,0 +1,25 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.podMonitor.enabled }}
+# R11.7 — the PodMonitor variant, for scraping pod IPs instead of the Service.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.podMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pgsi.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.monitoring.podMonitor.scrapeTimeout }}
+{{- end }}

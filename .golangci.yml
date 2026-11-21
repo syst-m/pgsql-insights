@@ -1,0 +1,43 @@
+# golangci-lint config (R11.11). Written in the v1 schema — no `version: "2"` key —
+# because CI pins golangci-lint v1.64.8 and a v2-schema config is rejected by a v1
+# binary. Migrate both together when CI moves to golangci-lint v2.
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck        # unchecked errors are the classic Go bug class
+    - govet           # vet's checks, incl. copylocks
+    - ineffassign     # assignments that are overwritten before use
+    - staticcheck     # SA* correctness + performance
+    - unused          # U1000 dead code
+    - gosimple        # S* simplifications
+    - typecheck       # compile errors surface here
+    - misspell
+    - gofmt           # formatting gate (CI also runs `gofmt -l`)
+    - goimports       # import grouping/ordering
+    - revive          # style rules, configured minimal below
+    - unconvert
+    - unparam
+    - bodyclose       # http.Response bodies must be closed (R8.x API server)
+    - contextcheck    # contexts not propagated (R13.8 graceful shutdown)
+    - errorlint       # %w vs %v, errors.Is/As usage
+    - nilerr
+    - prealloc
+    - wastedassign
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # Test files legitimately duplicate code and use long functions.
+    - path: _test\.go
+      linters: [dupl, funlen, prealloc]
+
+revive:
+  rules:
+    - name: exported
+      arguments: ["checkPackageComment"]

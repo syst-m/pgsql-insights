@@ -1,0 +1,16 @@
+# Keep the build context small and deterministic: the Dockerfile copies only
+# cmd/ and internal/, so everything else must stay out of the context.
+.git
+.gitignore
+.github
+bin/
+dist/
+chart/
+deploy/
+docs/
+testdata/
+*.md
+LICENSE
+Makefile
+*.png
+*.jpg

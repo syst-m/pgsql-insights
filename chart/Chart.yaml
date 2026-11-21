@@ -1,0 +1,24 @@
+apiVersion: v2
+name: pgsi
+description: |
+  pgsql-insights — Postgres insights for Kubernetes clusters. One image containing
+  the API, the collector and the UI (R11.1), discovering Cloud Native PostgreSQL
+  clusters through the Kubernetes API.
+type: application
+
+# Chart version — bumped by the release pipeline, never by hand during development.
+version: 0.1.0
+# The pgsi binary version this chart ships (R11.3 keeps this in sync with the
+# ldflags-injected version and the OCI labels).
+appVersion: "0.1.0-dev"
+
+kubeVersion: ">=1.24.0-0"
+
+home: https://github.com/frankellis/pgsql-insights
+sources:
+  - https://github.com/frankellis/pgsql-insights
+maintainers:
+  - name: Frank Ellis
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: database

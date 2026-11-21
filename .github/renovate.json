@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "R11.16 — container base images and chart image tags. Go modules and GitHub Actions are Dependabot's (.github/dependabot.yml); this file owns digests so the two never open duplicate PRs.",
+  "extends": ["config:recommended"],
+  "configMigration": true,
+  "schedule": ["before 9am on Monday"],
+  "labels": ["dependencies", "container-image"],
+  "enabledManagers": ["dockerfile", "helmv3"],
+  "dockerfile": {
+    "fileMatch": ["^Dockerfile$", "^Dockerfile\\..*$"],
+    "pinDigests": true
+  },
+  "helmv3": {
+    "fileMatch": ["^chart/.*\\.yaml$", "^chart/templates/.*\\.yaml$"],
+    "helmValues": ["chart/values.yaml", "chart/values-production.yaml", "chart/values-lab.yaml"]
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["golang"],
+      "allowedVersions": "<2.0"
+    },
+    {
+      "matchUpdateTypes": ["digest"],
+      "automerge": true,
+      "automergeType": "branch"
+    }
+  ]
+}

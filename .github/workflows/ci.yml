@@ -1,0 +1,138 @@
+# R11.11 / R11.16 — CI is the source of truth; the Makefile is its local mirror.
+# Every job here has a `make` equivalent so a developer can reproduce a red CI run
+# without guessing (R11.11). Job order mirrors the spec's pipeline:
+#   build -> lint -> unit tests -> helm lint -> helm template snapshots -> image
+#   build (multi-arch) -> image publication.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.0"
+  GOLANGCI_LINT_VERSION: "v1.64.8"
+  HELM_VERSION: "v4.3.1"
+  # R11.16 / Q6: provisional registry org — see README and IMPLEMENTATION.md §5.
+  IMAGE_REPO: ghcr.io/frankellis/pgsql-insights
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go.mod tidy check (R13.10)
+        run: make tidy-check
+      - name: build
+        run: make build
+      - name: version output carries ldflags (R11.3)
+        run: |
+          ./bin/pgsi version | tee version.txt
+          grep -q "$(git rev-parse --short HEAD)" version.txt \
+            || { echo "pgsi version does not embed the git SHA (R11.3)"; exit 1; }
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: golangci-lint (pinned, .golangci.yml v1 schema)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --config .golangci.yml
+          only-new-issues: false
+
+  test:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go test
+        run: go test ./... -count=1
+      - name: coverage gate (R14.5)
+        run: make cover
+
+  helm:
+    name: helm lint + template snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm ${{ env.HELM_VERSION }}
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      # R11.12: lint every named profile, not just the implicit one.
+      - name: helm lint (default | production | lab)
+        run: make helm-lint
+      # R11.13 / R16.4: the committed manifests in deploy/plain-yaml ARE the golden
+      # files. Re-render and require an empty diff — a chart change without a
+      # committed manifest change fails the build.
+      - name: helm template snapshot test (3 profiles)
+        run: make render-check
+      - name: kustomize build (R11.13 plain-yaml consumer)
+        run: kubectl kustomize deploy/kustomize > /dev/null
+
+  image:
+    name: multi-arch image (R11.2, R11.4)
+    runs-on: ubuntu-latest
+    needs: [build, lint, test, helm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+      # R11.2: one command must produce linux/amd64 AND linux/arm64. On a PR we build
+      # to an OCI tarball (no push) so the R11.4 size gate still runs.
+      - name: build both platforms (PR: no push)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="${GITHUB_SHA::7}" --build-arg COMMIT="${GITHUB_SHA::7}" \
+            -t ${{ env.IMAGE_REPO }}:pr-${{ github.event.number || github.sha }} \
+            --output type=oci,dest=dist.oci.tar .
+          python3 scripts/image-size.py --max-mb 100 dist.oci.tar
+      # R11.16: main publishes :dev plus the git-SHA tag.
+      - name: build + push (main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION=0.1.0-dev --build-arg COMMIT="${GITHUB_SHA::7}" \
+            -t ${{ env.IMAGE_REPO }}:dev \
+            -t ${{ env.IMAGE_REPO }}:${GITHUB_SHA::7} \
+            --push .
+          docker buildx imagetools inspect ${{ env.IMAGE_REPO }}:dev
+      # R11.4's second number: the SPA's gzipped JS, reported separately from the
+      # image size. Phase 0 has no web/ bundle yet, so this prints n/a and Phase 5
+      # turns it into a real measurement (bundle.js.gz byte count).
+      - name: SPA bundle size (separate from the R11.4 image size)
+        run: |
+          if [ -f web/dist/assets/index.js ]; then
+            echo "web/dist/assets/index.js: $(wc -c < web/dist/assets/index.js) raw, $(gzip -9 -c web/dist/assets/index.js | wc -c) gzipped"
+          else
+            echo "SPA bundle: n/a in Phase 0 (lands in Phase 5) — reported separately from the image size per R11.4"
+          fi

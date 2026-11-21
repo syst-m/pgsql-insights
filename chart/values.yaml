@@ -1,0 +1,291 @@
+# =============================================================================
+# pgsi — the shipped default profile (R11.12)
+# =============================================================================
+# This file IS the default configuration: `helm install pgsi ./chart` with no -f
+# renders exactly what is here. R11.12 exists because 0.1.0 shipped only
+# values-production.yaml and values-lab.yaml, so an install with no -f produced
+# an undocumented fourth configuration.
+#
+#   values.yaml / values-default.yaml  this file — the shipped default
+#   values-production.yaml             documented delta: PVC-backed store, token
+#                                      auth on, ServiceMonitor on, tighter limits
+#   values-lab.yaml                    documented delta: in-memory store, auth
+#                                      off, ServiceMonitor off, single namespace,
+#                                      no PVC (R11.6, R13.6)
+#
+# Both profiles are deltas from this file, not replacements for it: every key they
+# change is commented with the value it overrides.
+# =============================================================================
+
+# R11.12 — name of the profile this file represents: default | production | lab.
+# The two delta files override it so the rendered objects and NOTES.txt can say
+# which profile produced them.
+profile: default
+
+image:
+  # R11.16 / Q6: the registry org is still provisional (`frankellis`). Until the
+  # org exists, the verifiable install path is the packaged chart tarball and the
+  # image is published to whatever registry the target environment has — see the
+  # README's "Provisional image registry" note and IMPLEMENTATION.md §5.
+  repository: ghcr.io/frankellis/pgsql-insights
+  # Empty → Chart.AppVersion. CI sets this to the git SHA tag (R11.16).
+  tag: ""
+  pullPolicy: IfNotPresent
+  # R11.4: the amd64 image is ~3.3 MB compressed (distroless + a static Go binary),
+  # far under the < 60 MB target. The SPA's gzipped JS is reported separately in CI.
+
+imagePullSecrets: []
+#   - name: registry-credentials
+
+# The binary is `pgsi` (IMPLEMENTATION.md D3); the chart keeps that name for all
+# rendered objects so `kubectl get deploy pgsi` matches `pgsi version`.
+nameOverride: pgsi
+fullnameOverride: ""
+
+# R11.15: --role=serve is the only v1 role and uses a ReadWriteOnce PVC, so the
+# default is exactly one replica. Raising it needs an RWX StorageClass or the
+# Postgres-backed store (R11.15).
+replicaCount: 1
+
+# -----------------------------------------------------------------------------
+# Runtime configuration (R11.8 precedence: CLI flags > PGSI_* env > ConfigMap > defaults)
+# -----------------------------------------------------------------------------
+# Phase 0's binary implements the flags below; the rest of the keys are rendered
+# into the ConfigMap now so the file shape is frozen before Phase 2 wires them up.
+config:
+  # Render the ConfigMap at all. The Deployment mounts it and carries its checksum,
+  # so keep this true unless you mount your own config via extraVolumes.
+  createConfigMap: true
+  # R8.7 — the address the HTTP server binds; the Service and both probes follow it.
+  listen: ":8080"
+  # R13.8 — graceful-shutdown drain budget. Keep below terminationGracePeriodSeconds.
+  shutdownTimeout: 10s
+  # Phase 2+ keys, rendered into the ConfigMap so the contract exists early:
+  #   store: sqlite            # sqlite | memory (R11.6 lab profile uses memory)
+  #   pollInterval: 60s        # R2.1
+  #   singleNamespace: ""      # R2.4 — scope discovery to one namespace
+  #   logSource: off           # R5.10
+  #   allowActions: []         # R12.8 — named mutations, off by default
+  #   maxStoreBytes: 536870912 # R13.5
+  extra: {}
+
+# Extra CLI arguments appended verbatim to `pgsi serve`.
+extraArgs: []
+
+# R8.8 — token auth on the API surface (Phase 5). Off in the default profile so
+# Phase 0/1 serves unauthenticated; values-production.yaml turns it on. The chart
+# key exists now so the profile is expressible before the implementation lands.
+auth:
+  enabled: false
+  # Secret the pod reads the API token from (key `token`). Required when enabled.
+  tokenSecret: ""
+  tokenKey: token
+
+# -----------------------------------------------------------------------------
+# Pod surface
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8080
+  # Empty → config.listen's port. Named `http` so probes and ServiceMonitor agree.
+  targetPort: ""
+  annotations: {}
+  # clusterIP: None          # headless for a StatefulSet-style install
+  # loadBalancerIP: 10.0.0.1
+
+# R11.2 — distroless has no shell, so BOTH probes are httpGet; an exec probe
+# cannot run. /healthz is liveness, /readyz is readiness (R8.7).
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /healthz
+    port: http
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /readyz
+    port: http
+    scheme: HTTP
+  initialDelaySeconds: 3
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+startupProbe:
+  enabled: false
+  httpGet:
+    path: /healthz
+    port: http
+    scheme: HTTP
+  failureThreshold: 30
+  periodSeconds: 2
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# R12.7 — PodSecurity `restricted`-compliant. Container-level fields carry
+# readOnlyRootFilesystem / allowPrivilegeEscalation / capabilities / seccompProfile;
+# pod-level carries runAsNonRoot / runAsUser / runAsGroup / seccompProfile / fsGroup.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# R12.7 — readOnlyRootFilesystem needs a writable /tmp as an emptyDir.
+tmpVolume:
+  enabled: true
+  sizeLimit: 64Mi
+  mountPath: /tmp
+
+# R11.15 — storage access-mode contract. ReadWriteOnce is the default and the
+# only mode the reference environment's StorageClasses (iscsi-ext4, iscsi-xfs)
+# offer; the collector/server split is gated on RWX or the Postgres-backed store.
+persistence:
+  enabled: true
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  # "" → the namespace's default StorageClass. The reference environment has
+  # iscsi-ext4 (default) and iscsi-xfs; neither is local-path.
+  storageClassName: ""
+  mountPath: /var/lib/pgsi
+  # Reuse an existing PVC instead of creating one (lab profile disables this).
+  existingClaim: ""
+
+terminationGracePeriodSeconds: 30
+revisionHistoryLimit: 3
+podAnnotations: {}
+commonLabels: {}
+commonAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+extraVolumes: []
+extraVolumeMounts: []
+
+# -----------------------------------------------------------------------------
+# RBAC (R12.1–R12.3)
+# -----------------------------------------------------------------------------
+rbac:
+  create: true
+  # R12.3 — the default install is namespaced. ClusterRole/ClusterRoleBinding are
+  # created ONLY when this is true, and helm uninstall removes them under the same
+  # gate (R11.10: no cluster-scoped residue).
+  allNamespaces: false
+  # R12.2 — pods/exec is effectively code execution in the pod namespace, so it is
+  # opt-in and absent from the default Role.
+  allowPodsExec: false
+  # Append-only escape hatch for environments with extra CRDs.
+  extraRules: []
+
+serviceAccount:
+  create: true
+  # "" → the chart fullname (`pgsi`).
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+# -----------------------------------------------------------------------------
+# Monitoring (R9.1, R9.6, R11.7)
+# -----------------------------------------------------------------------------
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+    interval: 60s
+    scrapeTimeout: 10s
+    # Labels your Prometheus requires to discover the ServiceMonitor.
+    # kube-prometheus-stack sets serviceMonitorSelector to {release: <release>};
+    # the reference environment's is `release: prom-operator`
+    # (docs/research/live-probe.md). {} on clusters with a permissive selector.
+    additionalLabels: {}
+    tlsConfig: {}
+    relabelings: []
+    metricRelabelings: []
+  # R11.7 — the PodMonitor variant, for scraping pod IPs directly.
+  podMonitor:
+    enabled: false
+    interval: 60s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+  # R9.6 — the rule set lands in Phase 4; the template exists now so enabling it
+    # later is a values change, not a chart change.
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
+    groups: []
+
+# -----------------------------------------------------------------------------
+# Optional surfaces (R11.7)
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # ingressClassName: nginx
+  hosts:
+    - host: pgsi.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #   - secretName: pgsi-tls
+  #     hosts: [pgsi.local]
+
+networkPolicy:
+  enabled: false
+  # Sources allowed to reach the UI/API port. When monitoring.serviceMonitor.enabled
+  # the Prometheus namespace is added automatically (R9.1).
+  ingressFrom: []
+  #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+  # true → no egress rules (all outbound allowed). false → restrict to egressPorts.
+  allowAllEgress: true
+  egressPorts:
+    - {port: 53, protocol: UDP}
+    - {port: 53, protocol: TCP}
+    - {port: 6443, protocol: TCP}
+    - {port: 5432, protocol: TCP}
+    - {port: 9187, protocol: TCP}
+  extraEgress: []
+  # Namespace where Prometheus lives, used to allow scrape traffic.
+  prometheusNamespace: monitoring
+
+podDisruptionBudget:
+  # Off by default: a PDB needs >= 2 replicas, and R11.15 caps the default
+  # install at 1 (RWO PVC). Enable together with a Postgres-backed store.
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Escape hatch: arbitrary extra manifests rendered verbatim under this release.
+extraManifests: []
+
+tests:
+  # chart/tests/test-connection.yaml — `helm test pgsi` curls /healthz through the
+  # Service (R16.4's install smoke test).
+  enabled: true
+  image:
+    repository: curlimages/curl
+    tag: "8.10.1"

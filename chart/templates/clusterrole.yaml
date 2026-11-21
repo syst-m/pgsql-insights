@@ -1,0 +1,17 @@
+{{- if and .Values.rbac.create .Values.rbac.allNamespaces }}
+# R12.3 — cluster-scoped RBAC exists ONLY when rbac.allNamespaces=true, and
+# R11.10's uninstall story depends on that: the same gate that creates the
+# ClusterRole/Binding removes them, so `helm uninstall` leaves no residue.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  {{- include "pgsi.rules" . | nindent 0 }}
+{{- end }}

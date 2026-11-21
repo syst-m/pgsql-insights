@@ -1,0 +1,12 @@
+{{- with .Values.extraManifests }}
+# Escape hatch (R11.7): arbitrary extra resources, rendered verbatim under the
+# release so environments can add their own objects without forking the chart.
+{{- range . }}
+---
+{{- if kindIs "string" . }}
+{{ . }}
+{{- else }}
+{{ toYaml . }}
+{{- end }}
+{{- end }}
+{{- end }}

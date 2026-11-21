@@ -1,0 +1,42 @@
+{{- if .Values.tests.enabled }}
+# R16.4 — `helm test pgsi` runs this hook pod: it curls /healthz through the
+# Service, which is the same assertion R11.14 asks a human to make.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "pgsi.fullname" . }}-test-connection
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  {{- with .Values.podSecurityContext }}
+  securityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: curl
+      image: {{ printf "%s:%s" .Values.tests.image.repository .Values.tests.image.tag | quote }}
+      args:
+        - -sSf
+        - http://{{ include "pgsi.fullname" . }}:{{ .Values.service.port }}/healthz
+      {{- with .Values.containerSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

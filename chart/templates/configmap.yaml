@@ -1,0 +1,23 @@
+{{- if .Values.config.createConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  # R11.8: the ConfigMap layer of the precedence chain (CLI flags > PGSI_* env >
+  # ConfigMap > built-in defaults). Phase 0's binary takes flags only, so the
+  # file is shipped now to freeze the contract before Phase 2 reads it.
+  config.yaml: |
+    listen: {{ .Values.config.listen | quote }}
+    shutdownTimeout: {{ .Values.config.shutdownTimeout | quote }}
+    {{- with .Values.config.extra }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

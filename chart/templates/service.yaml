@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # R8.7: the single HTTP port serves the API, the UI and /metrics. Named `http`
+    # so the probes (R11.2) and the ServiceMonitor (R9.1) reference it by name.
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "pgsi.selectorLabels" . | nindent 4 }}

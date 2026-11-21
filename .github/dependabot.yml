@@ -1,0 +1,21 @@
+# R11.16 — dependency policy. Dependabot and Renovate are both configured because
+# the spec names both; they cover different surfaces so they do not collide:
+# Dependabot owns the Go module graph and the GitHub Actions, Renovate owns the
+# container base images (Dockerfile digests) and the Helm chart's image tags.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule: {interval: weekly, day: monday, time: "06:00"}
+    open-pull-requests-limit: 5
+    labels: [dependencies, go]
+    groups:
+      go-minor-patches:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: {interval: weekly, day: monday, time: "06:00"}
+    open-pull-requests-limit: 5
+    labels: [dependencies, ci]

@@ -1,0 +1,128 @@
+# =============================================================================
+# pgsi — production profile (R11.6, R11.12)
+# =============================================================================
+# A DELTA from values.yaml, not a replacement: `helm install -f
+# chart/values-production.yaml` merges this on top of values.yaml, so only the
+# keys below change. Each key names what it overrides and why.
+#
+# R11.12: 0.1.0 shipped ONLY values-production.yaml and values-lab.yaml, so an
+# install with no -f silently produced an undocumented fourth configuration.
+# values.yaml is now that fourth configuration and this file is one of the two
+# documented deltas.
+# =============================================================================
+
+# Which profile this is (overridden from `default`).
+profile: production
+
+# --- Auth on (overrides auth.enabled: false) ---------------------------------
+# R8.8 — the API surface requires a bearer token in production. Create the Secret
+# out-of-band (sealed-secrets/external-secrets) and point at it; the chart never
+# renders a secret with a plaintext token.
+auth:
+  enabled: true
+  tokenSecret: pgsi-api-token
+  tokenKey: token
+
+# --- Tighter limits (overrides resources) ------------------------------------
+# The 50m/96Mi default is a lab-sized floor; a server with a real store needs more.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# --- Pull policy (overrides image.pullPolicy: IfNotPresent) ------------------
+# Production pins immutable tags (R11.16 publishes the git SHA), so Always is
+# redundant but explicit about intent.
+image:
+  pullPolicy: IfNotPresent
+
+# --- Persistence on (overrides persistence, same values, kept explicit) -------
+# R11.15: ReadWriteOnce + replicaCount 1 → the Deployment uses strategy: Recreate.
+persistence:
+  enabled: true
+  size: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  mountPath: /var/lib/pgsi
+  existingClaim: ""
+
+# --- Monitoring on (overrides monitoring, same values, kept explicit) ---------
+# R9.1 — the Service is scraped. Set additionalLabels to whatever your Prometheus
+# selects on; the reference environment needs `release: prom-operator`.
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+    interval: 60s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+  podMonitor:
+    enabled: false
+    interval: 60s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+  # R9.6 — the alert set lands in Phase 4; production turns the template on once
+  # the rules exist so the chart contract is exercised in CI now.
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
+    groups: []
+
+# --- RBAC (overrides rbac, kept explicit) ------------------------------------
+# R12.3 — production discovers all four CNPG clusters, which live in four
+# namespaces, so this profile is the one that flips to cluster-scoped RBAC.
+rbac:
+  create: true
+  allNamespaces: true
+  allowPodsExec: false
+  extraRules: []
+
+# --- NetworkPolicy on (overrides networkPolicy.enabled: false) ---------------
+networkPolicy:
+  enabled: true
+  ingressFrom: []
+  allowAllEgress: true
+  egressPorts:
+    - {port: 53, protocol: UDP}
+    - {port: 53, protocol: TCP}
+    - {port: 6443, protocol: TCP}
+    - {port: 5432, protocol: TCP}
+    - {port: 9187, protocol: TCP}
+  extraEgress: []
+  prometheusNamespace: monitoring
+
+# --- Hardening (overrides the two securityContext blocks, kept explicit) -----
+# R12.7 — identical to the default profile; repeated here so the production
+# profile is auditable on its own without opening values.yaml.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# --- Ingress on (overrides ingress.enabled: false) ---------------------------
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  hosts:
+    - host: pgsi.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

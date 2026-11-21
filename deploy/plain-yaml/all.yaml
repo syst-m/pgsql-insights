@@ -1,0 +1,351 @@
+---
+# Source: pgsi/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+automountServiceAccountToken: true
+
+---
+# Source: pgsi/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+data:
+  # R11.8: the ConfigMap layer of the precedence chain (CLI flags > PGSI_* env >
+  # ConfigMap > built-in defaults). Phase 0's binary takes flags only, so the
+  # file is shipped now to freeze the contract before Phase 2 reads it.
+  config.yaml: |
+    listen: ":8080"
+    shutdownTimeout: "10s"
+
+---
+# Source: pgsi/templates/pvc.yaml
+# R11.15 — the storage access-mode contract: ReadWriteOnce for --role=serve.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pgsi-data
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: "1Gi"
+
+---
+# Source: pgsi/templates/role.yaml
+# R12.1 — the default Role is namespaced and least-privilege; the verb set comes
+# from the shared helper so the namespaced and cluster-scoped variants cannot drift.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+rules:
+# --- CNPG clusters and their subresources (R1.2, R11.1) -------------------
+- apiGroups: ["postgresql.cnpg.io"]
+  resources:
+    - clusters
+    - clusters/status
+    - backups
+    - scheduledbackups
+    - pooledqueries
+    - clusterimages
+  verbs: ["get", "list", "watch"]
+# --- Workloads the product reads to map a cluster to its pods (R1.2, R5.x) --
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "events", "secrets"]
+  verbs: ["get", "list", "watch"]
+# --- R5.10: full Postgres logs. Inert while --log-source=off (R12.1). -----
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+# --- R1.6/R4.x: read a pod's HTTP endpoints (cnpg metrics exporter, pgbouncer)
+# Grants read access to a pod's HTTP surface, not to pod contents (R12.9).
+- apiGroups: [""]
+  resources: ["pods/proxy"]
+  verbs: ["create"]
+# --- Owner references and the monitoring surface we read (R11.7) -----------
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["monitoring.coreos.com"]
+  resources: ["podmonitors", "servicemonitors"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Source: pgsi/templates/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pgsi
+subjects:
+  - kind: ServiceAccount
+    name: pgsi
+    namespace: pgsi
+
+---
+# Source: pgsi/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+spec:
+  type: ClusterIP
+  ports:
+    # R8.7: the single HTTP port serves the API, the UI and /metrics. Named `http`
+    # so the probes (R11.2) and the ServiceMonitor (R9.1) reference it by name.
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+
+---
+# Source: pgsi/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+  annotations:
+    # R11.8: a ConfigMap change must roll the pod, since Phase 0's binary reads
+    # its configuration at start.
+    checksum/config: aa1fbbb47e60c1d4a298e15cf3768b1d17d70ed67bd84378d8f48af860298a20
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # R11.15: a ReadWriteOnce PVC cannot attach to two pods on different nodes, so
+  # RollingUpdate would strand the new pod in ContainerCreating. With an RWO-backed
+  # single replica the only correct strategy is Recreate.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgsi
+      app.kubernetes.io/instance: pgsi
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: pgsi-0.1.0
+        app.kubernetes.io/name: pgsi
+        app.kubernetes.io/instance: pgsi
+        app.kubernetes.io/version: "0.1.0-dev"
+        app.kubernetes.io/part-of: pgsql-insights
+      annotations:
+        checksum/config: aa1fbbb47e60c1d4a298e15cf3768b1d17d70ed67bd84378d8f48af860298a20
+    spec:
+      serviceAccountName: pgsi
+      # R12.7: pod-level securityContext (runAsNonRoot/runAsUser/seccompProfile/fsGroup).
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: pgsi
+          image: "ghcr.io/frankellis/pgsql-insights:0.1.0-dev"
+          imagePullPolicy: IfNotPresent
+          # R12.7: container-level hardening — readOnlyRootFilesystem,
+          # allowPrivilegeEscalation: false, capabilities drop [ALL], seccomp.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          # R11.1: one image, one process; the role is selected by the subcommand
+          # (R3.1). v1 ships `serve` only (IMPLEMENTATION.md D9).
+          args:
+            - serve
+            - --listen=:8080
+            - --shutdown-timeout=10s
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # R11.2: distroless has no shell, so both probes are httpGet — an exec
+          # probe cannot run inside the image.
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /readyz
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 96Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgsi
+              readOnly: true
+            # R12.7: readOnlyRootFilesystem requires a writable /tmp as an emptyDir.
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /var/lib/pgsi
+      volumes:
+        - name: config
+          configMap:
+            name: pgsi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: data
+          persistentVolumeClaim:
+            claimName: pgsi-data
+
+---
+# Source: pgsi/templates/servicemonitor.yaml
+# R9.1 — the Service is scraped directly; R11.7 ships the PodMonitor as a variant.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pgsi
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgsi
+      app.kubernetes.io/instance: pgsi
+  namespaceSelector:
+    matchNames:
+      - pgsi
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 10s
+---
+# Source: pgsi/templates/tests/test-connection.yaml
+# R16.4 — `helm test pgsi` runs this hook pod: it curls /healthz through the
+# Service, which is the same assertion R11.14 asks a human to make.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pgsi-test-connection
+  namespace: pgsi
+  labels:
+    helm.sh/chart: pgsi-0.1.0
+    app.kubernetes.io/name: pgsi
+    app.kubernetes.io/instance: pgsi
+    app.kubernetes.io/version: "0.1.0-dev"
+    app.kubernetes.io/part-of: pgsql-insights
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    fsGroup: 65532
+    runAsGroup: 65532
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: curl
+      image: "curlimages/curl:8.10.1"
+      args:
+        - -sSf
+        - http://pgsi:8080/healthz
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+

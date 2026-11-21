@@ -1,0 +1,14 @@
+# Patterns to ignore when building Helm packages (R11.6).
+.DS_Store
+.git/
+.gitignore
+.github/
+.idea/
+.vscode/
+*.tmp
+*.bak
+*.swp
+*.tgz
+# The rendered manifests live in deploy/, never inside the chart package.
+deploy/
+# values-*.yaml must ship in the package (R11.12), so they are NOT ignored here.

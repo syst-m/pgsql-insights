@@ -1,0 +1,103 @@
+# =============================================================================
+# pgsi — lab profile (R11.6, R11.12, R13.6)
+# =============================================================================
+# A DELTA from values.yaml (see R11.12). The lab profile is the configuration the
+# reference k3s environment is tested with: in-memory store, no PVC, auth off,
+# single namespace, no ServiceMonitor. R13.6 requires this profile to be testable
+# without a StorageClass, a registry login or an ingress controller.
+# =============================================================================
+
+# Which profile this is (overridden from `default`).
+profile: lab
+
+# --- No persistence (overrides persistence.enabled: true) --------------------
+# R13.6 — the lab install must work on a cluster with no StorageClass. The binary
+# uses its in-memory store here (R11.6); the Deployment drops the volume.
+persistence:
+  enabled: false
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  mountPath: /var/lib/pgsi
+  existingClaim: ""
+
+# --- Smaller footprint (overrides resources) ---------------------------------
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# --- Auth off (overrides auth.enabled: false, kept explicit) -----------------
+auth:
+  enabled: false
+  tokenSecret: ""
+  tokenKey: token
+
+# --- Single namespace (overrides rbac.allNamespaces: false, kept explicit) ---
+# R2.4 — a lab install scopes discovery to one namespace; the namespaced Role is
+# exactly the right size for that and no ClusterRole is created (R12.3).
+rbac:
+  create: true
+  allNamespaces: false
+  allowPodsExec: false
+  extraRules: []
+
+# --- Monitoring off (overrides monitoring.serviceMonitor.enabled: true) ------
+# The lab cluster may have no Prometheus operator, and the CRDs may not exist, so
+# the lab profile renders no monitoring.coreos.com objects at all.
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 60s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+  podMonitor:
+    enabled: false
+    interval: 60s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
+    groups: []
+
+# --- No ingress, no NetworkPolicy, no PDB (kept explicit) --------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: pgsi.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+networkPolicy:
+  enabled: false
+  ingressFrom: []
+  allowAllEgress: true
+  egressPorts:
+    - {port: 53, protocol: UDP}
+    - {port: 53, protocol: TCP}
+    - {port: 6443, protocol: TCP}
+    - {port: 5432, protocol: TCP}
+    - {port: 9187, protocol: TCP}
+  extraEgress: []
+  prometheusNamespace: monitoring
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# --- The test hook runs here too (R16.4) -------------------------------------
+tests:
+  enabled: true
+  image:
+    repository: curlimages/curl
+    tag: "8.10.1"

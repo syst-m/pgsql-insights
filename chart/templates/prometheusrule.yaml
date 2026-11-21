@@ -1,0 +1,17 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheusRule.enabled }}
+# R9.6 — the alert set is authored in Phase 4; the template exists now so turning
+# the rules on later is a values change, not a chart change.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    {{- toYaml .Values.monitoring.prometheusRule.groups | nindent 4 }}
+{{- end }}

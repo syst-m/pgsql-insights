@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+  annotations:
+    # R11.8: a ConfigMap change must roll the pod, since Phase 0's binary reads
+    # its configuration at start.
+    checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if and .Values.persistence.enabled (eq (int .Values.replicaCount) 1) (not .Values.persistence.existingClaim) }}
+  # R11.15: a ReadWriteOnce PVC cannot attach to two pods on different nodes, so
+  # RollingUpdate would strand the new pod in ContainerCreating. With an RWO-backed
+  # single replica the only correct strategy is Recreate.
+  strategy:
+    type: Recreate
+  {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "pgsi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pgsi.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "pgsi.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # R12.7: pod-level securityContext (runAsNonRoot/runAsUser/seccompProfile/fsGroup).
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ include "pgsi.name" . }}
+          image: {{ include "pgsi.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # R12.7: container-level hardening — readOnlyRootFilesystem,
+          # allowPrivilegeEscalation: false, capabilities drop [ALL], seccomp.
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          # R11.1: one image, one process; the role is selected by the subcommand
+          # (R3.1). v1 ships `serve` only (IMPLEMENTATION.md D9).
+          args:
+            - serve
+            - --listen={{ .Values.config.listen }}
+            - --shutdown-timeout={{ .Values.config.shutdownTimeout }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ include "pgsi.containerPort" . }}
+              protocol: TCP
+          # R11.2: distroless has no shell, so both probes are httpGet — an exec
+          # probe cannot run inside the image.
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            {{- toYaml (omit .Values.livenessProbe "enabled") | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            {{- toYaml (omit .Values.readinessProbe "enabled") | nindent 12 }}
+          {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            {{- toYaml (omit .Values.startupProbe "enabled") | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgsi
+              readOnly: true
+            {{- if .Values.tmpVolume.enabled }}
+            # R12.7: readOnlyRootFilesystem requires a writable /tmp as an emptyDir.
+            - name: tmp
+              mountPath: {{ .Values.tmpVolume.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- end }}
+            {{- if .Values.auth.enabled }}
+            - name: token
+              mountPath: /etc/pgsi/auth
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "pgsi.fullname" . }}
+        {{- if .Values.tmpVolume.enabled }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "pgsi.pvcName" . }}
+        {{- end }}
+        {{- if .Values.auth.enabled }}
+        - name: token
+          secret:
+            secretName: {{ required "auth.tokenSecret is required when auth.enabled=true (R8.8)" .Values.auth.tokenSecret }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

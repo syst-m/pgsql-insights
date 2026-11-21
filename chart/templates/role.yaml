@@ -1,0 +1,19 @@
+{{- if .Values.rbac.create }}
+{{- if not .Values.rbac.allNamespaces }}
+# R12.1 — the default Role is namespaced and least-privilege; the verb set comes
+# from the shared helper so the namespaced and cluster-scoped variants cannot drift.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pgsi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgsi.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  {{- include "pgsi.rules" . | nindent 0 }}
+{{- end }}
+{{- end }}

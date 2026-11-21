@@ -1,0 +1,13 @@
+pgsi {{ .Chart.AppVersion }} installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+  1. Pod status:      kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name={{ include "pgsi.name" . }}
+  2. Port-forward:    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pgsi.fullname" . }} 8080:{{ .Values.service.port }}
+  3. Health:          curl -s http://127.0.0.1:8080/healthz
+  4. Build info:      curl -s http://127.0.0.1:8080/api/v1/version
+  5. Metrics:         curl -s http://127.0.0.1:8080/metrics
+
+Profile in use: {{ if eq (include "pgsi.profile" .) "default" }}values.yaml (the shipped default, R11.12){{ else }}values-{{ include "pgsi.profile" . }}.yaml{{ end }}
+RBAC scope:     {{ if .Values.rbac.allNamespaces }}cluster-wide (rbac.allNamespaces=true, R12.3){{ else }}namespace {{ .Release.Namespace }} (default, R12.3){{ end }}
+Image:          {{ include "pgsi.image" . }}  (registry org provisional — Q6)
+
+Next steps are in the README: discover CNPG clusters (Phase 1), then the UI (Phase 5).

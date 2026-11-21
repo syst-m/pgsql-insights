@@ -1,0 +1,14 @@
+# R11.13 — the plain-yaml path is GENERATED, never hand-maintained:
+#   make render            # helm template, all three profiles
+#   make render-check      # re-render + git diff --exit-code deploy/plain-yaml
+# This kustomization points at the canonical (default-profile) manifest so a
+# kustomize user installs exactly what `helm install` would produce.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The namespace is also written into every manifest by the chart, so applying this
+# directory with `kubectl apply -k` needs no -n flag.
+namespace: pgsi
+
+resources:
+  - ../plain-yaml/all.yaml
