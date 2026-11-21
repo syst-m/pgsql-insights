@@ -2,9 +2,10 @@
 
 | | |
 |---|---|
-| **Version** | `0.2.0` (round-1 reviews incorporated) |
+| **Version** | `0.3.0` (Phase 1 split into 1a/1b — the UI is no longer scheduled last) |
 | **Date** | 2026-11-20 |
-| **Status** | Reviewed and consolidated — **Phase 0 unblocked** |
+| **Status** | Reviewed and consolidated — **Phase 0 complete, Phases 1a/1b unblocked** |
+| **Supersedes** | `0.2.0` (round-1 reviews incorporated) |
 | **Owners** | Frank Ellis (product), Claude (spec author) |
 | **Applies to** | CloudNativePG **1.29–1.30** on Kubernetes **1.34–1.36**, PostgreSQL **15–18** (13–14 documented, unvalidated — see R13.9). Target env: CNPG 1.30.0, PG **16.11 + 17.11**, k3s v1.37.2+k3s1 |
 | **Supersedes** | `0.1.0-draft` (`97172a4`), `0.1.0-draft` pre-review |
@@ -623,9 +624,12 @@ how that happens.
 
 ## 7. Delivery plan
 
-Ten phases (Phase 6 split into 6a/6b per A4-B6). Each phase lists deliverables, the requirement IDs
-it satisfies, its acceptance criteria, and the assigned agent. **No phase starts before the previous
-phase's validation entry is written into `IMPLEMENTATION.md`** (R14.2).
+Ten phases, **eleven slots** — Phase 6 split into 6a/6b per A4-B6, and Phase 1 split into **1a/1b**
+in v0.3.0 so the web UI ships alongside the first real API instead of four phases after it. Each
+phase lists deliverables, the requirement IDs it satisfies, its acceptance criteria, and the assigned
+agent. **No phase starts before the previous phase's validation entry is written into
+`IMPLEMENTATION.md`** (R14.2) — 1a and 1b are one phase with two owners, so they share a single
+validation entry covering both halves.
 
 ### 7.1 Agent allocation (the brief's hard constraint: 4 subagents max — 2 opus + 2 sonnet)
 
@@ -638,16 +642,24 @@ phase's validation entry is written into `IMPLEMENTATION.md`** (R14.2).
 
 Four agents total, reused via `SendMessage` for every phase. **The cap is spent; no fifth spawn.**
 
+**Ownership contradiction fixed in v0.3.0.** §7.1 has always said A4 owns *frontend/UI*, but §7.2
+assigned the SPA (Phase 5) and the Query-Insights UI (6b) to **A2** — so the roster and the plan
+disagreed about who builds the UI. Assigning Phase 1b to **A4** resolves it in favour of the roster,
+and it is the assignment that costs nothing: A4 finishes Phase 0 and has no further scheduled work
+until Phase 9, while A1 owns 1a and A2's Phase 4 backend track is untouched. A2 keeps every backend
+phase §7.2 gives it (4, 5, 6b, 7).
+
 ### 7.2 Phase table
 
 | Phase | Scope | Req IDs | Owner | Acceptance criteria |
 |---|---|---|---|---|
 | **0** | Repo skeleton, `go.mod`, Makefile, multi-arch Dockerfile, chart skeleton + `values-default.yaml`, generated `deploy/plain-yaml/all.yaml`, CI, image publication, LICENSE, `IMPLEMENTATION.md` | R11.1–R11.7, R11.9–R11.16, R12.1–R12.3, R13.9, R13.10, R14.1, R15.1, R15.2 | A4 | **R11.14**: image built **and deployed to the reference cluster**, pod `Running`, `/healthz` answers via the Service. Plus: `go build ./...` clean; `buildx --platform linux/amd64,linux/arm64` succeeds; `helm lint` clean; all three profiles render; CI green; `IMPLEMENTATION.md` exists with the WBS |
-| **1** | Discovery + kube client (per-port transport table) + `/api/v1/clusters` + `/healthz` + `/readyz` | R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7, R12.1–R12.3, R13.7, R13.8 | A1 | **All 4 reference clusters returned by `/api/v1/clusters`** with correct phase, instance counts, **servingInstances**, primary and PG major (16 vs 17 distinguished); `freeidp-pg` renders its degraded state (R1.2 **[A]**); `rev-proxy-pg` shows its Pooler; R1.6 passes |
+| **1a** | Discovery + kube client (per-port transport table) + `/api/v1/clusters` + `/healthz` + `/readyz` | R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7, R12.1–R12.3, R13.7, R13.8 | A1 | **All 4 reference clusters returned by `/api/v1/clusters`** with correct phase, instance counts, **servingInstances**, primary and PG major (16 vs 17 distinguished); `freeidp-pg` renders its degraded state (R1.2 **[A]**); `rev-proxy-pg` shows its Pooler; R1.6 passes |
+| **1b** | **The web UI, pulled forward from Phase 5** (see the note below this table): `web/` React + TypeScript + Vite app built and `go:embed`-ed into the binary (R10.1), the R10.2 design system, and the **Fleet** page rendering `/api/v1/clusters` (R10.4), with the R16.7 visual-regression harness stood up at the same time. Runs **in parallel with 1a** against the same `/api/v1/clusters` contract. | R10.1, R10.2, R10.4, R10.16, R16.7 | A4 | The SPA is served by the Go binary at `/` (no separate web server), and the Fleet page renders all 4 reference clusters from live API data: health distribution, sortable table with phase/instances/PG major, `freeidp-pg` showing its degraded state. R10.2's library decision recorded in `IMPLEMENTATION.md` §4 as a dated entry; R16.7 harness runs in CI and has ≥1 passing visual test per R10.12 state it can reach at this phase. |
 | **2** | Collector framework + PG version matrix + `database`/`settings`/`replication`/`wal` collectors + `/metrics` v1 (aggregate) + `pgsi_up` + global scheduler budget + **`pg_stat_statements` enablement flow** + `validate-env.sh` + ground-truth fixture + clock contract | R2.1–R2.9, R3.15, R8.1, R8.7, R9.2–R9.4, R9.7 (partial), R9.12, R11.8, R12.4, R12.5, R13.1, R13.2, R13.5, R13.11, R16.1, R16.2, R16.3, R16.5, R16.6 | A1 | Collection round < 3 s / < 40 round-trips per cluster (R13.1) on all 4 clusters; PG16 and PG17 both collect via the version matrix (R2.4 **[A]**); `/metrics` passes `promtool check metrics`; `scripts/validate-env.sh` prints a pass/fail table; the seeded fixture's values match ground truth (R16.6) |
 | **3** | `pg_stat_statements` collector + normalizer + query store + top-N API + per-query metrics family + rollup endpoints | R3.1–R3.8, R3.13, R3.14, R8.2 (insights endpoints), R8.4, R8.5, R9.5, R9.5b, R16.3 | A1 | Top-N table for each cluster matches a manual `SELECT … FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 50` within tolerance; normalizer output matches the fixture corpus; counter-reset test passes; series count within the §5 budget |
 | **4** | ServiceMonitor/PodMonitor, PrometheusRule with `critical` tier, cardinality assertion, end-to-end scrape by the reference env's kube-prometheus-stack | R9.1, R9.6, R9.8–R9.11, R13.3 (API p50/p95), R13.4, R16.4 | A2 | **The existing `prom-operator` Prometheus scrapes us and the series are queryable** (R9.9 **[A]**); `promtool check rules` passes; all 4 clusters' series present with correct labels |
-| **5** | Full API surface + OpenAPI + auth + PromQL pair + SPA shell with the **Fleet** page + UI test harness | R8.1–R8.9, R8.10, R8.11, R10.1–R10.4, R10.13, R10.14, R10.15, R10.16, R10.17, R10.24, R16.7 | A2 | `GET /api/v1/metrics/query?query=pgsi_up` returns a Prometheus-shaped result; OpenAPI doc committed and CI-validated; Fleet page renders all 4 clusters with health; `helm install` from a tarball works (R11.6 **[A]**); Vitest + Playwright suites green |
+| **5** | Full API surface + OpenAPI + auth + PromQL pair + the **Cluster Overview** page and the remaining shell requirements (page set R10.3, themes R10.13, load budget R10.14, time range R10.15, ⌘K search R10.17, cluster switcher R10.24). The SPA shell, Fleet page and test harness moved to **1b** in v0.3.0. | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | `GET /api/v1/metrics/query?query=pgsi_up` returns a Prometheus-shaped result; OpenAPI doc committed and CI-validated; Cluster Overview renders R10.5(a) query-load from R9.4 data and degrades R10.5(b) correctly when `metrics.k8s.io` is absent; `helm install` from a tarball works (R11.6 **[A]**); Vitest + Playwright suites green |
 | **6a** | Active queries + blocking chain + wait events + terminate + Active Queries & Wait Events pages + alerts surface | R4.1–R4.8, R10.8, R10.9, R10.25, R10.26 | A1 | Active list matches `pg_stat_activity` exactly on all 4 clusters (R4.1 **[A]**, R4.8 value equality); a real blocking pair renders as a chain; terminate works behind its gate |
 | **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A2 | Queries page renders the R3.2 column set exactly (incl. `Load by lock wait` = `n/a`); Query Detail renders load + latency + plans; the R10.27 not-installed screen renders for every cluster lacking the extension |
 | **7** | System Insights (OS + DB families, summary cards, compare-5, PNG/CSV export) + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | The five summary cards render for all 4 clusters (R5.1 **[A]**, values matched per R4.8's rule); CSV export byte-compares against a golden; PNG export produces a valid image; compare-5 works with 4 available clusters |
@@ -658,10 +670,20 @@ Four agents total, reused via `SendMessage` for every phase. **The cap is spent;
 §6 rows marked post-0.1 (flag recommender, OOM session cancel, performance capture, custom
 dashboards, AI troubleshooting, end-to-end trace).
 
-**Phase 0–2 is the "does this work at all" spine** and is deliberately backend-first: it produces a
-scrapeable, multi-cluster metrics surface and a JSON inventory before a single pixel is drawn,
-because that is the part the brief calls out as non-negotiable ("ensure the solution provides
-prometheus metrics so that multiple instances can be centralized"). The UI starts at Phase 5.
+**Phase 0–2 is the "does this work at all" spine** and is backend-first where the brief's
+non-negotiable sits ("ensure the solution provides prometheus metrics so that multiple instances can
+be centralized"). **It is no longer UI-last.** In v0.2.0 the UI began at Phase 5, which meant four
+phases of headless backend before a single graph — a sequencing error, not a spec gap: R10 was always
+written, but it was scheduled by *data dependency* (collect, then store, then serve, then draw)
+rather than by what the brief leads with ("web based … I would expect the UI … to have extremely easy
+to use graphs and visualizations"). **v0.3.0 splits Phase 1 into 1a (backend, A1) and 1b (the embedded
+SPA + Fleet page, A4), in parallel.** Two reasons beyond taste: (i) it costs no agent budget — the
+Phase 1 backend was always A1's, and the Phase 4/5 backend that A2 owns doesn't start until Phase 4,
+so the UI work slots into A4's capacity after Phase 0 without touching anyone else's critical path;
+and (ii) it de-risks **R8.11** and **R10.14** — the batched series endpoint and the <1.5 s load budget
+are designed *for* the UI, and building them at Phase 5 with no consumer in the room is how they get
+built wrong and reworked. Phase 5 keeps the Cluster Overview page and the shell requirements that
+genuinely need Phase 2–4 data.
 
 ### 7.3 Requirement → phase index
 
@@ -671,22 +693,22 @@ column and for `IMPLEMENTATION.md`'s R14.8 traceability table.
 
 | Group | IDs → phase |
 |---|---|
-| R1 | 1.1–1.9, 1.9b, 1.10, 1.11 → **1** |
+| R1 | 1.1–1.9, 1.9b, 1.10, 1.11 → **1a** |
 | R2 | 2.1–2.9 → **2** |
 | R3 | 3.1–3.8, 3.13, 3.14 → **3** · 3.15 → **2** · 3.9–3.12 → **6b** |
 | R4 | 4.1–4.8 → **6a** |
 | R5 | 5.1–5.8, 5.10 → **7** · 5.9 → **8** |
 | R6 | 6.1–6.5 → **8** |
 | R7 | 7.2, 7.4, 7.5, 7.6 → **8** · 7.1, 7.3 → **post-0.1** |
-| R8 | 8.1, 8.7 → **1** · 8.2, 8.4, 8.5 → **3** · 8.1–8.9, 8.10, 8.11 → **5** (full surface) |
+| R8 | 8.1, 8.7 → **1a** · 8.2, 8.4, 8.5 → **3** · 8.1–8.9, 8.10, 8.11 → **5** (full surface) |
 | R9 | 9.2–9.4, 9.7 (partial), 9.12 → **2** · 9.1, 9.6, 9.8–9.11 → **4** · 9.5, 9.5b → **3** · 9.7 (complete) → **7** · 9.13 → **6b** |
-| R10 | 10.1–10.4, 10.13, 10.14, 10.15, 10.16, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.10 → **7** · 10.11 → **8** |
+| R10 | 10.1, 10.2, 10.4, 10.16 → **1b** · 10.3, 10.13, 10.14, 10.15, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.10 → **7** · 10.11 → **8** |
 | R11 | 11.1–11.7, 11.9–11.16 → **0** (11.6 also re-validated at **5** and **9**) |
 | R12 | 12.1–12.3 → **0** · 12.4, 12.5 → **2** · 12.6–12.9 → **0** |
-| R13 | 13.9, 13.10 → **0** · 13.1, 13.2, 13.5, 13.11 → **2** · 13.7, 13.8 → **1** · 13.4 → **4** · 13.3 → **4** · 13.6 → **9** |
+| R13 | 13.9, 13.10 → **0** · 13.1, 13.2, 13.5, 13.11 → **2** · 13.7, 13.8 → **1a** · 13.4 → **4** · 13.3 → **4** · 13.6 → **9** |
 | R14 | 14.1 → **0** · 14.8 → **0** (updated every phase) · 14.3–14.7 → **9** · 14.2 → **every phase** |
 | R15 | 15.1, 15.2 → **0** · 15.3 → **9** |
-| R16 | 16.1, 16.2, 16.3, 16.5, 16.6 → **2** · 16.4 → **4** · 16.7 → **5** |
+| R16 | 16.1, 16.2, 16.3, 16.5, 16.6 → **2** · 16.4 → **4** · 16.7 → **1b** (harness created with the SPA) |
 
 ---
 
