@@ -693,15 +693,36 @@ genuinely need Phase 2–4 data.
 
 Generated from §7.2; every ID in §4 appears exactly once **as a primary assignment**. This table is
 the fix for the 0.1.0 defect where 18 IDs were defined and scheduled in no phase (A3-M7), and it is
-the source for §6's Phase column and for `IMPLEMENTATION.md`'s R14.8 traceability table.
+the source for §6's Phase column and for `IMPLEMENTATION.md`'s R14.8 traceability table. **The
+set-equality between §4's ID column and this index is now asserted**, by
+`scripts/check-parity-matrix.sh` (A3-Q2/D2): before that check existed, deleting an ID from a row
+shrank the index to 169 and the script still reported "agrees", which is precisely the B1/B2 defect
+class this table exists to prevent — validated §6 against the index, never the index against §4.
 
-**The annotation convention (A3-B3, v0.3.0).** An ID may appear under more than one phase only when
-the extra appearance is annotated: `X → n` names the phase that **owns** it, and `also re-validated
-at m` names a phase that re-tests it without owning it. A bare second assignment is a defect — two
-phases claiming one requirement with no statement of who is on the hook. The four annotated cases in
-v0.3.0 are R8 (1a and 3 partials, re-validated at 5), R11.6 (owned by 0, re-validated at 5 and 9),
-R12.1–12.3 (owned by 0, re-validated at 1a), and R10.4, which uses the column-scope form
-`10.4 *(inventory columns)* → 1b · *(metric columns)* → 5` — the same `(a)/(b)` form R10.5 already uses.
+**The annotation convention (A3-B3, v0.3.0; forms named canonically per A3-Q1).** An ID may appear
+under more than one phase only through one of four spelled forms. A bare second assignment is a
+defect — two phases claiming one requirement with no statement of who is on the hook.
+
+| form | literal spelling | meaning |
+|---|---|---|
+| **owner** | `X → n` | phase `n` owns `X` |
+| **re-validation** | `X → n` *(also re-validated at m)* | `n` owns it; `m` re-tests it without owning it |
+| **scope-split** | `X *(scope a)* → n · *(scope b)* → m` | the requirement splits by scope, each half owned separately — the `(a)/(b)` form R10.5 uses |
+| **universal** | `X → every phase` | applies continuously rather than once (R14.2, R14.8) |
+
+The checker parses all four: ownership comes from the `→ n` part in every form, and the
+parentheticals are stripped rather than mistaken for assignments. **The annotated-ID list is its
+output, not prose.** The v0.3.0 text hand-enumerated "four annotated cases" and was wrong on
+arrival — R9.7's `9.7 (partial) → 2 · 9.7 (complete) → 7` was missing from the list, and the
+parser silently dropped `1.9b`, `9.5b`, `9.7` and `10.16` (A3-Q1/D3: a greedy `[a-z]?$` swallowed
+the `b` suffixes, and a comma inside `*(page, sort)*` cut the token before the asterisks were
+stripped). The script now prints the set — 25 IDs as of this commit, index 174 where the old parser
+found 170 — so the enumeration cannot rot on the next edit.
+
+**Standing re-validation rule (A3-Q1.3).** **Phase 9 re-validates every requirement shipped before
+it.** A release pass is therefore one rule, not one §7.3 edit per ID — which is how R11.6 ended up
+as a parenthetical in the first place. R11.6 keeps its annotation because Phase 5 is named
+specifically; the `at 9` half is now covered by this rule rather than by the row.
 
 | Group | IDs → phase |
 |---|---|
