@@ -3,9 +3,10 @@
 // These structs are the wire format the Web UI renders (R10), and they are
 // API-critical: Phase 1b builds the Fleet page against them in parallel with
 // the handlers, so a json tag changed here is a breaking change for the SPA.
-// testdata/clusters.golden.json is the byte-level contract — TestGoldenFixtureIsCanonical
-// re-marshals the fixture and fails on any difference, so a field rename cannot
-// land without the fixture being updated in the same commit.
+// testdata/api/clusters.json is the byte-level contract — R16.8 names that
+// path, and TestGoldenFixtureIsCanonical re-marshals the fixture and fails on
+// any difference, so a field rename cannot land without the fixture being
+// updated in the same commit. The SPA's Vitest suite consumes the same file.
 //
 // Naming follows the CNPG v1 API wherever a field has a CNPG counterpart
 // (phase, phaseReason, currentPrimary, instances, readyInstances, pvcs) so
@@ -32,6 +33,49 @@ type Meta struct {
 	// sort key plus a secondary (namespace, name) key so paging is stable
 	// while the inventory mutates.
 	NextCursor string `json:"nextCursor,omitempty"`
+
+	// Failed and Loading are R10.22's partial-render banner: the page that
+	// shows 3 of 4 clusters has to say so instead of looking plausibly
+	// complete. R8.4's envelope predates R10.22 and has no field for it, so
+	// they live here rather than as a second top-level key, and the envelope
+	// stays exactly R8.4's shape.
+	//
+	// The unit is the namespace, not the cluster, because that is the unit
+	// discovery fails at (R1.1's allow-list and R12's RBAC both scope by
+	// namespace): a namespace whose watch errored contributes no clusters, so
+	// there is no ClusterView to hang an `error` field on. That is also why
+	// meta.total counts what the response can serve (3), not what was
+	// attempted (4) — "attempted" is total + len(failed) + len(loading), and
+	// putting it in total would make total mean two different things.
+	//
+	// Truncated stays purely about pagination (R8.10): a page can be complete
+	// and still have a failed namespace, and a truncated page can have zero
+	// failures. The UI composes the banner sentence from these fields; there
+	// is no server-side `message` because the wording is R10.22's, not the
+	// API's.
+	Failed  []NamespaceFailure `json:"failed,omitempty"`
+	Loading []string           `json:"loading,omitempty"`
+}
+
+// NamespaceFailure is one namespace whose discovery pass errored (R10.22).
+type NamespaceFailure struct {
+	// Namespace is the namespace that failed to list/watch.
+	Namespace string `json:"namespace"`
+	// Code is from the same R8.5 enum as ErrorBody.Code — typically
+	// ErrForbidden (the ServiceAccount cannot read that namespace, R12.3),
+	// ErrUnavailable (kube API timeout) or ErrInternal. Reusing the enum is
+	// deliberate: the UI already switches on these codes for whole-request
+	// errors and should not need a second vocabulary for partial ones.
+	Code string `json:"code"`
+	// Message is the underlying error text, e.g. `cannot list clusters:
+	// forbidden`.
+	Message string `json:"message"`
+	// LastSuccessTime is when this namespace last synced successfully, so the
+	// UI can say "stale since 09:12" rather than only "failed". A pointer
+	// because encoding/json's omitempty never fires on a struct value — a bare
+	// time.Time would emit "0001-01-01T00:00:00Z" for "never synced" instead
+	// of omitting the field.
+	LastSuccessTime *time.Time `json:"lastSuccessTime,omitempty"`
 }
 
 // Envelope is the response wrapper for every list endpoint (R8.4).
@@ -115,8 +159,10 @@ type ClusterView struct {
 	// PGMajor is the PostgreSQL major version resolved per R1.3: the
 	// app.kubernetes.io/version pod label first, SQL
 	// current_setting('server_version_num') as the fallback, cached per
-	// cluster. 0 when neither source is available yet.
-	PGMajor int `json:"pgMajor"`
+	// cluster. Null when neither source has answered yet — a 0 would render
+	// as a real version in the Fleet table's "PG major" column, and R1.3's
+	// whole point is that the answer is sometimes not known yet.
+	PGMajor *int `json:"pgMajor"`
 	// PGImage is the image the CR reports (status.image, falling back to
 	// spec.imageName) — kept because the label's "17" cannot express 17.11,
 	// and R2.4's matrix keys off the exact minor.
@@ -156,6 +202,14 @@ type ClusterView struct {
 	// change A4 has to react to, so it is here from the start.
 	CreatedAt time.Time `json:"createdAt"`
 }
+
+// The R10.4 metric columns (TPS, p95 latency, connections %, disk %) and the
+// "top finding" column are deliberately absent from ClusterView: they are
+// Phase 5's R9 contract and Phase 6's insight engine, and the UI derives both
+// the metric values and the healthy/degraded/down rollup from the counts above
+// rather than reading a server-side judgement. Adding them here later is
+// additive; guessing their shape now would commit Phase 1a to a contract Phase
+// 5 owns.
 
 // CredentialSource values (R1.8's precedence chain, most to least specific).
 const (

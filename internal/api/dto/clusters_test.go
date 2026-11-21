@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // goldenPath is the committed contract for GET /api/v1/clusters: the four
@@ -120,8 +121,12 @@ func TestReferenceEnvironmentAcceptance(t *testing.T) {
 		if got.CurrentPrimary != want.primary {
 			t.Errorf("%s: currentPrimary = %q, want %q", key, got.CurrentPrimary, want.primary)
 		}
-		if got.PGMajor != want.pgMajor {
-			t.Errorf("%s: pgMajor = %d, want %d (R1.3 must distinguish 16 from 17)", key, got.PGMajor, want.pgMajor)
+		// pgMajor is a pointer (R1.3's answer is sometimes not known yet), so
+		// a missing one is an error rather than a zero rendering as a version.
+		if got.PGMajor == nil {
+			t.Errorf("%s: pgMajor is null, want %d (R1.3)", key, want.pgMajor)
+		} else if *got.PGMajor != want.pgMajor {
+			t.Errorf("%s: pgMajor = %d, want %d (R1.3 must distinguish 16 from 17)", key, *got.PGMajor, want.pgMajor)
 		}
 		if got.Instances != want.desired || got.ReadyInstances != want.ready || got.ServingInstances != want.serving {
 			t.Errorf("%s: instances/ready/serving = %d/%d/%d, want %d/%d/%d",
@@ -270,6 +275,59 @@ func TestErrorShape(t *testing.T) {
 	want = `{"error":{"code":"PromQLUnavailable","message":"not in catalogue","details":["q1: unknown metric","q2: range too wide"]}}`
 	if string(b) != want {
 		t.Fatalf("error body =\n%s\nwant\n%s", b, want)
+	}
+}
+
+// TestMetaPartial pins R10.22's partial-render contract and settles the three
+// questions it raises:
+//
+//   - meta.total counts clusters the response can serve, not namespaces
+//     attempted, so a 3-of-4 page says total:3 and explains the fourth in
+//     meta.failed — "attempted" would be total + len(failed) + len(loading).
+//   - truncated stays purely R8.10's pagination flag; a complete page with a
+//     failed namespace has truncated:false and a non-empty failed[].
+//   - failures are per namespace, not per cluster, because a namespace whose
+//     watch errored contributes no ClusterView to hang an error on.
+func TestMetaPartial(t *testing.T) {
+	at := time.Date(2026, 11, 20, 9, 12, 0, 0, time.UTC)
+	last := time.Date(2026, 11, 20, 8, 45, 0, 0, time.UTC)
+
+	b, err := json.Marshal(Meta{
+		Total: 3, GeneratedAt: at,
+		Failed: []NamespaceFailure{
+			{Namespace: "legacy", Code: ErrForbidden, Message: "cannot list clusters: forbidden", LastSuccessTime: &last},
+		},
+		Loading: []string{"billing"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"total":3,"truncated":false,"generatedAt":"2026-11-20T09:12:00Z",` +
+		`"failed":[{"namespace":"legacy","code":"Forbidden","message":"cannot list clusters: forbidden","lastSuccessTime":"2026-11-20T08:45:00Z"}],` +
+		`"loading":["billing"]}`
+	if string(b) != want {
+		t.Fatalf("meta =\n%s\nwant\n%s", b, want)
+	}
+
+	// A complete page omits both (the reference fixture's case).
+	b, err = json.Marshal(Meta{Total: 4, GeneratedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want = `{"total":4,"truncated":false,"generatedAt":"2026-11-20T09:12:00Z"}`; string(b) != want {
+		t.Fatalf("meta =\n%s\nwant\n%s", b, want)
+	}
+
+	// A namespace that has never synced omits lastSuccessTime — the UI renders
+	// "never synced" from its absence rather than from a zero timestamp.
+	b, err = json.Marshal(Meta{Total: 0, GeneratedAt: at,
+		Failed: []NamespaceFailure{{Namespace: "brand-new", Code: ErrUnavailable, Message: "connection refused"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = `{"total":0,"truncated":false,"generatedAt":"2026-11-20T09:12:00Z","failed":[{"namespace":"brand-new","code":"Unavailable","message":"connection refused"}]}`
+	if string(b) != want {
+		t.Fatalf("meta =\n%s\nwant\n%s", b, want)
 	}
 }
 
