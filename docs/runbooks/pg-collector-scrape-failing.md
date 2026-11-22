@@ -1,7 +1,7 @@
 # pgsi has not successfully collected from a cluster in three poll intervals
 
 **Alert:** `PGCollectorScrapeFailing` · **severity:** `warning` · **for:** `10m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGCollectorScrapeFailing.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-collector-scrape-failing.md`
 
 ```promql
 time() - max by (namespace, cluster) (pgsi_collector_last_success_timestamp{cluster!=""}) > 3 * 60

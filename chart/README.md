@@ -268,7 +268,7 @@ deferred to Phase 2's `/metrics` rather than validated now.
 
 ---
 
-## Alert rules (R9.11) and runbooks (R13.6)
+## Alert rules (R9.11) and runbooks (R14.4)
 
 `templates/prometheusrule.yaml` renders `metrics.prometheusRule.groups` verbatim and
 is off in all three profiles. R9.11's rule set (≥10 rules, a `critical` tier CNPG's

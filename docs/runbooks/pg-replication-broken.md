@@ -1,7 +1,7 @@
 # A replica claims to be in recovery but has no WAL receiver running
 
 **Alert:** `PGReplicationBroken` · **severity:** `critical` · **for:** `5m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGReplicationBroken.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-replication-broken.md`
 
 ```promql
 max by (namespace, cluster) (cnpg_pg_replication_in_recovery) > max by (namespace, cluster) (cnpg_pg_replication_is_wal_receiver_up)

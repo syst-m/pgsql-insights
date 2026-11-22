@@ -1,7 +1,7 @@
 # More than 10 deadlocks per hour on a database
 
 **Alert:** `PGDeadlockRateHigh` · **severity:** `warning` · **for:** `1h`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGDeadlockRateHigh.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-deadlock-rate-high.md`
 
 ```promql
 increase(cnpg_pg_stat_database_deadlocks{cluster!=""}[1h]) > 10

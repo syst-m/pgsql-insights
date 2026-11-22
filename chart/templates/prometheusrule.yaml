@@ -27,7 +27,7 @@
 # cnpg-default-alerts lacks (all 7 of its rules are `warning`), and 16 rules
 # across the two tiers where R9.11 requires >= 10, each carrying
 # summary/description/runbook_url — the runbook linkage CNPG's set omits. The
-# runbook URLs point at docs/runbooks/, which is Phase 9's deliverable (R14.3);
+# runbook URLs point at docs/runbooks/, which is Phase 9's deliverable (R14.4);
 # they are committed now so the alert set stops changing when the docs land.
 #
 # Every $labels/$value reference is written as {{ "{{ $labels.pod }}" }} so Helm

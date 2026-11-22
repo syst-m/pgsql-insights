@@ -1,7 +1,7 @@
 # The data volume is above 90 % of its configured limit
 
 **Alert:** `PGDiskSpaceLow` · **severity:** `critical` · **for:** `10m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGDiskSpaceLow.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-disk-space-low.md`
 
 ```promql
 cnpg_collector_pg_wal{cluster!="",value="volume_size"} > 0.9 * on (namespace, pod) cnpg_collector_pg_wal{cluster!="",value="volume_max"}

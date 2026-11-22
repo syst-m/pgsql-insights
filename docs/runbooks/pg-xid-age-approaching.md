@@ -1,7 +1,7 @@
 # CNPG-parity early warning on transaction ID age
 
 **Alert:** `PGXIDAgeApproaching` · **severity:** `warning` · **for:** `1h`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGXIDAgeApproaching.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-xid-age-approaching.md`
 
 ```promql
 max by (namespace, cluster, database) (cnpg_pg_database_xid_age{cluster!=""}) > 300000000

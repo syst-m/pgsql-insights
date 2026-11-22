@@ -1,7 +1,7 @@
 # WAL archiving is failing on the primary
 
 **Alert:** `PGWALArchivingFailing` · **severity:** `critical` · **for:** `5m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGWALArchivingFailing.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-wal-archiving-failing.md`
 
 ```promql
 (cnpg_pg_stat_archiver_last_failed_time - cnpg_pg_stat_archiver_last_archived_time) > 1 and on (namespace, pod) cnpg_pg_replication_in_recovery == 0

@@ -1,7 +1,7 @@
 # Transaction IDs approaching the 2^31 wraparound cliff
 
 **Alert:** `PGXIDWraparoundRisk` · **severity:** `critical` · **for:** `30m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGXIDWraparoundRisk.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-xid-wraparound-risk.md`
 
 ```promql
 max by (namespace, cluster, database) (cnpg_pg_database_xid_age{cluster!=""}) > 1500000000

@@ -1,7 +1,7 @@
 # A replica is more than 5 minutes behind its primary
 
 **Alert:** `PGReplicationLagHigh` · **severity:** `critical` · **for:** `5m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGReplicationLagHigh.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-replication-lag-high.md`
 
 ```promql
 max by (namespace, cluster) (cnpg_pg_replication_lag{cluster!=""}) > 300

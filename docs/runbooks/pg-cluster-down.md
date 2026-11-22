@@ -1,7 +1,7 @@
 # Postgres is not answering on a cluster that has pods
 
 **Alert:** `PGClusterDown` · **severity:** `critical` · **for:** `5m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGClusterDown.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-cluster-down.md`
 
 ```promql
 count by (namespace, cluster) (cnpg_pg_postmaster_start_time{cluster!=""}) == 0

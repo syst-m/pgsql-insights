@@ -1,7 +1,7 @@
 # A transaction has been open for more than 5 minutes
 
 **Alert:** `PGLongRunningTransaction` · **severity:** `warning` · **for:** `5m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGLongRunningTransaction.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-long-running-transaction.md`
 
 ```promql
 max by (namespace, cluster, pod) (cnpg_backends_max_tx_duration_seconds{cluster!=""}) > 300

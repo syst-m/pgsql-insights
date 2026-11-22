@@ -1,7 +1,7 @@
 # pgsi's own /metrics is not being scraped
 
 **Alert:** `PGSIUnreachable` · **severity:** `warning` · **for:** `10m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGSIUnreachable.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-unreachable.md`
 
 ```promql
 absent(pgsi_up)

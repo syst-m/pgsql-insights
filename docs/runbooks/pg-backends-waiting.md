@@ -1,7 +1,7 @@
 # More backends are waiting on locks than the cluster's normal contention
 
 **Alert:** `PGBackendsWaiting` · **severity:** `warning` · **for:** `10m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGBackendsWaiting.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-backends-waiting.md`
 
 ```promql
 max by (namespace, cluster, pod) (cnpg_backends_waiting_total{cluster!=""}) > 300

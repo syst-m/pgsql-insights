@@ -1,7 +1,7 @@
 # Fewer pods are Ready for a cluster than the Cluster CR asks for
 
 **Alert:** `PGNoRunningPods` · **severity:** `critical` · **for:** `10m`
-**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/PGNoRunningPods.md`
+**URL:** `https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pg-no-running-pods.md`
 
 ```promql
 count by (namespace, cluster) (kube_pod_status_ready{condition="true",job="kube-state-metrics"} * on (namespace, pod) group_left (cluster) cnpg_pg_postmaster_start_time{cluster!=""}) < count by (namespace, cluster) (cnpg_pg_postmaster_start_time{cluster!=""})
