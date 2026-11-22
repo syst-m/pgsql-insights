@@ -60,14 +60,21 @@ Playwright with 12 committed baselines).
 The brief caps the whole process at four subagents. That cap is **spent**; every remaining phase
 reuses these four via `SendMessage` rather than spawning new agents.
 
-| Slot | Model | Spawned for | Now owns |
-|---|---|---|---|
-| **A1** | opus | Cloud SQL research | Go backend: collector framework, PG version matrix, store, query engine |
-| **A2** | sonnet | CNPG research | Go backend: HTTP API, OpenAPI, metrics export, PromQL pair |
-| **A3** | opus | Round-1 architecture review | Architecture, spec maintenance, per-phase validation |
-| **A4** | sonnet | Round-1 product review | Frontend/UI, Helm chart, packaging, docs |
+Full specification — the cap, saturation, per-slot charter, observed failure modes, the shared
+operating contract, and how to reproduce a run — is in [`docs/agents.md`](docs/agents.md); the
+spawnable definitions are in [`.claude/agents/`](.claude/agents/). This table is the summary and
+must not diverge from either.
 
-Phase→agent assignment is in `requirements.md` §7.2. **No phase may spawn a fifth agent.**
+| Slot | Agent file | Model | Spawned for | Now owns |
+|---|---|---|---|---|
+| **A1** | [`a1-backend`](.claude/agents/a1-backend.md) | opus | Cloud SQL research | Go backend: `cmd/pgsi`, discovery, collector framework, PG version matrix, store, query engine, `api/dto` |
+| **A2** | [`a2-api-metrics`](.claude/agents/a2-api-metrics.md) | sonnet | CNPG research | Go API surface: HTTP handlers, auth/CORS, OpenAPI, `/metrics` export, PromQL pair |
+| **A3** | [`a3-review`](.claude/agents/a3-review.md) | opus | Round-1 architecture review | Architecture, spec maintenance, per-phase validation, review of every spec change |
+| **A4** | [`a4-frontend`](.claude/agents/a4-frontend.md) | sonnet | Round-1 product review | Frontend/UI, Helm chart, packaging, docs |
+
+Phase→agent assignment is in `requirements.md` §7.2. **No phase may spawn a fifth agent** — and
+the cap is a floor as well as a ceiling: dispatch to every idle slot in the same turn rather than
+working the chain through one agent (`docs/agents.md` §2).
 
 ---
 
