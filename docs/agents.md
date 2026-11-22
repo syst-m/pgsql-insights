@@ -144,9 +144,27 @@ These apply to every slot.
    agents share one working tree; a blanket add sweeps another agent's in-flight files into your
    commit and attributes their work to you. The subtler form of the same bug is `git add <path>`
    followed by a bare `git commit`: `git commit` commits the whole *index*, not merely what you
-   just added, so a one-line spec fix once shipped 21 of another slot's staged files (5,995 lines)
-   under its message. `git commit -- <path> [<path>…]` commits only the named paths and leaves the
-   rest of the index staged for its owner.
+   just added, so a one-line spec fix once shipped 21 of another slot's staged files (6,020 lines —
+   `4e10ed4`, "R8.1b: correct the operation count to 15": 22 files, reset away and re-committed as
+   `3c18f45` plus `362e8d3`) under its message. `git commit -- <path> [<path>…]` commits only the
+   named paths and leaves the rest of the index staged for its owner.
+
+   The same rule has a second half, about **under**-inclusion, and it is now shared contract rather
+   than A4's own note: *a commit that takes part of a change set must take all of it,
+   transitively.* After any commit that absorbs files from another slot's tree — or splits your own
+   change set in two — grep the new commit for every command its own files invoke (`make <target>`,
+   `scripts/<x>.sh`, `bin/<tool>`, a CI `run:` line, a Go `//go:generate`) and confirm each one
+   resolves in that same commit. **Read the check transitively:** a `Makefile` is itself a file that
+   invokes commands, so its recipe lines are in scope too, not only the `run:` lines of the workflow
+   that calls the Makefile. Two instances, both A4's: `4e10ed4` shipped A2's `ci.yml` without the
+   `Makefile` that file runs, so `make: *** No rule to make target 'openapi-check'` at the tip from
+   `362e8d3` onward; and `45a69a1` passed the one-level reading while shipping the `Makefile` whose
+   `openapi-check:` target runs `python3 scripts/check-openapi.py` with that script still
+   uncommitted in A2's tree (closed at `02381ba`). The rule was satisfiable both times — the two
+   files had to ship together, or neither. It binds every slot and not only the one that has broken
+   it, because any commit can contain a file that invokes something: A1's Go files have
+   `//go:generate` and `testdata/` reads, A2's have `scripts/check-openapi.py`, and A3's own parity
+   checker is a script a Makefile target runs.
 2. **One commit per phase**, containing that phase's code **and** its `IMPLEMENTATION.md` update
    (R14.1). Small in-phase commits are fine; the phase-closing commit carries both.
 3. **Attribution is the committing model's own**, not a fixed string:

@@ -40,21 +40,20 @@ computable, so compute it.
 - **Types built from prose while the real contract was still in flight**, then a client that cast
   the response and defaulted a missing key to `[]` — a blank page indistinguishable from an empty
   fleet. Import the golden JSON; let `tsc` be the drift check.
-- **A commit split that absorbs half of another slot's change set.** Their `b43fbdf` split pulled
-  A2's unstaged `ci.yml` into `4e10ed4` but left the `Makefile` defining the very target that
-  `ci.yml` runs — converting a clean "not yet wired" state into
-  `make: *** No rule to make target 'openapi-check'` at the branch tip, red on every commit from
-  `362e8d3` onward. Absorb the whole change set or none of it. The check is mechanical: after any
-  absorb, grep the new commit for every command its own files invoke (`make <target>`,
-  `scripts/<x>.sh`, `bin/<tool>`) and confirm each one resolves in that same commit.
+- **A commit split that absorbs half of another slot's change set.** Your own `4e10ed4` — the
+  one-line "R8.1b: correct the operation count to 15" — took the whole index: 22 files, 6,020
+  insertions, including A2's `ci.yml` but not the `Makefile` that file runs, which turned a clean
+  "not yet wired" state into `make: *** No rule to make target 'openapi-check'` at the branch tip,
+  red on every commit from `362e8d3` onward. `45a69a1` repeated the class one level down: it
+  shipped the `Makefile` whose `openapi-check:` target runs `python3 scripts/check-openapi.py`
+  while that script sat uncommitted in A2's tree, so the target resolved and the thing it invoked
+  did not (closed at `02381ba`).
 
-  **Read that check transitively.** A `Makefile` is itself a file that invokes commands, so its
-  recipe lines are in scope too, not just the `run:` lines of the CI workflow that calls it.
-  `45a69a1` passed the one-level reading and was still red: it committed the `Makefile` whose
-  `openapi-check:` target runs `python3 scripts/check-openapi.py`, and that script was another
-  slot's uncommitted file, so the target resolved and the thing it invoked did not. Closed at
-  `02381ba`. The rule was satisfiable at `45a69a1` — the Makefile and the script had to ship
-  together, or neither.
+  **The rule itself is now shared contract at [`docs/agents.md` §5.1](../docs/agents.md)** —
+  including the transitivity clause (a `Makefile` is itself a file that invokes commands, so its
+  recipe lines are in scope, not just the CI workflow's `run:` lines). Read the check there; this
+  bullet is the record of A4's two instances, not the normative text. It moved because the rule
+  binds every slot's commits, and a rule filed under one slot binds only that slot.
 
 - **Received a brief that belonged to another slot.** Phase 4 is A2's; the chart half is yours. If
   a brief names a phase, check `requirements.md` §7.2 before building — running two agents on one
