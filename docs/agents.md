@@ -165,6 +165,24 @@ These apply to every slot.
    it, because any commit can contain a file that invokes something: A1's Go files have
    `//go:generate` and `testdata/` reads, A2's have `scripts/check-openapi.py`, and A3's own parity
    checker is a script a Makefile target runs.
+
+   The rule has a third half, about **wrong content** rather than over- or under-inclusion: *a
+   pathspec commit takes the working tree's content for that path, so the commit is only yours if
+   the working tree is.* `git commit -- <path>` does not read the index you built — it snapshots the
+   file as it sits on disk. Two consequences. A pathspec commit made while another slot's edit is in
+   that same file commits their edit too, under your message, so the index isolation the command
+   appears to offer is not real for a shared file. And a writer that fails before it writes
+   produces exactly that shape: the file is byte-identical to HEAD, and the commit succeeds with
+   your message and an empty diff for the change you meant to make. A2 hit both at once at
+   `3b5c774` (first committed as `1dd6286`, then amended): the script that was to rewrite a table
+   row died with a `SyntaxError`, so the file it "wrote" was HEAD's own bytes, and the commit
+   shipped A3's §3.5 hunk under A2's message with none of A2's intended text. **The guard is one
+   command, run before the SHA is announced:** `git show --stat <sha>`, plus a grep for a string
+   only your edit contains. If the diff isn't what you wrote, amend rather than stacking a fix-up
+   commit on top — safe while the commit is HEAD and nobody has built on it, and worth saying in the
+   message when the commit also carries someone else's hunk. Three instances of rule 1 now, three
+   different failure modes: index sweep (`4e10ed4`), recipe-line reference (`45a69a1`),
+   working-tree content from a silently failed writer (`3b5c774`, wording from A4's postmortem).
 2. **One commit per phase**, containing that phase's code **and** its `IMPLEMENTATION.md` update
    (R14.1). Small in-phase commits are fine; the phase-closing commit carries both.
 3. **Attribution is the committing model's own**, not a fixed string:
