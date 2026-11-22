@@ -84,7 +84,7 @@ cover:
 		{ echo "FAIL: coverage $$total% is below the 70% gate (R11.11)"; exit 1; }
 
 ## lint: go vet + golangci-lint when installed (R11.11)
-lint: vet lint-go openapi-check
+lint: vet lint-go openapi-check cardinality-check
 
 vet:
 	go vet ./...
@@ -107,6 +107,19 @@ lint-go:
 # and that the two lists are disjoint.
 openapi-check:
 	python3 scripts/check-openapi.py
+
+## cardinality-check: R13.4's assertion — the exported series count for the fixture
+## cluster set, computed from requirements.md §5's family table.
+## R13.4 asks for the budget "per §5 … with a CI-checkable assertion that the exported
+## series count for a fixture cluster set stays under the documented bound". The budget
+## is documented (chart/README.md, R9.10); this is the assertion half, which chart/README.md:229
+## names as "the artifact that settles it". It parses the table and the fixture rather than
+## carrying a literal, because a literal would be a second hand-computed number able to drift
+## from the table it supersedes — the defect class that left three different totals in three
+## files. Counting the live /metrics is not an option yet: the binary exports one metric
+## (pgsi_build_info), so that check would be `1 < 24 480`.
+cardinality-check:
+	python3 scripts/cardinality-check.py --quiet
 
 ## tidy-check: fail if go.mod is not tidy (R13.10: no replace, tidy in CI)
 tidy-check:

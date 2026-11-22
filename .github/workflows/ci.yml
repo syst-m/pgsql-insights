@@ -75,6 +75,12 @@ jobs:
       # mirror (R11.11: CI runs no command the Makefile lacks).
       - name: OpenAPI document validates (R8.1)
         run: make openapi-check
+      # R13.4's assertion half: the exported series count for the fixture cluster set,
+      # computed from requirements.md §5's family table. `make cardinality-check` is its
+      # local mirror (R11.11). It gates on the highest published figure, so a table edit
+      # that outruns the published budget fails here rather than in a Prometheus bill.
+      - name: cardinality budget (R13.4)
+        run: make cardinality-check
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet
