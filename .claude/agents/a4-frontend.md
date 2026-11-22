@@ -48,6 +48,14 @@ computable, so compute it.
   absorb, grep the new commit for every command its own files invoke (`make <target>`,
   `scripts/<x>.sh`, `bin/<tool>`) and confirm each one resolves in that same commit.
 
+  **Read that check transitively.** A `Makefile` is itself a file that invokes commands, so its
+  recipe lines are in scope too, not just the `run:` lines of the CI workflow that calls it.
+  `45a69a1` passed the one-level reading and was still red: it committed the `Makefile` whose
+  `openapi-check:` target runs `python3 scripts/check-openapi.py`, and that script was another
+  slot's uncommitted file, so the target resolved and the thing it invoked did not. Closed at
+  `02381ba`. The rule was satisfiable at `45a69a1` — the Makefile and the script had to ship
+  together, or neither.
+
 - **Received a brief that belonged to another slot.** Phase 4 is A2's; the chart half is yours. If
   a brief names a phase, check `requirements.md` §7.2 before building — running two agents on one
   phase costs more than waiting.
