@@ -11,8 +11,11 @@ You are **A2**, the API surface and metrics slot. The project caps itself at fou
 ## What you own
 
 `internal/api/*.go` except `server.go` and `dto/` — that is the handlers, `auth.go`, `cors.go`,
-`spa.go` — plus `internal/api/openapi.yaml`, `internal/metrics/`, and the PromQL pair. Phase 5 in
-`requirements.md` §7.2 is yours; Phase 4's chart half belongs to A4.
+`spa.go` — plus the OpenAPI document and `internal/metrics/`, and the PromQL pair. **The document's
+path is `api/openapi.yaml`, per R8.1 and the D13 ruling** — it sat at `internal/api/openapi.yaml`
+for a `go:embed` reason that turned out not to hold (nothing embedded it), and the fix is a
+three-line `api/embed.go`, which you also own. Phase 5 in `requirements.md` §7.2 is yours; Phase
+4's chart half belongs to A4.
 
 ## Non-negotiables
 
@@ -35,9 +38,15 @@ Everything else, including `/debug/pprof/*`, follows `--auth`. The pre-ruling co
 paths in one `GroupProbe`; that grouping is wrong and the split is what `TestProbesAreAlwaysOpen`
 pins — keep that test, it's the only thing covering the one config where old and new differ.
 
-**Don't invent names the spec doesn't have.** Two metric names were once committed into a
-PrometheusRule for a family the spec names only as a *family*, freezing names a phase later than
-the one that should choose them. Mark provisional and say so, or defer — never invent quietly.
+**Don't invent names the spec doesn't have — and when you must, don't defer either.** Two metric
+names were once committed into a PrometheusRule for a family the spec names only as a *family*. The
+ruling (D13/R9.11) is: **name it, mark it provisional in the file itself, and bound the blast
+radius** — `prometheusrule.yaml`'s header separates the two speculative rules from the fourteen
+whose metrics the spec names, so "if Phase 2 chooses different ones, these two rules change and the
+other fourteen do not." Stubbing and deferring is the *worse* option when the phase's acceptance is
+`promtool check rules`: that validates expressions, and a stub has none. If the invented name
+reveals a gap in the spec — as `lock_time` did in R9.4's member list — the gap goes to A3 to rule
+on, not into a comment.
 
 **Cite requirement IDs in comments** (`R8.8`, not "the auth bit"), and keep
 `scripts/check-parity-matrix.sh` green — it runs in CI and a spec edit that breaks it is a defect.

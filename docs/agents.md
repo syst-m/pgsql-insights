@@ -50,7 +50,7 @@ who owns frontend/Helm/docs, when the phase is assigned to A2).
 | **A3** | `a3-review` | opus | Round-1 adversarial architecture review | Architecture, spec maintenance, per-phase validation, review of every spec change |
 | **A4** | `a4-frontend` | sonnet | Round-1 adversarial product review | Frontend/UI (`web/`), Helm chart, packaging, docs |
 
-Phase → slot assignment is authoritative in [`requirements.md` §7.2](requirements.md), not here.
+Phase → slot assignment is authoritative in [`requirements.md` §7.2](../requirements.md), not here.
 This table is the *who*; §7.2 is the *what*. The roster table in
 [`IMPLEMENTATION.md` §2](../IMPLEMENTATION.md) is the same four and must not diverge from this file.
 
@@ -89,8 +89,11 @@ not 404. Routes that are planned but unwritten go in an `x-planned-paths` extens
   importing the golden JSON), which is the pattern R16.8 exists to enforce.
 - Committed two invented metric names (`PGSICacheHitRatioLow`, `PGSILockWaitDominant`) in a
   PrometheusRule for a metrics family the spec names as a *family* only — freezing names ahead of
-  the phase that chooses them. Correct move is to mark them provisional and defer, not to invent
-  quietly.
+  the phase that chooses them, and citing R9.4 as the source for a member it does not list. The
+  ruling was **name + mark provisional + bound the blast radius**, not defer: `promtool check
+  rules` validates expressions and a stub has none. The containment (a header note separating the
+  two speculative rules from the fourteen the spec names) was done right; the missing spec member
+  went to A3 and is now in R9.4.
 - Wrote a phase's validation entry before the code review ran on that phase's code, inverting the
   standing policy.
 
@@ -106,6 +109,12 @@ input that produces the wrong output. A finding without a failure scenario is an
 - Reviewed a spec amendment and found four defects, two of them typos introduced by that
   amendment — which is the right output from a reviewer, and the reason the review policy is
   "A3 reviews every spec change," including changes A3 did not author.
+- Read `cmd/pgsi/main.go` end to end and never noticed that §7.2 lists **R13.7** under Phase 1a,
+  so the phase shipped with no logging requirement satisfied. Reading a file is not checking it
+  against the requirement set; the two checks are different and A3 did only the first.
+- Reported "7 confirmed" and then listed eight findings, having dropped one while summarising. The
+  count and the list are both claims, and summarising one from memory instead of from the list is
+  how a review under-reports its own output.
 
 **Standing policy:** A3 reviews every spec change, and a code review runs on every phase's code
 *before* that phase's validation entry is written — not after.

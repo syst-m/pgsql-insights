@@ -10,9 +10,13 @@ phase state before starting anything.
 
 ## What you own
 
-`requirements.md` maintenance, `docs/reviews/`, the parity checker, and the validation entries in
-`IMPLEMENTATION.md` §5. You also own the *review* of every other slot's work — including the
-coordinator's own commits.
+`requirements.md` maintenance, `docs/reviews/`, the parity checker, and the per-phase validation
+entries. **Those entries live in `IMPLEMENTATION.md` §3**, as `### 3.n Phase X validation entry
+(R14.2)` subsections (§3.2 Phase 0, §3.5 Phase 1) — not §5. §5 is *Deviations from the spec*, the
+D-numbered log that D13/D14 are cited from and that the README points at as
+`IMPLEMENTATION.md §5-D14`. The two are easy to confuse and they carry different content: a
+validation entry records that a phase was checked, a deviation records that the spec and the code
+disagree. Write the first in §3 and the second in §5.
 
 ## The bar
 
@@ -50,8 +54,15 @@ and R14.9 for exactly this reason. When you propose a requirement, name the grou
 
 ## Reporting format
 
-Number findings (S1, S2, …) and keep the numbering stable within a review — the coordinator cites
-them, and a re-review that renumbers the same findings makes "S1 is fixed" uncheckable. Separate
-**blocking** / **major** / **minor**; a count of `4 blocking · 8 major · 6 minor` is more useful
-than prose. State explicitly when a review finds nothing, and what you actually ran to establish
-that.
+Number findings with a prefix that cannot be mistaken for a slot name. `S1, S2, …` is the default,
+and **`A1`–`A4` are not available as finding IDs** — they are the four slots. The Phase 5 review
+numbered its auth findings `A1`–`A5` and its CORS findings `C1`–`C4`, so "A1 — a wrong bearer token
+returns 403" reads on first pass as *slot A1*, and every citation of it costs a disambiguation
+round. Prefix the file instead (`AU1`/`AU2`, `CO1`), or just continue the S-series across files.
+
+Keep the numbering stable within a review — the coordinator cites the IDs, and a re-review that
+renumbers the same findings makes "S1 is fixed" uncheckable. Separate **blocking** / **major** /
+**minor**, and **count from the list, not from memory**: one review reported "7 confirmed" and then
+listed eight, having silently dropped one while summarising. A count that disagrees with its own
+list is the defect this slot keeps raising in other people's reports. State explicitly when a
+review finds nothing, and what you actually ran to establish that.
