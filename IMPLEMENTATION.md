@@ -303,6 +303,13 @@ R12.1–R12.3, R13.7, R13.8**. Run 2026-11-22 on the arm64 dev machine, go 1.26.
   `*Discoverer` method that logs the failure at Warn rather than by `_ =` — `AddEventHandler` only
   errors when the informer is already stopped, and an informer that never delivers events leaves a
   fleet that silently stops updating, which is exactly what R8.7's readiness gate exists to catch.
+  *Corrected in this commit (A3 re-review, VA4):* that queue is closed. All of A2's and A4's
+  findings — the eight this entry itemises, which `134206e` ("R11.11: clear the 11 golangci-lint
+  findings in the api packages") counts as eleven across its six files: `api/embed.go`,
+  `internal/api/{auth,cors,promql,promql_catalogue}.go` and `cors_test.go` — landed there, and
+  `make lint` at HEAD **exits 0 with zero findings repo-wide**. The paragraph above is now history,
+  not an open queue, and §5-D4's "eight remain in A2's and A4's files and are theirs to land" is
+  closed with it.
 - `make render-check` (R11.13) passes with the three regenerated profiles staged; the `poolers`
   verbs they now carry are R12.1–R12.3's, and the chart change and the golden files land in one
   commit because the check is `git diff --exit-code deploy/plain-yaml` after a render.
@@ -316,7 +323,7 @@ R12.1–R12.3, R13.7, R13.8**. Run 2026-11-22 on the arm64 dev machine, go 1.26.
 | `internal/logx` | 9 | 41 | A1 (this commit) |
 | `internal/api/dto` | 5 | 5 | A1 (this commit) |
 | `internal/version` | 1 | 1 | A1 (this commit) |
-| `internal/api` | 50 | 126 | A1 owns `server_test.go` (7) + `clusters_test.go` (10); the rest are A2's auth/cors/spa/promql tests |
+| `internal/api` | 74 | 312 | A1 owns `server_test.go` (7) + `clusters_test.go` (10); the rest are A2's auth (16) / cors (7) / spa (5) / promql (17) / series (12) tests — **corrected in this commit (A3 re-review)**: the row said 50 / 126, which matches no tree — `45a69a1`, the commit that authored it, had 45 (auth 16 + clusters 10 + cors 7 + server 7 + spa 5), and HEAD has 74; see VA2 |
 | `api` | 1 | 1 | A2 (the OpenAPI embed) |
 
 **Acceptance (spec §7.2:660)** — the four reference clusters, checked field by field against
@@ -390,10 +397,18 @@ repeat.
 **Coverage (R11.11's 70% gate)** — `make cover` now prints a real number, because the recipe's
 `awk '/^total:/ {gsub("%","",$3); …}'` had a single `$3` where a Makefile needs `$$3`: make
 expanded it to the empty string, so the gate read `total coverage: %` and failed with a blank
-number on every run, passing or not. Per package: `api/dto` 100.0%, `logx` 96.6%, `kube` 86.7%,
-`discovery` 53.8%, `version` 100.0%, `api` 75.0%, `internal/api` 53.1%; repo total **54.4%**. The
-gate fails and §5-D17 records why (the pure CRD→DTO layer is 92–100% per function; `discovery.go`'s
-26 informer functions are 0% because they need a fake clientset or a live cluster).
+number on every run, passing or not. Per package at the 1a commit: `api/dto` 100.0%, `logx` 96.6%,
+`kube` 86.7%, `discovery` 53.8%, `version` 100.0%, `api` 75.0%, `internal/api` 53.1%; repo total
+**54.4%**, gate failing — §5-D17 records why (the pure CRD→DTO layer is 92–100% per function;
+`discovery.go`'s 26 informer functions are 0% because they need a fake clientset or a live cluster).
+**Corrected in this commit (A3 re-review, VA3):** `make cover` at HEAD prints
+**`total coverage: 70.6% (gate 70%, R11.11)`** and **exits 0 — the gate now passes.** Six of the
+seven per-package figures above still match HEAD exactly (`api/dto` 100.0, `logx` 96.6, `kube` 86.7,
+`discovery` 53.8, `version` 100.0, `api` 75.0); `internal/api` is the one that moved,
+**53.1% → 89.1%**, and that single package is what carries the repo over the gate — which is the
+empirical answer to D17's own follow-up ("a per-package floor would be the honest fix if the
+aggregate keeps being hostage to whichever package is newest"): it was hostage, and the aggregate
+moved 16.2 points on one package's tests.
 
 **Not yet observed:** a run of the binary against the live k3s cluster. The handler is validated
 against the committed fixture and the builder against CRD fixtures taken from the reference
@@ -538,7 +553,7 @@ re-implementing it.
 
 | Req | Requirement (abridged) | File(s) | Status |
 |---|---|---|---|
-| R9.1 | The two-plane rule — every capability tagged with the plane that serves it, **documented in the chart README**: numbers → `/metrics` → Prometheus; query text, plan bodies, active-session rows, blocking chains → API + store only | `README.md:170-181` (A4), `chart/README.md` (A4) | **satisfied, one clause short (A4)** — the rule is documented and followed: the root README's metrics catalogue states it ("numbers go to `/metrics`, text goes to the API", `README.md:178`), and two runbooks cite it as the reason a lock-wait or unreachable-primary payload is not a metric (`docs/runbooks/pgsi-lock-wait.md:30`, `docs/runbooks/pgsi-primary-unreachable.md:56`). The gap is the *named file*: R9.1 says "documented in the chart README" and `chart/README.md` has zero occurrences of "plane" — it documents the ServiceMonitor/PodMonitor pair (R9.9), the cardinality budget (R9.10) and the rules (R9.11), all of which are the metrics plane, without ever saying which capabilities the other plane owns. Recorded rather than fixed here because that file is A4's and the fix is a paragraph of their prose, not a second implementation. **Owner notified:** A4 re-ran the check independently, confirmed the gap, and has the paragraph queued behind their `a8da067`/`c7e2150` commits — the clause is open-with-an-owner, not an unowned omission, so nobody has to re-derive it to act on it |
+| R9.1 | The two-plane rule — every capability tagged with the plane that serves it, **documented in the chart README**: numbers → `/metrics` → Prometheus; query text, plan bodies, active-session rows, blocking chains → API + store only | `chart/README.md:93-157` (A4, `ed58452`), `README.md:170-181` (A4) | **satisfied (A4)** — the rule is now documented in the file R9.1 names. `chart/README.md:93-157` states it in R9.1's own wording, adds the test the rule implies (*can this be a label at a price*, not *is this useful in Prometheus*), and tags every capability the spec names rather than only the four R9.1 lists — the R9.4–R9.13 families, the R8.2 endpoint set, and the R3/R4/R6/R7 capabilities, with two rows tagged `both` and justified (R9.3's identity is a label set on one plane and a record on the other; R3.7's rollups are numbers on labels and rows in the API). It names the one capability whose numbers are not on the metrics plane — R4.3's wait-event rollup is served by the API because R9's family set has no wait-event member, and the only wait number that reaches `/metrics` is `cnpg_backends_waiting_total`, re-exported under `pgsi_` by R9.7's `cnpg_*` clause — and maps all 18 templates to the plane each serves (`:141-157`). **History:** the row read "satisfied, one clause short" for one round, because the rule was documented in `README.md:170-181` and cited by two runbooks (`docs/runbooks/pgsi-lock-wait.md:30`, `docs/runbooks/pgsi-primary-unreachable.md:56`) but absent from the named file — the half R9.1's wording actually asks for. Recorded at `dc40d70`, owner-notified at `8d59b7d`, closed by A4 in `ed58452` |
 | R9.6 | Export the **per-tag** family (Cloud SQL's `insights/pertag`) when R3.12 tags are enabled, keyed by `tag_hash` | none yet; §5's table row marks it *off unless R3.12 enabled* | **blocked (Phase 6b)** — the family's own Control cell in §5 gates it on R3.12, and R3.12 (tags) is Phase 6b's, so there is no `tag_hash` to key on until tags exist. Nothing in the chart blocks it: the family rides the same `/metrics` endpoint the ServiceMonitor already scrapes, so it needs an emitter and no plumbing. `scripts/cardinality-check.py` reads the cell as `variable` and contributes 0 at default config, which is the honest answer rather than an invented number |
 | R9.8 | Export **self-observability**: the eight named self-metrics — `pgsi_build_info{version,commit}`, `pgsi_collector_duration_seconds`, `pgsi_collector_errors_total`, `pgsi_scrape_target_up{cluster,pod}`, `pgsi_store_size_bytes`, `pgsi_http_request_duration_seconds`, `pgsi_scheduler_queue_depth`, `pgsi_scheduler_shed_total` (R2.9) | `internal/api/server.go:313` (A1) for 1 of the 8; `internal/metrics/` (A2) does not exist yet | **blocked (Phase 2)** — 1 of the 8 exists. `BuildInfoMetric()` is exported from `server.go` "so the Phase 2 MetricHub renders the same line rather than a second copy of it", which is the file itself conceding the other seven belong to a metrics package that has not been written. Six of the seven describe things Phase 2 creates (collector durations and errors, the scheduler queue and its shed counter, the store's size) and the seventh, `pgsi_http_request_duration_seconds`, needs the instrumentation middleware that ships with the MetricHub; `pgsi_scrape_target_up` additionally needs R2.x's scrape loop. Writing them now would mean inventing values for subsystems that do not run |
 | R9.9 | Ship a **ServiceMonitor** (and a **PodMonitor** variant) in the chart, off by default and enabled by `metrics.serviceMonitor.enabled`, correct for the installed `monitoring.coreos.com/v1` API | `chart/templates/servicemonitor.yaml`, `chart/templates/podmonitor.yaml`, `chart/values.yaml:243`/`:264`, `chart/README.md:93-188` (A4) | **satisfied (A4)** — both templates exist and R11.7's validation is documented at `chart/README.md:101` (field-level validation against the installed CRD, including the `scrapeTimeout ≤ interval` ratio the CRD accepts any duration string so the chart cannot enforce). Two subtleties the file rules on rather than glosses: **"off by default" vs the profile's `enabled: true`** — the flag's zero value is off (the template gates on a truthy `.enabled`, so a values file that omits the block renders nothing) and the shipped profile opts in explicitly (`chart/values.yaml:238-241`); and the **values namespace rename** — R9.9 names `metrics.serviceMonitor.enabled`, Phase 0 shipped `monitoring:`, the spec's name won, and `chart/README.md:78` records the rename instead of leaving two spellings alive |
