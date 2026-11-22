@@ -62,8 +62,8 @@ Fleet page, the cluster detail page, five components including the `@visx` healt
 chart, the `api/` client + fixtures + R1.2 health rollup, `lib/` format/sort, `state/` urlState +
 useFleet, and the design system in `styles/tokens.css`), its `dist/` bundle committed for
 `go:embed` (`web/embed.go`, wired into `internal/api/server.go` as `GET /`), and the R16.7 harness
-(8 `src/**/*.test.ts(x)` files for Vitest, `e2e/fleet.spec.ts` + `playwright.config.ts` for
-Playwright with 12 committed baselines).
+(9 `src/**/*.test.ts(x)` files for Vitest, `e2e/fleet.spec.ts` + `playwright.config.ts` for
+Playwright with 8 committed baselines).
 
 ---
 
@@ -271,7 +271,7 @@ sibling's staged files staged for their owner.
 | 1b.5 | **Fleet page**: header with the R10.22 refetch/partial banner, the health-distribution chart (legend table twin + hover), the sortable cluster table (health, cluster, namespace, instances serving/reported, PG major, age) with R10.21 timestamps | R10.4 | A4 | ✅ |
 | 1b.6 | Cluster detail page (instances, PVCs, services, poolers, conditions — every field the R1.5 contract carries) | R10.4 | A4 | ✅ |
 | 1b.7 | R10.12's named page states as URL-addressable fixtures (`?fixture=fleet\|empty\|partial\|unavailable`, `?delay=ms` for loading) | R10.12 | A4 | ✅ |
-| 1b.8 | R16.7 harness: Vitest (8 files, 129 tests) + Playwright (12 tests, 12 committed baselines), both in CI | R16.7, R16.8 | A4 | ✅ |
+| 1b.8 | R16.7 harness: Vitest (9 files, 149 tests) + Playwright (14 tests, 8 committed baselines), both in CI | R16.7, R16.8 | A4 | ✅ |
 | 1b.9 | Build plumbing: Makefile `web` / `typecheck-web` / `test-web`, `Dockerfile` `COPY web/`, `.dockerignore`, CI `web` job, `scripts/image-size.py --spa-bundle` | R11.4, R11.11 | A4 | ✅ |
 
 ### 3.5 Phase 1 validation entry (R14.2)
@@ -411,11 +411,13 @@ this machine runs, and a floating `^4` would have let npm resolve a version whos
 
 **Typecheck + unit tests (R16.7)**
 - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean, zero errors.
-- `npx vitest run` — **8 files, 129 tests, all passing** (`api/client`, `api/health`,
+- `npx vitest run` — **9 files, 149 tests, all passing** (`api/client`, `api/health`,
   `components/HealthBar`, `components/ThemeToggle`, `lib/format`, `lib/sort`, `pages/Fleet`,
-  `state/urlState`). The count is 105 → 129 because of §5-D12: `api/client.test.ts` gained the
+  `state/urlState`, and since `af433cc` `routes`). The count is 105 → 129 → 149: 105 → 129
+  because of §5-D12, `api/client.test.ts` gaining the
   `parseEnvelope`/`parseErrorBody`/`toFleetResponse`/`partialBanner` suites that test the contract
-  boundary directly instead of testing a cast.
+  boundary directly instead of testing a cast; 129 → 149 from the 18 cases in the `routes.test.tsx`
+  file `af433cc` added.
 - The first run of the harness failed 16 tests; every failure was a real defect or a wrong
   expectation, not harness noise (the fixes are §5-D8's list). Notably `utcTitle` had been
   re-serialising timestamps through `Date`, which appends a `.000` milliseconds field the API never
@@ -437,13 +439,16 @@ this machine runs, and a floating `^4` would have let npm resolve a version whos
   `web/dist`) instead of the Phase 0 `n/a` line.
 
 **Visual regression (R16.7)**
-- `npx playwright test` — **12 passed**, against `vite preview` on the built bundle, not the dev
+- `npx playwright test` — **14 passed**, against `vite preview` on the built bundle, not the dev
   server, so what is screenshotted is byte-identical to what `pgsi serve` embeds.
-- 12 baselines committed in `web/e2e/__snapshots__/fleet/`: one per R10.12 state reachable at this
-  phase (`fleet`, `empty`, `partial`, `unavailable`, `loading`, `detail`), a dark-mode capture
-  (R10.13's media-query path, which a light-only screenshot cannot prove), and five interaction
-  captures/assertions (sort rewrites the URL, Back restores it, the theme toggle writes
-  `data-theme`, a row link opens the detail page, the legend table matches the bar).
+- 8 baselines committed in `web/e2e/__snapshots__/fleet/`. Seven come from the spec's `SCREENS`
+  table — the four R10.12 states (`empty`, `loading`, `partial`, `unavailable`) plus the populated
+  `fleet` view, the `detail` route, and since `af433cc` the `planned` placeholder route — and the
+  eighth is the dark-mode capture (R10.13's media-query path, which a light-only screenshot cannot
+  prove). The six interaction tests are assertions without screenshots (sort rewrites the URL,
+  Back restores it, the theme toggle writes `data-theme`, a row link opens the detail page, the nav
+  reaches the R10.3 routes, the legend table matches the bar), so they raise the test count without
+  raising the baseline count — which is how a single line could be wrong in both halves at once.
 - `playwright.config.ts` pins `deviceScaleFactor: 1` and `reducedMotion: "reduce"` — without a
   fixed scale factor a Retina capture and a CI capture differ in every pixel and every diff is
   noise. `webServer.command` passes `--host 127.0.0.1` because `vite preview` binds `localhost`,
@@ -460,7 +465,7 @@ this machine runs, and a floating `^4` would have let npm resolve a version whos
 | R10.2 | Chart library chosen per the `dataviz` skill and recorded in §4 (D12) | `web/package.json` (`@visx/*` 4.0.0 + `d3-scale` 4.0.3), `web/src/styles/tokens.css`, `web/src/components/HealthBar.tsx` | validated — D12 unchanged and not re-opened; the chart uses one axis, 2 px marks with rounded data-ends, a legend table twin, direct labels in ink (never the series colour), and the palette validated in both modes (§4's palette note) |
 | R10.4 | Fleet page: health distribution + sortable table with phase, instances and PG major | `web/src/pages/Fleet.tsx`, `web/src/components/ClusterTable.tsx`, `web/src/components/HealthBar.tsx`, `web/src/lib/sort.ts` | validated — renders all four reference clusters from the R1.5 contract, `freeidp-pg` showing its §5-D7 classification; sorting is tested (numeric collation included) and screenshotted |
 | R10.16 | The URL is the single source of truth for view state | `web/src/state/urlState.ts`, `web/src/App.tsx` | validated — parse/format round-trip tests for every state field; Playwright asserts a sort click rewrites the URL and Back restores the previous view; `App` derives its data source from the same parsed URL (D14) |
-| R16.7 | Vitest + Playwright harness, ≥1 passing visual test per reachable R10.12 state, running in CI | `web/vite.config.ts` (`test` block), `web/playwright.config.ts`, `web/e2e/fleet.spec.ts`, `web/e2e/__snapshots__/`, `.github/workflows/ci.yml` (job `web`) | validated — 129 Vitest tests + 12 Playwright tests pass locally; the CI job runs install → build → bundle size → vitest → playwright and uploads the report |
+| R16.7 | Vitest + Playwright harness, ≥1 passing visual test per reachable R10.12 state, running in CI | `web/vite.config.ts` (`test` block), `web/playwright.config.ts`, `web/e2e/fleet.spec.ts`, `web/e2e/__snapshots__/`, `.github/workflows/ci.yml` (job `web`) | validated — 149 Vitest tests + 14 Playwright tests pass locally; the CI job runs install → build → bundle size → vitest → playwright and uploads the report |
 | R16.8 | The API contract has exactly one copy, consumed by both the Go golden test and the SPA's test suite | `testdata/api/clusters.json`, `web/src/api/types.ts`, `web/src/api/envelope.ts`, `web/src/api/fixtures.ts` | validated — see §5-D12. `fixtures.ts` imports the contract JSON and annotates it `Envelope<ClusterView>`, so the TS type and the Go fixture cannot disagree without `tsc` failing; the 386-line hand-transcribed duplicate is gone |
 
 ### 3.7 Requirement → file → status (Phase 5, R8.1–R8.11, R14.8)
@@ -577,7 +582,7 @@ either a fix or a tracked follow-up.
 | D8 | 1b | R10.4 | `freeidp-pg` renders as **`down`**, where the phase brief describes it as *degraded* | R1.2's rollup rule is the measured truth: the CR reports 2 instances and 0 serving, which classifies as `down`. A `degraded` label needs a CNPG condition the fixture does not carry, and inventing one would break the rule the fixture tests enforce — no invented state, no invented metrics | `web/src/api/health.ts` implements R1.2's table with both branches tested; when 1a's live payload includes `conditions`, the `degraded` branch gets real input and the fixture gains the condition. The label changes then, not before |
 | D9 | 1b | R11.11 | `.github/workflows/ci.yml` was **not valid YAML at HEAD**: `- name: build both platforms (PR: no push)` is an unquoted scalar containing `": "`, which YAML refuses to parse — and Actions rejects the whole file on a parse error, so no CI job could ever have run. §5-D3's "first push closes this" was optimistic | Phase 0 authored the workflow without ever parsing it; every step has a `make` mirror that passes locally, so nothing on this machine read the file as YAML | Fixed here by quoting the name. Verified with `yaml.safe_load` (6 jobs parse cleanly). **Follow-up:** add a YAML parse of `.github/workflows/*.yml` to `make lint` (or `actionlint` to CI) so a malformed workflow fails on the machine that authored it |
 | D10 | 1b | R16.7 | Playwright runs one browser project (chromium), not the chromium/firefox/webkit matrix | The app is CSS-only responsive; the other two engines triple the screenshot matrix and the flake rate without covering another requirement, and CI on a linux runner renders fonts differently from macOS regardless (hence `maxDiffPixelRatio: 0.01` and a fixed `deviceScaleFactor: 1`) | Add webkit in Phase 5, when R10.14's responsive requirements land and there is a requirement to cover rather than a browser to tick |
-| D11 | 1b | R16.7 | `npm run typecheck` covers `src/` + `vite.config.ts`; `e2e/*.spec.ts` and `playwright.config.ts` are not typechecked | Those two need `@types/node` (for `process`), and adding `node` to `compilerOptions.types` leaks node's globals into the *app's* compile (it shadows DOM signatures like `setTimeout`'s return type) | Playwright transpiles specs at run time and all 12 pass, so the gap is covered in practice; the clean fix is a second `tsconfig.node.json` scoped to the node-side files, worth doing when the e2e suite grows past one spec |
+| D11 | 1b | R16.7 | `npm run typecheck` covers `src/` + `vite.config.ts`; `e2e/*.spec.ts` and `playwright.config.ts` are not typechecked | Those two need `@types/node` (for `process`), and adding `node` to `compilerOptions.types` leaks node's globals into the *app's* compile (it shadows DOM signatures like `setTimeout`'s return type) | Playwright transpiles specs at run time and all 14 pass, so the gap is covered in practice; the clean fix is a second `tsconfig.node.json` scoped to the node-side files, worth doing when the e2e suite grows past one spec |
 | D12 | 1b | R16.8 | `web/src/api/types.ts` + `web/src/api/fixtures.ts` were a **second copy of the API contract**, written from R1.5's prose, and they disagreed with `internal/api/dto/clusters.go` in every nested type — `PoolerRef{mode, defaultPoolSize, maxClientConn, minPoolSize, kind}` vs `PoolerView{poolMode, parameters}`, `certs.{server,client,replication}` vs `certificates.expirations` + the three named secret fields, `i.pod`/`i.restarts` vs `name`/`restartCount`, a `partial{}` key the endpoint never emits vs `meta.failed[]`/`meta.loading[]`, and `metrics`/`topFinding` on the row type where `dto/clusters.go` omits them from `ClusterView` on purpose. The visible bug: `client.ts`'s `await res.json() as FleetResponse` + `raw.clusters ?? []` would have rendered the **empty state against a working API**, because A1's envelope is `{data, meta}` and has no `clusters` key | 1b was built against a fixture precisely because 1a had not merged (D15), so the TS types were written from the spec's field list and from `docs/ENVIRONMENT.md`, not from the code that emits them. When A1 froze the contract at `9214534`, the two copies met for the first time — and CI still could not have caught it, because the TS type was validated against a TS fixture by the same author who wrote both, which is the sentence R16.8 exists to forbid. `as T` checks nothing, and `?? []` converted a missing key into a plausible page state, so the failure mode was silent rather than red | **Fixed here** (D17): the duplicate data is deleted and `fixtures.ts` imports `testdata/api/clusters.json` — the file R16.8 names as the byte-level contract, the same one `TestGoldenFixtureIsCanonical` re-marshals — annotated `Envelope<ClusterView>` so `tsc` is the drift check; `types.ts` splits into wire and presentation halves; `envelope.ts` parses and throws instead of casting. **Follow-up that marks the split as temporary:** when Phase 5 puts `metrics` on the wire, `ClusterMetrics` moves from the presentation half of `types.ts` into the wire half and `RowExtras` shrinks by one — if it instead stays, that is a UI field being smuggled into the contract, which is this deviation recurring |
 | D13 | 5 | R8.1 | Two rulings, both now executed. **(a) The document's path is `api/openapi.yaml`** — `git mv internal/api/openapi.yaml api/openapi.yaml`, with `api/embed.go` as the single accessor. **(b) The document is authored from the frozen DTO, not "generated from the handlers"**, and that stays false on record: R8.1's status is in-progress, not implemented | **(a)** The path appears twice in the spec — in R8.1's own requirement text (`requirements.md:374`) and in the repo tree (`:254`) — so it is a named part of the requirement, not a layout choice. The file had been placed in `internal/api/` because `go:embed` cannot reach `..`: a directive only sees its own directory, so a document in `internal/api/` was not embeddable from `spa.go`'s package. That explains why it was there; it is not a reason to keep it there, because the fix is an embed *in the directory the spec names* — three lines, and R8.1 is satisfied without editing the spec. `api/embed.go` exports `OpenAPIDocument() ([]byte, error)` rather than the `embed.FS` so no caller can widen the embed by opening a future sibling, and `api/embed_test.go` byte-compares the embedded bytes to the file on disk — the assertion that catches a caller that builds its own path, which compiles forever and reads the wrong bytes in the distroless image where the file does not exist. **(b)** R8.1's wording assumes the handlers exist; the stdlib has no OpenAPI generator and the routes are `http.ServeMux` patterns over plain handlers. The header names the normative source (`dto/clusters.go` at `9214534`, mirrored tag-for-tag in `web/src/api/types.ts`, byte-checked by `TestGoldenFixtureIsCanonical`) and calls itself "a projection of that contract, not a fourth copy of it" — the R16.8 lesson applied to the OpenAPI file | **(1)** CI: `scripts/check-openapi.py` + `make openapi-check` + a `lint`-job step land with the R8.3 commit that follows. The check is python3/stdlib because R13.10 forbids `replace` directives and `go.mod` is not this phase's file to grow; a Go validator (kin-openapi) is the upgrade path once adding a dependency is allowed. It also asserts every `mux.HandleFunc` pattern in `server.go` appears in `paths` — R14.7's "every route in code documented", previously enforced by a comment. **(2)** The seven unquoted scalars that made the file unparseable at HEAD (colon-space descriptions and leading backticks) are fixed in the same move; a validator run over HEAD's copy fails on syntax before it can check the contract |
 | D14 | 5 | R8.8 | `./bin/pgsi serve` with no flags now **exits 2** unless a token is supplied | R8.8's default mode is `token`, and `NewAuthenticator` fails closed rather than accepting an empty bearer — an empty token would authenticate any `Authorization: Bearer ` request, which is the "silently unauthenticated because a flag was forgotten" failure the requirement exists to prevent. `cmd/pgsi/main.go` builds the policy before serving and exits 2 on error, so the correct default is a visible behaviour change for anyone who ran the binary unauthenticated before | The chart already passes `--auth=none` (its default profile ships `auth.enabled: false`), so deployments are unaffected; §6's run block is updated here to `./bin/pgsi serve --auth=none`. The README's quickstart needs the same flag when Phase 9 polishes it |
@@ -630,7 +635,7 @@ make verify                      # port-forward 18080:8080, curl /healthz, /api/
 # Web (Phase 1b — R10.1, R16.7). Needs node >= 22.12; CI pins 22.
 make web                         # npm ci + tsc --noEmit + vite build -> web/dist (for go:embed)
 make typecheck-web               # tsc --noEmit only
-make test-web                    # build, then Vitest (105 tests) + Playwright (12 tests)
+make test-web                    # build, then Vitest (149 tests) + Playwright (14 tests)
 cd web && npm run dev            # vite dev server, with the fixture source
 cd web && npx vite preview --host 127.0.0.1   # serve the built bundle exactly as Go does
 open "http://127.0.0.1:4173/?fixture=partial"  # any R10.12 state, by URL (D15)
