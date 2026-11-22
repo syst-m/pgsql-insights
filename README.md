@@ -219,7 +219,7 @@ the Phase 1a work in flight but is not yet committed — `GET /api/v1/clusters` 
 
 The full contract — schemas, the ten-member error-code enum, pagination, the
 `x-planned-paths` extension that documents routes before they exist — is
-[`internal/api/openapi.yaml`](internal/api/openapi.yaml).
+[`api/openapi.yaml`](api/openapi.yaml).
 
 ---
 

@@ -41,9 +41,15 @@ type CORSConfig struct {
 	AllowedMethods []string
 	// AllowedHeaders are the request headers permitted by a preflight.
 	AllowedHeaders []string
-	// ExposedHeaders are the response headers a browser may read. Without
-	// this, an SPA cannot read X-Request-Id or the R8.10 pagination cursor off
-	// a cross-origin response.
+	// ExposedHeaders are the response headers a browser may read. Only headers
+	// a handler actually sets belong here: a browser rejects nothing for an
+	// advertised header that is absent, but an SPA that reads it gets an empty
+	// string and no way to tell "not set" from "not exposed". X-Request-Id is
+	// deliberately not listed — no handler in the API sets it (the natural home
+	// is server.go's middleware chain, and R8.11's batched-series work is where
+	// a request id gets minted), so advertising it would advertise a header no
+	// response carries. Content-Length is a CORS-spec simple response header
+	// and needs no listing, but listing it is harmless and states the intent.
 	ExposedHeaders []string
 	// AllowCredentials sends Access-Control-Allow-Credentials. It is
 	// incompatible with a "*" origin (RFC 6454), which this handles by
@@ -61,7 +67,7 @@ func DefaultCORSConfig() *CORSConfig {
 	return &CORSConfig{
 		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders: []string{"Authorization", "Content-Type", "X-Requested-With"},
-		ExposedHeaders: []string{"Content-Length", "X-Request-Id"},
+		ExposedHeaders: []string{"Content-Length"},
 		MaxAge:         5 * time.Minute,
 	}
 }
@@ -123,6 +129,22 @@ func (c *CORSConfig) allowed(origin string) bool {
 	return false
 }
 
+// allowsWildcard reports whether the allow-list literally contains "*". It is
+// separate from allowed() because the two questions have different answers:
+// allowed() asks "may this origin see the response" and "*" makes the answer
+// yes for every origin, while allowsWildcard() asks "did the operator configure
+// a wildcard", and only that answer may license a literal "*" in
+// Access-Control-Allow-Origin. Collapsing them — answering "*" whenever
+// credentials are off — turns a two-origin allow-list into a network-wide grant.
+func (c *CORSConfig) allowsWildcard() bool {
+	for _, o := range c.AllowedOrigins {
+		if o == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 // Middleware returns the CORS handler. A nil config, or one with no allowed
 // origins, returns next untouched so a same-origin deployment pays nothing and
 // gets no headers it did not ask for.
@@ -134,10 +156,27 @@ func (c *CORSConfig) Middleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+
+		// Vary: Origin goes on *every* response this middleware serves, and it
+		// is set before any branch below returns. The header's whole job is to
+		// tell a shared cache (an ingress with a cache filter, a CDN in front
+		// of R11.5's ingress) that the response depends on the request's
+		// Origin, and the case where that matters most is the disallowed
+		// origin: that response has no Access-Control-Allow-Origin while the
+		// allowed one does, so a cache that stores it without a Vary serves the
+		// no-ACAO body to a *permitted* origin and the browser blocks a request
+		// it should have accepted. Putting the Add after the `allowed` check
+		// — which is where the allowed responses got it — leaves exactly that
+		// response unmarked. The no-Origin branch needs it too, for the same
+		// reason in reverse: its response differs from an Origin-bearing one,
+		// so a cached no-Origin body served to a browser request is missing
+		// ACAO. One Add at the top covers all three exits.
+		w.Header().Add("Vary", "Origin")
+
 		if origin == "" {
 			// Not a CORS request: curl, kubelet probes, Prometheus and every
-			// other non-browser client. They must not see CORS headers, and
-			// the request must not be rejected for lacking an Origin.
+			// other non-browser client. They get no ACAO (there is no origin to
+			// allow) and the request is never rejected for lacking an Origin.
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -150,18 +189,16 @@ func (c *CORSConfig) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Vary: Origin goes on every CORS response. Without it a shared cache
-		// (an ingress with a cache filter, a CDN in front of R11.5's ingress)
-		// can serve a response cached for origin A to origin B, which the
-		// browser reads as "A is allowed" for a request B made.
-		w.Header().Add("Vary", "Origin")
-
-		// The header value: "*" only when credentials are off. With
-		// AllowCredentials the spec forbids "*" (a wildcard credentialed
-		// response lets any origin read the body with the user's cookies), so
-		// echo the specific origin we just validated.
+		// The header value: echo the origin we just validated. "*" is used only
+		// when the allow-list literally contains it *and* credentials are off.
+		// Two reasons, both RFC 6454: a credentialed response may not use "*"
+		// at all (a wildcard credentialed response lets any origin read the
+		// body with the user's cookies), and answering "*" when the operator
+		// named two specific origins silently widens their grant to the whole
+		// network — the allow-list is the configuration, so the response should
+		// say what was allowed, not more than was allowed.
 		acao := origin
-		if !h.AllowCredentials {
+		if !h.AllowCredentials && h.allowsWildcard() {
 			acao = "*"
 		}
 

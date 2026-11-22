@@ -4,22 +4,39 @@
 # the handlers and checked in CI". Two words in that sentence are in tension,
 # and the resolution is recorded here rather than left to the next reader:
 #
-#   * "generated from the handlers" — the handlers are Phase 1a's. Only
-#     /healthz, /readyz, /api/v1/version, /metrics and / exist in code today,
-#     and a generator run over them would document five routes and omit the one
-#     this document exists for.
+#   * "generated from the handlers" — the handlers were Phase 1a's. This file
+#     predates them (it was authored from the frozen dto so Phase 1b had a
+#     contract to build against), and it is still hand-written: the stdlib has
+#     no OpenAPI generator, and the routes are registered as http.ServeMux
+#     patterns over plain handlers, which a generator would have to infer from.
+#     Every route `internal/api/server.go`'s `Handler()` registers now appears
+#     in `paths` — that is R14.7's requirement, and it is the property a
+#     generator would check rather than the source of it.
 #   * "the contract is frozen" — internal/api/dto/clusters.go (commit 9214534)
 #     is the normative source for /api/v1/clusters, mirrored tag-for-tag in
 #     web/src/api/types.ts and byte-checked by testdata/api/clusters.json via
-#     TestGoldenFixtureIsCanonical (R16.8).
+#     TestGoldenFixtureIsCanonical (R16.8). The handler is now a third consumer
+#     of that fixture: TestClustersServesTheFrozenFixture byte-compares this
+#     route's response body to the same file, so the document, the struct and
+#     the served JSON cannot drift apart quietly.
 #
-# So this file is hand-authored from the frozen dto, not generated, and it is
-# scoped to routes that exist plus the one whose contract is frozen. When the
-# Phase 1a handler lands, a generator can take over — the schemas are per
-# resource (components.schemas.*, referenced by $ref) precisely so that
-# generating, extending or splitting the document does not require rewriting it.
-# R14.7 requires every route in code to be documented; x-status on each path
-# says which of these are in code and which are contract-only.
+# The schemas stay per-resource (components.schemas.*, referenced by $ref) so
+# that generating, extending or splitting the document never requires rewriting
+# it. x-status on each path says whether it is in code; x-planned-paths at the
+# bottom lists the routes R8.2/R8.3/R8.11 name that are not in code yet, so
+# promoting one into `paths` is a one-entry edit rather than a restructure.
+#
+# YAML note: every scalar whose text contains ": " (or starts with a backtick)
+# is double-quoted here. Seven were not at HEAD — two because their text
+# contains a colon-space (`servers[0].description`, whose "No host: the binary
+# serves both." reads as a nested mapping, and
+# `ClusterView.properties.currentPrimary.description`), five because a leading
+# backtick is a reserved YAML indicator. All seven made the whole document
+# unparseable by a YAML loader, so any validator run over this file failed on
+# syntax before it could check the contract. R14.7's "CI-validated" half of
+# R8.1 still has no CI step; the file now parses with
+# `python3 -c "import yaml; yaml.safe_load(open(...))"`, which is the cheapest
+# form of that check and the one worth adding to the lint job.
 
 openapi: 3.0.3
 
@@ -63,7 +80,7 @@ info:
 # here would be wrong in every environment it gets deployed to.
 servers:
   - url: /
-    description: Same-origin with the SPA (R8.6). No host: the binary serves both.
+    description: "Same-origin with the SPA (R8.6). No host: the binary serves both."
 
 # R8.8: / and /api/v1/* require a bearer token by default. The probe surface
 # opts out per-path below (`security: []`), which is how --auth-metrics=none
@@ -77,7 +94,7 @@ tags:
   - name: build
     description: Build metadata (R11.3).
   - name: probes
-    description: Liveness, readiness and Prometheus scrape endpoints (R8.7).
+    description: "Liveness, readiness, Prometheus scrape and pprof endpoints (R8.7)."
   - name: ui
     description: The embedded SPA (R8.6, R10.1).
 
@@ -91,14 +108,21 @@ paths:
         The fleet inventory (R8.2's `/clusters`), rendered from the frozen
         `dto.ClusterView` contract.
 
-        `x-status` below records that the Go type is frozen while the handler is
-        Phase 1a's: at the commit this document was written, `server.go`
-        registers no `/api/v1/clusters` route and `server_test.go`'s
-        `TestUnknownRoutesAndMethods` asserts it answers 404. The contract is
-        frozen so Phase 1b could build the Fleet page in parallel with the
-        handler; the route is documented here because R14.7 requires every
-        route in code to be documented and R8.1 requires the document to exist.
-      x-status: contract frozen at 9214534; handler lands in Phase 1a
+        In code now (`Server.handleClusters`, `internal/api/clusters.go`). The
+        contract was frozen at 9214534 — the Go type first, the handler after —
+        so Phase 1b could build the Fleet page against it in parallel. The
+        handler is now the third consumer of `testdata/api/clusters.json`
+        (R16.8) alongside the DTO test and the SPA's Vitest fixture, and
+        `TestClustersServesTheFrozenFixture` byte-compares this route's body to
+        that file, so a field dropped, renamed or reordered here fails CI.
+
+        R8.7's single readiness signal gates this route: an unready process
+        answers 503 `NotReady` here rather than 200 with an empty `data`,
+        because "the fleet is empty" and "I have not collected yet" are
+        different facts and a 200 cannot express the second. The same value
+        answers `/readyz`, so the probe and the API cannot disagree — which is
+        what R8.9's unconditional probe exemption makes load-bearing.
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Namespace'
         - $ref: '#/components/parameters/Cluster'
@@ -204,7 +228,11 @@ paths:
                 $ref: '#/components/schemas/VersionResponse'
               example:
                 version: 0.1.0
-                commit: 9214534
+                # D6: the full 40-character SHA, not the 7-character short form
+                # the first published binary carried. The image *tag* stays
+                # 7 characters (R11.3); this field and the OCI revision label
+                # carry the whole thing.
+                commit: "92145342c9722b2975777ff368e87a6de67aa142"
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -219,9 +247,11 @@ paths:
         a pod whose kube API watch is broken is still alive and restarting it
         would not help.
 
-        `security: []` — R8.9 requires `/healthz` never to require auth when
-        `--auth-metrics=none`, and kubelet never sends an `Authorization`
-        header, so a gated liveness probe would fail every pod in the cluster.
+        `security: []` — R8.9 makes `/healthz` and `/readyz` unconditionally
+        auth-exempt, under any value of `--auth` (the earlier wording keyed the
+        exemption to `--auth-metrics=none`). kubelet never sends an
+        `Authorization` header, so a gated probe is a broken pod rather than a
+        preference.
       x-status: implemented
       security: []
       responses:
@@ -239,17 +269,32 @@ paths:
       operationId: getReadyz
       summary: Readiness probe target (R8.7)
       description: |
-        In code today (`Server.handleReadyz`). 200 once the server is serving,
-        503 before the listener is up and during the R13.8 drain. Phase 1a
-        moves this behind real readiness (kube client connected plus at least
-        one inventory sync), which is what R8.7 specifies.
+        In code today (`Server.handleReadyz`, reading `internal/api/readiness.go`).
+        R8.7's three clauses, as implemented:
 
-        `security: []` for the same reason as `/healthz`: R8.9 names only
-        `/metrics` and `/healthz`, but R11.2's probes are `httpGet` (the
-        distroless image has no shell, so an exec probe cannot run) and kubelet
-        cannot present a bearer token. Gating `/readyz` behind `--auth=token`
-        would leave every pod permanently NotReady and evict the Service's
-        endpoints. It joins the probe group as a documented extension of R8.9.
+        **(i) one signal, read by both surfaces.** This route and the API's
+        R8.5 `ErrNotReady` 503 path read the same `Readiness` value, so there
+        is no state where the probe says "ready" while `/api/v1/clusters`
+        answers `NotReady`. Before this, `Run()` set a `ready` flag at
+        `net.Listen` and the API decided separately — a pod answered 200 with
+        an empty fleet, passed its probe, and received Service endpoints for
+        data it had not collected. `Server.New` derives the value from the
+        configured `Fleet`, which makes the sharing structural rather than a
+        convention two handlers can drift apart from.
+
+        **(ii) only the subsystems this process runs.** A server with no fleet
+        (D9's reserved `api` role: serve without collecting) has no discovery
+        source to wait for, so it is ready once it is listening. Stating the
+        general rule now, alongside the discovery case, is what stops the role
+        split from having to retrofit it.
+
+        **(iii) up vs correct.** `/healthz` answers whenever the process is
+        up; this route answers whether the data behind it is trustworthy.
+
+        `security: []` per R8.9's unconditional probe exemption — which is what
+        makes this route load-bearing: with `--auth=token`, a gated `/readyz`
+        answers 401 to kubelet and every pod sits permanently NotReady with its
+        Service endpoints evicted.
       x-status: implemented
       security: []
       responses:
@@ -262,9 +307,11 @@ paths:
                 example: ready
         '503':
           description: |
-            Not ready — the listener is not up yet, or the server is draining
-            (R13.8). Phase 1a adds "discovery has not synced" (R8.7), which is
-            also what makes `/api/v1/clusters` answer `NotReady`.
+            Not ready — the listener is not up yet, discovery has not completed
+            its first sync (R8.7), or the server is draining (R13.8). The same
+            value the API's `NotReady` 503 reads (R8.7(i)); the *body* differs
+            on purpose, since a probe target answers plain text and an API
+            route answers the R8.5 envelope.
           content:
             text/plain:
               schema:
@@ -298,7 +345,124 @@ paths:
               example: |
                 # HELP pgsi_build_info Build metadata of the running pgsi binary.
                 # TYPE pgsi_build_info gauge
-                pgsi_build_info{version="0.1.0",commit="9214534"} 1
+                pgsi_build_info{version="0.1.0",commit="92145342c9722b2975777ff368e87a6de67aa142"} 1
+
+  # R8.7's third surface. server.go registers the five paths net/http/pprof
+  # defines; each is documented separately because R14.7 counts them as five
+  # routes in code, not one. None declares `security:`, so all five inherit the
+  # root `bearerAuth` — which is exactly R8.9's ruling that /debug/pprof/*
+  # follows --auth: auth.go classifies them as GroupAPI (the group --auth
+  # governs), not the always-open GroupProbe the two probes belong to.
+  /debug/pprof/:
+    get:
+      tags: [probes]
+      operationId: getPprofIndex
+      summary: Go runtime profile index (R8.7)
+      description: |
+        In code today (`http/pprof.Index`). The index page links the profiles
+        below; the sub-paths are registered explicitly rather than by mounting
+        a second mux, so the whole route table is readable from `Handler()`.
+      x-status: implemented
+      responses:
+        '200':
+          description: HTML index of available profiles.
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /debug/pprof/cmdline:
+    get:
+      tags: [probes]
+      operationId: getPprofCmdline
+      summary: The process command line (R8.7)
+      x-status: implemented
+      responses:
+        '200':
+          description: NUL-separated argv.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /debug/pprof/profile:
+    get:
+      tags: [probes]
+      operationId: getPprofProfile
+      summary: CPU profile (R8.7)
+      description: |
+        Blocks for `?seconds=` (default 30) while sampling, so a scrape-style
+        client needs a long timeout. R10.14's latency budget does not apply
+        here — this route is profiling, not product surface.
+      x-status: implemented
+      parameters:
+        - name: seconds
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: gzipped protobuf profile.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /debug/pprof/symbol:
+    get:
+      tags: [probes]
+      operationId: getPprofSymbol
+      summary: Symbol lookup for a profile (R8.7)
+      x-status: implemented
+      parameters:
+        - name: '[]'
+          in: query
+          required: false
+          description: "Address(es) to resolve."
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Symbol table.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /debug/pprof/trace:
+    get:
+      tags: [probes]
+      operationId: getPprofTrace
+      summary: Execution trace (R8.7)
+      x-status: implemented
+      parameters:
+        - name: seconds
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Execution trace.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /:
     get:
@@ -314,7 +478,11 @@ paths:
         matches answers 404 rather than the shell, so a typo in a fetch URL
         surfaces as an error instead of a page that renders empty.
 
-        `--serve-ui=false` (R8.6) removes this route for API-only deployments.
+        R8.6 also specifies `--serve-ui=false` for API-only deployments. The
+        flag is not implemented yet — the embed is always served — and the gap
+        is recorded in IMPLEMENTATION.md §3.7's R8.6 row rather than implied
+        away here; it is one bool in `Config` plus one `if` around this
+        registration.
       x-status: implemented
       responses:
         '200':
@@ -372,10 +540,11 @@ x-planned-paths:
     # Without it, R10.6's per-row sparklines need one request per row and
     # R10.14's 1.5 s budget forbids 50 detail calls on page load.
     - /api/v1/insights/queries/series   # GET (R8.11)
-  r8.7-debug:
-    - /debug/pprof/            # R8.7; not yet registered in server.go, and
-                               # already in the auth probe group (auth.go) so
-                               # it is never gated behind the API token.
+  # r8.7-debug was the fourth entry here: /debug/pprof/ and its four sub-paths.
+  # server.go registered them in Phase 1a and they moved up to `paths` in the
+  # same commit, so R8.7's surface is now entirely in code and nothing under
+  # that heading is planned. (The old note also had the auth story backwards —
+  # pprof is in auth.go's GroupAPI and follows --auth, per R8.9.)
 
 components:
 
@@ -492,9 +661,12 @@ components:
               details: []
     Unauthorized:
       description: |
-        Missing or malformed credentials (R8.5 `Unauthorized`, R8.8). Carries
-        `WWW-Authenticate: Bearer realm="pgsi"` so an SPA can distinguish "no
-        token yet" from "wrong token".
+        Missing, malformed *or wrong* credentials (R8.5 `Unauthorized`, R8.8).
+        Every 401 carries `WWW-Authenticate: Bearer realm="pgsi"` — the header
+        advertises the scheme, so it belongs on "no token" and "wrong token"
+        alike and the two are told apart by the message, not by the status.
+        R8.8's vocabulary is entirely 401: a bad token proves the caller is not
+        who it claims, which is authentication, not authorization.
       headers:
         WWW-Authenticate:
           description: The supported scheme.
@@ -512,9 +684,14 @@ components:
               details: []
     Forbidden:
       description: |
-        Credentials presented but not valid for this object (R8.5 `Forbidden`,
-        R12). A wrong bearer token is 403, not 401 — the caller proved nothing
-        about itself, and R12's per-namespace authorization uses the same code.
+        Authenticated, but the identity may not see this object (R8.5
+        `Forbidden`, R12). 403 is R12's code to emit and R12's alone: a *wrong*
+        token is 401 `Unauthorized` (R8.8), because "you are not who you say"
+        and "you are allowed to be here but not to read this cluster" are
+        different answers, and a client that cannot tell them apart cannot
+        decide whether to re-authenticate or to hide the row. R12's
+        per-namespace authorization is Phase 5+; until it lands, nothing in the
+        API answers 403.
       content:
         application/json:
           schema:
@@ -522,7 +699,7 @@ components:
           example:
             error:
               code: Forbidden
-              message: invalid bearer token
+              message: namespace "finance" is not visible to this identity (R12)
               details: []
     NotReady:
       description: |
@@ -658,7 +835,7 @@ components:
             - Internal
         message:
           type: string
-          description: The underlying error text, e.g. `cannot list clusters: forbidden`.
+          description: "The underlying error text, e.g. `cannot list clusters: forbidden`."
         lastSuccessTime:
           type: string
           format: date-time
@@ -777,7 +954,7 @@ components:
             that is fully down.
         currentPrimary:
           type: string
-          description: `status.currentPrimary`, empty while no pod is elected.
+          description: "`status.currentPrimary`, empty while no pod is elected."
         pgMajor:
           type: integer
           nullable: true
@@ -808,7 +985,7 @@ components:
             $ref: '#/components/schemas/InstanceView'
         conditions:
           type: array
-          description: `status.conditions` (R1.5).
+          description: "`status.conditions` (R1.5)."
           items:
             $ref: '#/components/schemas/ConditionView'
         certificates:
@@ -867,7 +1044,7 @@ components:
           enum: [primary, replica, unhealthy, ""]
         node:
           type: string
-          description: `spec.nodeName`, empty while the pod is unscheduled (R1.5's "node names").
+          description: "`spec.nodeName`, empty while the pod is unscheduled (R1.5's \"node names\")."
         ready:
           type: boolean
           description: The pod's `ContainersReady` condition (R1.5's "ready flags").
@@ -1043,7 +1220,7 @@ components:
             $ref: '#/components/schemas/ServicePort'
         clusterIP:
           type: string
-          description: `spec.clusterIP` ("None" for headless services).
+          description: "`spec.clusterIP` (\"None\" for headless services)."
 
     ServicePort:
       type: object
@@ -1077,7 +1254,7 @@ components:
           type: string
         cluster:
           type: string
-          description: `spec.cluster.name` — R1.4's association rule.
+          description: "`spec.cluster.name` — R1.4's association rule."
         type:
           type: string
           description: '`spec.type`: rw | ro.'

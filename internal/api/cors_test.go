@@ -115,8 +115,12 @@ func TestCORSSimpleRequest(t *testing.T) {
 		if v := rec.Header().Get("Vary"); !strings.Contains(v, "Origin") {
 			t.Errorf("Vary = %q, must contain Origin so a shared cache cannot serve origin A's response to origin B", v)
 		}
-		if v := rec.Header().Get("Access-Control-Expose-Headers"); v == "" {
-			t.Error("no Access-Control-Expose-Headers; an SPA cannot read X-Request-Id cross-origin")
+		// The list must name only headers a handler actually sets. X-Request-Id
+		// used to be here while no handler in the API set it, so an SPA read an
+		// empty string with no way to tell "absent" from "not exposed"; it is
+		// back on the list when R8.11 mints a request id.
+		if v := rec.Header().Get("Access-Control-Expose-Headers"); v != "Content-Length" {
+			t.Errorf("Access-Control-Expose-Headers = %q, want %q", v, "Content-Length")
 		}
 	})
 
@@ -147,6 +151,13 @@ func TestCORSSimpleRequest(t *testing.T) {
 		if v := rec.Header().Get("Access-Control-Allow-Origin"); v != "" {
 			t.Errorf("ACAO = %q for a disallowed origin, want none", v)
 		}
+		// Vary is the point of this case, not an incidental: this response has
+		// no ACAO while the allowed one does, so a cache that stores it without
+		// marking the dependency serves the no-ACAO body to a *permitted*
+		// origin and the browser blocks a request it should have accepted.
+		if v := rec.Header().Get("Vary"); !strings.Contains(v, "Origin") {
+			t.Errorf("Vary = %q on the disallowed-origin response, must contain Origin", v)
+		}
 	})
 
 	t.Run("non-browser request gets no CORS headers", func(t *testing.T) {
@@ -160,6 +171,12 @@ func TestCORSSimpleRequest(t *testing.T) {
 		}
 		if v := rec.Header().Get("Access-Control-Allow-Origin"); v != "" {
 			t.Errorf("ACAO = %q on a request with no Origin, want none", v)
+		}
+		// Vary is set here too: this response differs from the one an
+		// Origin-bearing request gets, so a cache needs to know the response
+		// depended on Origin even when no Origin was sent.
+		if v := rec.Header().Get("Vary"); !strings.Contains(v, "Origin") {
+			t.Errorf("Vary = %q on a no-Origin response, must contain Origin", v)
 		}
 	})
 }
@@ -285,7 +302,82 @@ func TestCORSHeadersSetBeforeWriteHeader(t *testing.T) {
 	r.Header.Set("Origin", "https://app.example")
 	cfg.Middleware(h).ServeHTTP(httptest.NewRecorder(), r)
 
-	if sawACAOAtWriteTime != "*" {
-		t.Fatalf("ACAO visible to the handler = %q, want * (headers must be set before WriteHeader)", sawACAOAtWriteTime)
+	// The value asserted here is the echoed origin, not "*": this assertion used
+	// to read `want *`, which is fix 6's bug encoded as an expectation — a
+	// single named origin in the allow-list was answered with a network-wide
+	// grant. See TestCORSWildcardOnlyWhenConfigured for the value rules; this
+	// test is only about *when* the header lands.
+	if sawACAOAtWriteTime != "https://app.example" {
+		t.Fatalf("ACAO visible to the handler = %q, want the echoed origin (headers must be set before WriteHeader)", sawACAOAtWriteTime)
+	}
+}
+
+// TestCORSWildcardOnlyWhenConfigured pins the two rules for the
+// Access-Control-Allow-Origin value (RFC 6454): "*" is sent only when the
+// allow-list literally contains it and credentials are off, and otherwise the
+// validated origin is echoed. Answering "*" whenever credentials are off — the
+// shape this had — silently turns an operator's grant of two origins into a
+// grant of any origin on the network.
+func TestCORSWildcardOnlyWhenConfigured(t *testing.T) {
+	cases := []struct {
+		name       string
+		origins    []string
+		creds      bool
+		reqOrigin  string
+		wantACAO   string
+		wantCreds  string
+		wantStatus int
+	}{
+		{
+			name: "wildcard list, no credentials: star",
+			// The one configuration that may answer "*".
+			origins: []string{"*"}, reqOrigin: "https://anywhere.example",
+			wantACAO: "*", wantStatus: http.StatusOK,
+		},
+		{
+			name: "wildcard list, credentials on: echo, star is invalid",
+			// RFC 6454 forbids "*" with credentials, so even an explicit
+			// wildcard list echoes when the response is credentialed.
+			origins: []string{"*"}, creds: true, reqOrigin: "https://anywhere.example",
+			wantACAO: "https://anywhere.example", wantCreds: "true", wantStatus: http.StatusOK,
+		},
+		{
+			name: "two named origins: echo the matched one, not star",
+			// The regression: two origins configured, credentials off, and the
+			// answer used to be "*" — the grant of two became the grant of any.
+			origins:   []string{"https://a.example", "https://b.example"},
+			reqOrigin: "https://b.example",
+			wantACAO:  "https://b.example", wantStatus: http.StatusOK,
+		},
+		{
+			name: "origin off the list: no ACAO at all",
+			// No ACAO means the browser blocks it; answering "*" here would
+			// *allow* an origin the operator never named.
+			origins:   []string{"https://a.example", "https://b.example"},
+			reqOrigin: "https://evil.example", wantACAO: "", wantStatus: http.StatusOK,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &CORSConfig{AllowedOrigins: tc.origins, AllowCredentials: tc.creds}
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/clusters", nil)
+			r.Header.Set("Origin", tc.reqOrigin)
+			rec := httptest.NewRecorder()
+			cfg.Middleware(okHandler(t)).ServeHTTP(rec, r)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if v := rec.Header().Get("Access-Control-Allow-Origin"); v != tc.wantACAO {
+				t.Errorf("ACAO = %q, want %q (origins=%v creds=%v origin=%q)",
+					v, tc.wantACAO, tc.origins, tc.creds, tc.reqOrigin)
+			}
+			if v := rec.Header().Get("Access-Control-Allow-Credentials"); v != tc.wantCreds {
+				t.Errorf("Access-Control-Allow-Credentials = %q, want %q", v, tc.wantCreds)
+			}
+			if v := rec.Header().Get("Vary"); !strings.Contains(v, "Origin") {
+				t.Errorf("Vary = %q, must contain Origin on every CORS response", v)
+			}
+		})
 	}
 }

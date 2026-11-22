@@ -149,20 +149,36 @@ func TestAuthenticateToken(t *testing.T) {
 		wantUser   string
 		wantCode   string
 		wantStatus int
+		// wantMsgSub, when set, is a substring the AuthError message must
+		// contain. It exists because "missing Authorization header" and
+		// "invalid bearer token" are different answers and a test on the code
+		// alone cannot tell them apart — both are 401/Unauthorized.
+		wantMsgSub string
 	}{
 		{name: "valid", header: "Bearer s3cr3t", wantUser: "token"},
 		{name: "scheme case-insensitive", header: "bearer s3cr3t", wantUser: "token"},
 		{name: "BEARER", header: "BEARER s3cr3t", wantUser: "token"},
-		{name: "wrong token", header: "Bearer wrong", wantCode: dto.ErrForbidden, wantStatus: http.StatusForbidden},
+		// A *wrong* token is 401, not 403. dto's enum is the authority:
+		// `ErrUnauthorized // missing/bad token (R8.8)` vs
+		// `ErrForbidden // token lacks scope for the object (R12)`.
+		{name: "wrong token", header: "Bearer wrong", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: "invalid bearer token"},
 		// An empty bearer string must not match a configured token; this is
 		// the case a naive `strings.TrimPrefix` implementation gets wrong by
 		// comparing "" to "" when the header is absent.
-		{name: "empty bearer value", header: "Bearer ", wantCode: dto.ErrForbidden, wantStatus: http.StatusForbidden},
-		{name: "empty header", header: "", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized},
-		{name: "wrong scheme", header: "Basic s3cr3t", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized},
-		{name: "token without scheme", header: "s3cr3t", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized},
+		{name: "empty bearer value", header: "Bearer ", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: "invalid bearer token"},
+		{name: "empty header", header: "", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: "missing Authorization header"},
+		{name: "wrong scheme", header: "Basic s3cr3t", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: `unsupported Authorization scheme "Basic"`},
+		{name: "token without scheme", header: "s3cr3t", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: `unsupported Authorization scheme "s3cr3t"`},
 		// Token comparison is case-sensitive: EqualFold would accept these.
-		{name: "case-changed token", header: "Bearer S3CR3T", wantCode: dto.ErrForbidden, wantStatus: http.StatusForbidden},
+		{name: "case-changed token", header: "Bearer S3CR3T", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: "invalid bearer token"},
+		// RFC 7235 allows optional whitespace between the scheme and the
+		// credential. Splitting on a single literal space gets both of these
+		// wrong: "Bearer" alone answers "missing Authorization header" when a
+		// header is plainly present, and "Bearer  s3cr3t" yields the credential
+		// " tok" — a wrong token that happens to be wrong for the wrong reason.
+		{name: "scheme only, no space", header: "Bearer", wantCode: dto.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantMsgSub: "invalid bearer token"},
+		{name: "extra whitespace is still valid", header: "Bearer    s3cr3t", wantUser: "token"},
+		{name: "tab separator", header: "Bearer\ts3cr3t", wantUser: "token"},
 	}
 
 	for _, tc := range cases {
@@ -185,6 +201,9 @@ func TestAuthenticateToken(t *testing.T) {
 				}
 				if ae.Status != tc.wantStatus {
 					t.Errorf("status = %d, want %d", ae.Status, tc.wantStatus)
+				}
+				if tc.wantMsgSub != "" && !strings.Contains(ae.Message, tc.wantMsgSub) {
+					t.Errorf("message = %q, want it to contain %q", ae.Message, tc.wantMsgSub)
 				}
 				return
 			}
@@ -363,6 +382,60 @@ func TestAuthzSwapsAuthenticatorPerPath(t *testing.T) {
 	}
 }
 
+// TestAuthzMiddlewareBuildsHandlersOnce pins the shape of Middleware rather
+// than its behaviour: the per-group handlers are constructed at mount time and
+// the request path only picks between them. The first version built one
+// per request — `z.For(z.GroupFor(path)).Middleware(next).ServeHTTP(w, r)` —
+// which allocates a fresh http.HandlerFunc on every request, including on the
+// two probe routes kubelet hits forever, where the handler it builds has no
+// policy at all and exists only to call next.
+func TestAuthzMiddlewareBuildsHandlersOnce(t *testing.T) {
+	apiAuth, _ := NewAuthenticator(AuthToken, "s3cr3t")
+	noop := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	z := NewAuthz(apiAuth, apiAuth)
+	h := z.Middleware(noop)
+	rec := httptest.NewRecorder()
+
+	// The assertion is a *difference*, not a number: routing a request must cost
+	// no more than calling the handler it routes to. A hard alloc count would
+	// test strings.Fields inside Authenticate; the difference isolates the
+	// middleware, which is the thing that used to build a handler per request.
+	//
+	// (z, path) -> the handler the middleware picks for it, measured against
+	// that handler called directly.
+	cases := []struct {
+		path   string
+		direct http.Handler
+		creds  bool
+	}{
+		// GroupProbe has no policy: the correct handler is `noop` itself, so
+		// routing to it must cost exactly what calling noop costs — zero.
+		{path: "/readyz", direct: noop},
+		{path: "/healthz", direct: noop},
+		// GroupMetrics with a token policy: Authenticate allocates on its own
+		// (strings.Fields on the header, the byte-slice conversions), and the
+		// middleware must add nothing on top of that.
+		{path: "/metrics", direct: apiAuth.Middleware(noop), creds: true},
+		{path: "/api/v1/clusters", direct: apiAuth.Middleware(noop), creds: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			newReq := func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, tc.path, nil)
+				if tc.creds {
+					r.Header.Set("Authorization", "Bearer s3cr3t")
+				}
+				return r
+			}
+			viaMiddleware := testing.AllocsPerRun(20, func() { h.ServeHTTP(rec, newReq()) })
+			direct := testing.AllocsPerRun(20, func() { tc.direct.ServeHTTP(rec, newReq()) })
+			if viaMiddleware > direct {
+				t.Errorf("AllocsPerRun = %v through the middleware, %v calling the group handler directly; routing must not allocate a handler per request", viaMiddleware, direct)
+			}
+		})
+	}
+}
+
 // TestProbesAreAlwaysOpen is the regression test for the defect f08b6ac
 // rules on. The pre-ruling code put /healthz and /readyz in the same group as
 // /metrics, so --auth-metrics=token gated them — and a gated probe is a broken
@@ -508,7 +581,9 @@ func TestServerMountsAuthPerRouteGroup(t *testing.T) {
 	}{
 		{path: "/api/v1/version", header: "", wantStatus: http.StatusUnauthorized},
 		{path: "/api/v1/version", header: "Bearer s3cr3t", wantStatus: http.StatusOK},
-		{path: "/api/v1/version", header: "Bearer nope", wantStatus: http.StatusForbidden},
+		// A wrong token is 401 (R8.8's "missing/bad token"), not 403 — 403 is
+		// R12's "authenticated, but this cluster is not yours to read".
+		{path: "/api/v1/version", header: "Bearer nope", wantStatus: http.StatusUnauthorized},
 		// /metrics is unconfigured (nil) → allow-all, which is what
 		// --auth-metrics=none gives a Prometheus scrape; the two probes are
 		// exempt outright (R8.9), so they answer either way.
@@ -614,6 +689,94 @@ func TestAuthzConfigBuild(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer inline")
 		if _, err := z.API.Authenticate(r); err != nil {
 			t.Fatalf("--auth-token not honoured: %v", err)
+		}
+	})
+
+	// R8.8's "--auth-metrics=none so Prometheus need not hold a token" is about
+	// the *secret*, not only the mode. Before --auth-metrics-token existed,
+	// `--auth=token --auth-metrics=token` handed the identical string to both
+	// groups, so the credential a scrape job holds was the credential every user
+	// authenticates with — and rotating it logged everyone out.
+	t.Run("--auth-metrics-token gives the metrics group its own secret", func(t *testing.T) {
+		z, err := AuthzConfig{
+			Mode: AuthToken, MetricsMode: AuthToken,
+			Token: "api-token", MetricsToken: "metrics-token",
+		}.Build()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		newReq := func(tok string) *http.Request {
+			r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			r.Header.Set("Authorization", "Bearer "+tok)
+			return r
+		}
+		if _, err := z.Metrics.Authenticate(newReq("metrics-token")); err != nil {
+			t.Errorf("metrics group rejected its own token: %v", err)
+		}
+		if _, err := z.Metrics.Authenticate(newReq("api-token")); err == nil {
+			t.Error("metrics group accepted the API token; the two credentials must be distinct")
+		}
+		// And the API group must not have picked up the metrics token.
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/clusters", nil)
+		r.Header.Set("Authorization", "Bearer metrics-token")
+		if _, err := z.API.Authenticate(r); err == nil {
+			t.Error("API group accepted the metrics token; --auth-token is the API's credential")
+		}
+	})
+
+	t.Run("metrics token falls back to --auth-token when unset", func(t *testing.T) {
+		// The back-compat half of the ruling: an invocation that predates the
+		// new flags behaves exactly as before, sharing the API's credential.
+		z, err := AuthzConfig{Mode: AuthToken, MetricsMode: AuthToken, Token: "shared"}.Build()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		r.Header.Set("Authorization", "Bearer shared")
+		if _, err := z.Metrics.Authenticate(r); err != nil {
+			t.Errorf("metrics group did not fall back to --auth-token: %v", err)
+		}
+	})
+
+	t.Run("--auth-metrics-token-file is read for the metrics group", func(t *testing.T) {
+		metricsTokFile := filepath.Join(t.TempDir(), "metrics-token")
+		if err := os.WriteFile(metricsTokFile, []byte("metrics-file-token\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// The file wins over the TokenFile fallback, and the API group keeps
+		// reading its own pair — two Secret mounts, two credentials, one flag
+		// pair each.
+		z, err := AuthzConfig{
+			Mode: AuthToken, MetricsMode: AuthToken,
+			Token: "api-token", TokenFile: tokFile,
+			MetricsTokenFile: metricsTokFile,
+		}.Build()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		r.Header.Set("Authorization", "Bearer metrics-file-token")
+		if _, err := z.Metrics.Authenticate(r); err != nil {
+			t.Errorf("--auth-metrics-token-file not honoured: %v", err)
+		}
+		r = httptest.NewRequest(http.MethodGet, "/api/v1/clusters", nil)
+		r.Header.Set("Authorization", "Bearer api-token")
+		if _, err := z.API.Authenticate(r); err != nil {
+			t.Errorf("--auth-token not honoured alongside the metrics file: %v", err)
+		}
+	})
+
+	// The metrics file is read only when the metrics group needs a token, for
+	// the same reason the API's file is: a default path that does not exist must
+	// not break a run that disabled auth.
+	t.Run("metrics token file is not read when metrics mode is none", func(t *testing.T) {
+		_, err := AuthzConfig{
+			Mode: AuthNone, MetricsMode: AuthNone,
+			MetricsTokenFile: filepath.Join(t.TempDir(), "absent"),
+		}.Build()
+		if err != nil {
+			t.Fatalf("Build(--auth-metrics=none) with a missing metrics token file: %v", err)
 		}
 	})
 

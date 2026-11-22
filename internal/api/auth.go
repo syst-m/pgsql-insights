@@ -220,13 +220,27 @@ func (a *Authenticator) Authenticate(r *http.Request) (Identity, error) {
 		return Identity{User: user, Groups: r.Header.Values(headerRemoteGroup)}, nil
 
 	case AuthToken:
-		scheme, provided, ok := strings.Cut(r.Header.Get("Authorization"), " ")
-		if !ok {
+		// Split on whitespace, not on a single literal space. RFC 6454/7235
+		// allow optional whitespace between the scheme and the credential, and
+		// `strings.Cut(h, " ")` mis-reports two cases that follow from it:
+		// "Bearer" with no space yields ok=false and answers "missing
+		// Authorization header" when one is plainly present, and "Bearer  tok"
+		// yields the credential " tok" — a two-character string that can never
+		// match, so the caller is told their token is wrong when the real
+		// problem is the separator. strings.Fields handles both, and a header
+		// with a scheme and no credential falls through to the comparison
+		// below, where it fails against the non-empty configured token.
+		fields := strings.Fields(r.Header.Get("Authorization"))
+		if len(fields) == 0 {
 			return Identity{}, &AuthError{
 				Code:    dto.ErrUnauthorized,
 				Message: "missing Authorization header",
 				Status:  http.StatusUnauthorized,
 			}
+		}
+		scheme, provided := fields[0], ""
+		if len(fields) > 1 {
+			provided = fields[1]
 		}
 		if !strings.EqualFold(scheme, "bearer") {
 			return Identity{}, &AuthError{
@@ -235,11 +249,20 @@ func (a *Authenticator) Authenticate(r *http.Request) (Identity, error) {
 				Status:  http.StatusUnauthorized,
 			}
 		}
+		// A *wrong* token is 401 Unauthorized, not 403 Forbidden. dto's enum
+		// is the authority on the split and it says so in its own comments:
+		// `ErrUnauthorized // missing/bad token (R8.8)` and `ErrForbidden
+		// // token lacks scope for the object (R12)`. Answering 403 here
+		// collapses "your credential is wrong" into the code Phase 2's
+		// R12.4/R12.5 use for "authenticated, but not allowed to see this
+		// cluster", and a client that branches on the two — an SPA that
+		// re-prompts on 401 and shows an access-denied page on 403 — re-prompts
+		// forever. 403 is R12's to emit; auth.go's whole vocabulary is 401.
 		if subtle.ConstantTimeCompare([]byte(provided), []byte(a.token)) != 1 {
 			return Identity{}, &AuthError{
-				Code:    dto.ErrForbidden,
+				Code:    dto.ErrUnauthorized,
 				Message: "invalid bearer token",
-				Status:  http.StatusForbidden,
+				Status:  http.StatusUnauthorized,
 			}
 		}
 		return Identity{User: "token"}, nil
@@ -267,11 +290,15 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// writeAuthError renders an auth failure as an R8.5 ErrorBody. The 401 carries
-// WWW-Authenticate so an SPA can tell "no token yet" from "wrong token"
-// without probing, and the body is dto.NewError rather than an ad-hoc object
-// so every error the API emits — here, on a route, or in meta.failed — is the
-// same shape (R8.5).
+// writeAuthError renders an auth failure as an R8.5 ErrorBody. Every 401
+// carries WWW-Authenticate — the header is the scheme advertisement, so it
+// belongs on "no token" and "wrong token" alike, and the two are distinguished
+// by the message ("missing Authorization header" vs "invalid bearer token")
+// rather than by the status. Status 403 is deliberately never emitted from
+// here: dto's enum reserves it for R12's "authenticated, not allowed to see
+// this object", and R8.8's vocabulary is entirely 401. The body is
+// dto.NewError rather than an ad-hoc object so every error the API emits —
+// here, on a route, or in meta.failed — is the same shape (R8.5).
 func writeAuthError(w http.ResponseWriter, ae *AuthError) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if ae.Status == http.StatusUnauthorized {
@@ -365,12 +392,29 @@ func (z *Authz) Middleware(next http.Handler) http.Handler {
 	if z == nil {
 		return next
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// The three per-group handlers are built here, once, and the request path
+	// only picks between them. Building them per request — the obvious
+	// `z.For(z.GroupFor(r.URL.Path)).Middleware(next).ServeHTTP(w, r)` —
+	// allocates a fresh http.HandlerFunc for every request that arrives, and
+	// for the probe group (which has no policy at all) it allocates one whose
+	// only job is to call `next`, on the two routes kubelet hits every few
+	// seconds forever. The map is built at mount time, so the per-request work
+	// is one string switch and one map read.
+	handlers := map[RouteGroup]http.Handler{
 		// For() returns a nil *Authenticator for an unconfigured group (and
 		// always for GroupProbe), and (*Authenticator)(nil).Middleware returns
 		// next unchanged — so an unset group is an allow-all pass-through, not
 		// a special case here.
-		z.For(z.GroupFor(r.URL.Path)).Middleware(next).ServeHTTP(w, r)
+		GroupAPI:     z.API.Middleware(next),
+		GroupMetrics: z.Metrics.Middleware(next),
+		GroupProbe:   next,
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h, ok := handlers[z.GroupFor(r.URL.Path)]
+		if !ok || h == nil {
+			h = next
+		}
+		h.ServeHTTP(w, r)
 	})
 }
 
@@ -384,19 +428,34 @@ type AuthzConfig struct {
 	// and /debug/pprof/* follows Mode). R8.8's default here is none so a
 	// Prometheus scrape needs no token.
 	MetricsMode AuthMode
-	// Token is --auth-token, the literal bearer value.
+	// Token is --auth-token, the literal bearer value for GroupAPI.
 	Token string
 	// TokenFile is --auth-token-file, read when Token is empty. The chart
 	// mounts the Secret here, so production sets this and not Token.
 	TokenFile string
+	// MetricsToken is --auth-metrics-token: the bearer value for /metrics
+	// alone. R8.8's parenthetical — "--auth-metrics=none so Prometheus need
+	// not hold a token" — is about the *secret*, not only the mode: with one
+	// shared Token field, `--auth=token --auth-metrics=token` forces the
+	// scrape job to hold the API's token, so the credential that reads every
+	// cluster's data is the same one a human uses. Giving the metrics group
+	// its own value lets the operator rotate or revoke the scrape credential
+	// without logging every user out. Empty falls back to Token/TokenFile, so
+	// an invocation that predates the flag behaves exactly as before.
+	MetricsToken string
+	// MetricsTokenFile is --auth-metrics-token-file, read when MetricsToken is
+	// empty; falls back to TokenFile when both are unset.
+	MetricsTokenFile string
 }
 
-// Build resolves the token and constructs the Authz table.
+// Build resolves the two credentials and constructs the Authz table.
 //
-// The token file is read only when a group actually needs a token. Reading it
+// A token file is read only when a group actually needs a token. Reading it
 // unconditionally would make `--auth=none` fail on a machine where the default
 // --auth-token-file path does not exist, so lab and dev would have to unset the
 // path as well as the mode to run the binary — two knobs where one should do.
+// The metrics group gets the same treatment with its own flag pair
+// (--auth-metrics-token[-file]), falling back to the API's.
 func (c AuthzConfig) Build() (*Authz, error) {
 	// The two groups have different empty-string defaults — --auth defaults to
 	// token (R8.8) and --auth-metrics to none (R8.9) — so the defaults are
@@ -413,25 +472,78 @@ func (c AuthzConfig) Build() (*Authz, error) {
 		}
 	}
 
+	// Each group's credential is resolved separately, each file read gated on
+	// the group that needs it, and the metrics group falls back to the API's
+	// pair when its own flags are unset.
 	token := c.Token
-	needsToken := mode == AuthToken || metricsMode == AuthToken
-	if token == "" && c.TokenFile != "" && needsToken {
-		tok, err := LoadToken(c.TokenFile)
+	if mode == AuthToken {
+		t, err := resolveToken(c.Token, c.TokenFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("--auth: %w", err)
 		}
-		token = tok
+		token = t
+	}
+
+	// The metrics group's credential: --auth-metrics-token[-file] when set,
+	// the API's pair as the fallback. The fallback is what keeps an existing
+	// `--auth=token --auth-metrics=token` invocation working unchanged — it
+	// just no longer *has* to share the API's secret.
+	//
+	// The whole block is gated on the metrics group actually needing a token,
+	// the same rule the API group applies to its own file: a chart that leaves
+	// --auth-metrics-token-file pointing at a path while running
+	// --auth-metrics=none must still start, or disabling one policy needs two
+	// flags unset.
+	metricsToken := ""
+	if metricsMode == AuthToken {
+		metricsToken = c.MetricsToken
+		if metricsToken == "" {
+			switch {
+			case c.MetricsTokenFile != "":
+				t, err := LoadToken(c.MetricsTokenFile)
+				if err != nil {
+					return nil, fmt.Errorf("--auth-metrics: %w", err)
+				}
+				metricsToken = t
+			case mode == AuthToken:
+				// Already resolved above (and gated on the same mode).
+				metricsToken = token
+			default:
+				// Metrics needs a token, the API does not, and no
+				// metrics-specific credential was given: read the shared
+				// --auth-token[-file].
+				t, err := resolveToken(c.Token, c.TokenFile)
+				if err != nil {
+					return nil, fmt.Errorf("--auth-metrics: %w", err)
+				}
+				metricsToken = t
+			}
+		}
 	}
 
 	apiAuth, err := NewAuthenticator(mode, token)
 	if err != nil {
 		return nil, fmt.Errorf("--auth: %w", err)
 	}
-	metricsAuth, err := NewAuthzMetrics(metricsMode, token)
+	metricsAuth, err := NewAuthzMetrics(metricsMode, metricsToken)
 	if err != nil {
 		return nil, fmt.Errorf("--auth-metrics: %w", err)
 	}
 	return NewAuthz(apiAuth, metricsAuth), nil
+}
+
+// resolveToken picks a literal token over a file, and returns "" when neither
+// is set. It never reads a file the caller did not name, so gating a call on
+// "this group needs a token" is enough to make an unconfigured group's
+// nonexistent default path harmless.
+func resolveToken(value, file string) (string, error) {
+	if value != "" {
+		return value, nil
+	}
+	if file == "" {
+		return "", nil
+	}
+	return LoadToken(file)
 }
 
 // NewAuthzMetrics builds the /metrics-group authenticator (--auth-metrics). It
