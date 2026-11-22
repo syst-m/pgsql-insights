@@ -90,6 +90,71 @@ to prevent. If you are carrying a Phase 0 values file, rename `monitoring:` →
 
 ---
 
+## The two-plane rule (R9.1)
+
+R9.1 decides what `/metrics` is allowed to contain, and it is the reason this chart ships a
+ServiceMonitor at all: **basic metrics → `/metrics` → Prometheus; query text, plan bodies,
+active-session rows and blocking chains → API + store only.** Metrics carry the numbers; the
+API carries the text. The rule's own reason is cardinality — a label per query is how a
+5 000-query cluster buys a 40 GB TSDB — so the test for any capability is not "is this useful
+in Prometheus" but "can this be a label at a price": a number that aggregates is a metric, a
+string you would read is not.
+
+R9.1 requires the tagging to be *in this file*, so it is here and not only in the root
+README's metrics catalogue (`README.md:178`). Every capability the spec names, with the plane
+that serves it:
+
+| Capability | Plane | Req | Why that plane |
+|---|---|---|---|
+| Aggregate load — execution time, rows, shared hits/reads, lock time per (cluster, db, user) | `/metrics` | R9.4 | ~1 200 series/cluster; these four numbers are the export's whole purpose |
+| Per-query numbers, **top-N only** | `/metrics` | R9.5, R9.5b | 300 series; `metrics.topN` is what makes `fingerprint` an affordable label — uncapped it is the 40 GB case |
+| Sampled latency histogram | `/metrics` | R9.13 | 450 series; 50 × (8 buckets + `_sum` + `_count`) |
+| Per-tag numbers | `/metrics` | R9.6 | tags × databases; gated on R3.12 for the same reason — every tag is a label |
+| System metrics (the full R5.2 set, plus parsed `cnpg_*`) | `/metrics` | R9.7 | ~4 000 series |
+| Pooler utilisation | `/metrics` | R6.1 | ~200 series |
+| Self-observability (the eight R9.8 series) | `/metrics` | R9.8 | ~120 series |
+| `pgsi_build_info{version,commit}` | `/metrics` | R9.8, R11.16 | the one place a *string* is legitimately a metric: one series, two labels, the Prometheus idiom for "which build answered" |
+| Instance liveness | `/metrics` | R9.12 | `pgsi_up`, one series per instance; the API answers the same question as a row in `/api/v1/clusters` and both are correct |
+| Instance identity (`namespace`, `cluster`, `pod`, `instance_role`) | **both** | R9.3 | on the metrics plane it is a *label set* carried by every series; on the API plane it is a *record*. One value in two shapes, not a third metric |
+| Databases / Users / Client-address rollups | **both** | R3.7 | the numbers ride R9.4's `datname` / `usename` labels; the rows are R8.2's |
+| Query text (normalized statement) | API + store | R3.2, R8.2 | the 40 GB case verbatim; R9.5b's `fingerprint` is its metrics-plane proxy |
+| Plan bodies (`EXPLAIN (FORMAT JSON)` samples) | API + store | R3.10, R8.2 | a plan is a document; R9 has no plan family and R9.1 forbids one |
+| Active-session rows | API + store | R4.1, R8.2 | pid / state / query per session; the metrics plane carries one series per *instance*, not per session |
+| Blocking chains | API + store | R4.4, R8.2 | a graph edge from `pg_blocking_pids()`; not a number. R9.4's lock time is the aggregate that pages you to read it |
+| Terminate session | API only | R4.5 | the API plane also owns *actions*, which a read-only export cannot express at all |
+| Wait-event breakdown | API + store | R4.3, R8.2 | see the note below |
+| Recommendations | API only | R7.6 | finding + evidence + action + `confidence` is a document; its *evidence* cites metrics, which is not the same as being one |
+| Events timeline | API only | R8.2, R10.3 | |
+| Search (`/search?q=`) | API only | R8.2, R10.17 | searching text requires the text, so it is unreachable from the metrics plane by construction |
+| Pooler config (`poolMode`, pool sizes) | API only | R6.5 | config is a document; its utilisation is the metric (R6.1) |
+
+**The one capability whose numbers are not on the metrics plane.** Wait events are where the
+rule's two halves come apart, so the exception is named rather than left for a reader to
+object to. R4.3's `wait_event_type` × `wait_event` rollup is served by
+`/insights/wait-events` (R8.2) because R9's family set has no wait-event member — the
+breakdown is text-plane even though it is a count. The only wait number that reaches
+`/metrics` is `cnpg_backends_waiting_total`, re-exported under `pgsi_` by R9.7's `cnpg_*`
+clause, and R4.3 records that CNPG's own metric is a single count with no breakdown. So
+R10.9's donut is fed by the API, not by Prometheus — which is the rule working as intended,
+not an oversight: one label per wait event is the same cardinality purchase at a smaller scale.
+
+### What the chart ships per plane
+
+The split is also the fastest way to read `templates/`: each template serves one plane or the
+other, and the fact that two planes need one pod and one port is R11.1's point.
+
+| Template | Plane |
+|---|---|
+| `templates/servicemonitor.yaml`, `templates/podmonitor.yaml` (R9.9) | metrics — the scrape surface for the rows above |
+| `templates/prometheusrule.yaml` (R9.11) | metrics — an alert is PromQL, so it can only read this plane |
+| `templates/service.yaml` | **both** — one `http` port serves `/metrics` and `/api/v1/*`; R8.9 splits their auth (`--auth-metrics` vs `--auth`) on that single port |
+| `templates/deployment.yaml`, `templates/configmap.yaml` | **both** — one env block carries both planes' flags |
+| `templates/pvc.yaml` | API — the store exists to hold the text the metrics plane refuses |
+| `templates/ingress.yaml`, `templates/networkpolicy.yaml`, `templates/pdb.yaml`, `templates/tests/` | API — the client-facing surface |
+| `templates/role.yaml`, `rolebinding.yaml`, `clusterrole.yaml`, `clusterrolebinding.yaml`, `serviceaccount.yaml`, `extra-manifests.yaml`, `_helpers.tpl`, `NOTES.txt` | neither — RBAC and rendering plumbing, plane-agnostic |
+
+---
+
 ## ServiceMonitor and PodMonitor (R9.9)
 
 `templates/servicemonitor.yaml` and `templates/podmonitor.yaml`. Both are gated on
