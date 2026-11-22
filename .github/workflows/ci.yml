@@ -18,6 +18,10 @@ permissions:
 env:
   GO_VERSION: "1.26.0"
   GOLANGCI_LINT_VERSION: "v1.64.8"
+  # R15.3 names go-licenses as the audit's tool, so it is pinned like the other
+  # toolchain pins here rather than floating on @latest — an unpinned resolver changes
+  # the license strings it reports, and the report is a committed file.
+  GO_LICENSES_VERSION: "v1.6.0"
   HELM_VERSION: "v4.3.1"
   # R11.16 / Q6: provisional registry org — see README and IMPLEMENTATION.md §5.
   IMAGE_REPO: ghcr.io/frankellis/pgsql-insights
@@ -81,6 +85,27 @@ jobs:
       # that outruns the published budget fails here rather than in a Prometheus bill.
       - name: cardinality budget (R13.4)
         run: make cardinality-check
+      # R15.3's second clause — "committed as docs/licenses/ *and regenerated in CI*".
+      # Until now the first half existed and the second was only asserted by
+      # docs/licenses/README.md: `make licenses` appeared nowhere in this file, so the
+      # manifest could drift by any amount and stay green. `make licenses-check`
+      # regenerates from go.mod + web/package-lock.json and fails on drift, the same
+      # shape as the render-check gate in the helm job (R11.13). It belongs in this job
+      # because R8.1c's row is the precedent for where a doc-consistency gate that can
+      # fail the build goes: "the `lint` job beside `scripts/check-parity-matrix.sh`".
+      # `make licenses` writes docs/licenses/go-licenses-report.csv only when the
+      # binary is on PATH. Without this step CI would generate two files against the
+      # three committed here, and go-dependencies.txt's license-names header would
+      # revert to its "pending" form — so the check would fail on a runner that simply
+      # lacks the tool. Verified: the report is byte-identical under GOOS=linux
+      # GOARCH=amd64 and on darwin/arm64 (53 rows both), so the committed CSV is what
+      # a linux runner produces.
+      - name: install go-licenses ${{ env.GO_LICENSES_VERSION }}
+        run: |
+          go install github.com/google/go-licenses@${{ env.GO_LICENSES_VERSION }}
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: license manifest (R15.3)
+        run: make licenses-check
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet
