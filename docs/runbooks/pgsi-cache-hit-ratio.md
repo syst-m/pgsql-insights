@@ -12,9 +12,7 @@
 > changes with them.
 
 ```promql
-sum(rate(pgsi_query_shared_blocks_hit_total[15m]))
-  / clamp_min(sum(rate(pgsi_query_shared_blocks_hit_total[15m]))
-            + rate(pgsi_query_shared_blocks_read_total[15m]), 1) < 0.9
+sum(rate(pgsi_query_shared_blocks_hit_total[15m])) / clamp_min(sum(rate(pgsi_query_shared_blocks_hit_total[15m]) + rate(pgsi_query_shared_blocks_read_total[15m])), 1) < 0.9
 ```
 
 ## What it means
@@ -30,10 +28,6 @@ database. Without it a cluster with almost no activity produces `0/0` → `NaN`,
 `NaN < 0.9` is false — so an idle cluster silently stops being monitored. Clamping the
 denominator to at least 1 makes the ratio evaluate to 0 on a cluster doing nothing,
 which is the honest answer and does not fire.
-
-Note the chart's rule text ends in `> 0.25` while its summary says "below 90 %"; the
-expression above is the one that matches the summary. The threshold discrepancy is
-recorded as a chart defect, not resolved here.
 
 ## First three commands
 

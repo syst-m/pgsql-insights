@@ -11,7 +11,8 @@ max(pgsi_scheduler_queue_depth) > 256
 
 `pgsi_scheduler_queue_depth` is one of R9.8's self-observability metrics: the number
 of work items waiting to run. The rule's threshold is 256 and its summary says "over
-half full", which pins the configured queue capacity at 512 — the alert fires at 50 %,
+half full", which pins the configured queue capacity at 512 — R2.9's default for
+`--scheduler-queue-depth`, as the chart's own comment on this rule notes. The alert fires at 50 %,
 deliberately early, because the state after a full queue is shedding, and shedding is
 lossy.
 
