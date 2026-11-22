@@ -129,7 +129,7 @@ func DefaultCatalogue() *Catalogue {
 		{"lock_time", "pgsi_query_lock_time_seconds_total"},
 	}
 
-	var entries []CatalogueEntry
+	entries := make([]CatalogueEntry, 0, len(aggregates))
 	for _, a := range aggregates {
 		implemented := a.metric != "pgsi_query_rows_total"
 		entries = append(entries, CatalogueEntry{
@@ -330,9 +330,10 @@ var metricNameRE = regexp.MustCompile(`^pgsi_[a-z0-9_]+$`)
 // this is the list of families the API promises to answer, so it is the list the
 // exporter has to produce.
 func (c *Catalogue) MetricNames() []string {
+	entries := c.Entries()
 	seen := map[string]bool{}
-	var out []string
-	for _, e := range c.Entries() {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
 		if e.Metric == "" || seen[e.Metric] {
 			continue
 		}

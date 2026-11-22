@@ -297,8 +297,13 @@ func (e promQLError) Error() string {
 	return fmt.Sprintf("%d %s: %s", e.status, e.body.Error.Code, e.body.Error.Message)
 }
 
-func newPromQLError(status int, code, msg string, details ...string) *promQLError {
-	return &promQLError{status: status, body: dto.NewError(code, msg, details...)}
+// newPromQLError builds the pair. It used to take a variadic `details` that no
+// call site in the package ever filled (R11.11's unparam finding): passing none
+// is the same as passing nothing, so the parameter advertised an R8.5 details
+// list that does not exist. dto.NewError keeps its own variadic for the callers
+// that do have per-item messages.
+func newPromQLError(status int, code, msg string) *promQLError {
+	return &promQLError{status: status, body: dto.NewError(code, msg)}
 }
 
 // resolve applies the three modes. It returns either a response or an error,
@@ -329,7 +334,7 @@ func (p *PromQL) resolve(ctx context.Context, endpoint string, req PromQLQueryRe
 	// a deployment that points at a Prometheus answers *every* query, including
 	// ones not in our catalogue, because Prometheus evaluates them for us.
 	if p.cfg.PrometheusURL != "" {
-		return p.proxy(ctx, endpoint, q, start, end, isRange)
+		return p.proxy(ctx, q, start, end, isRange)
 	}
 
 	// Mode 2: catalogue — scoped to *this* endpoint, which is what makes the two
@@ -417,13 +422,13 @@ func decodePromQLRequest(r *http.Request) (PromQLQueryRequest, error) {
 		var req PromQLQueryRequest
 		b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err != nil {
-			return req, fmt.Errorf("read request body: %v", err)
+			return req, fmt.Errorf("read request body: %w", err)
 		}
 		if len(strings.TrimSpace(string(b))) == 0 {
 			return req, fmt.Errorf("a POST body is required (an empty body asks no query)")
 		}
 		if err := json.Unmarshal(b, &req); err != nil {
-			return req, fmt.Errorf("decode request body: %v", err)
+			return req, fmt.Errorf("decode request body: %w", err)
 		}
 		return req, nil
 	default:
@@ -552,8 +557,14 @@ type upstreamData struct {
 	Result     json.RawMessage `json:"result"`
 }
 
-// proxy forwards the query to Prometheus and returns its answer untouched.
-func (p *PromQL) proxy(ctx context.Context, endpoint, query string, start, end time.Time, isRange bool) (*PromQLQueryResponse, *promQLError) {
+// proxy forwards the query to Prometheus and returns its answer untouched. The
+// upstream path - /api/v1/query or /api/v1/query_range - is derived from isRange
+// alone, so the route this was reached through is not a parameter. The signature
+// used to take `endpoint` and the body never read it (R11.11's unused-parameter
+// finding): a caller passing endpoint="/api/v1/metrics/system" with isRange=false
+// got /api/v1/query and no complaint, which is a second source of truth for a
+// request whose shape is already fully described by isRange.
+func (p *PromQL) proxy(ctx context.Context, query string, start, end time.Time, isRange bool) (*PromQLQueryResponse, *promQLError) {
 	base := strings.TrimRight(p.cfg.PrometheusURL, "/")
 	// The path is picked before the parse, not assigned to u.Path afterwards:
 	// u.Path on a parsed URL is only the path component, so

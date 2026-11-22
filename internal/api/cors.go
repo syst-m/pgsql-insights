@@ -82,11 +82,12 @@ func ParseCORSAllowOrigin(v string) []string {
 	if strings.TrimSpace(v) == "" {
 		return nil
 	}
+	parts := strings.Split(v, ",")
 	var (
-		out  []string
+		out  = make([]string, 0, len(parts))
 		seen = map[string]bool{}
 	)
-	for _, part := range strings.Split(v, ",") {
+	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" || seen[part] {
 			continue

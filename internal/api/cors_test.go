@@ -292,7 +292,7 @@ func TestCORSMaxAgeDefault(t *testing.T) {
 // response where that loss is invisible until it isn't.
 func TestCORSHeadersSetBeforeWriteHeader(t *testing.T) {
 	var sawACAOAtWriteTime string
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		sawACAOAtWriteTime = w.Header().Get("Access-Control-Allow-Origin")
 		w.WriteHeader(http.StatusOK)
 	})

@@ -471,7 +471,7 @@ func (c AuthzConfig) Build() (*Authz, error) {
 	if err != nil {
 		return nil, fmt.Errorf("--auth: %w", err)
 	}
-	metricsMode := AuthMode(AuthNone)
+	metricsMode := AuthNone
 	if c.MetricsMode != "" {
 		metricsMode, err = ParseAuthMode(string(c.MetricsMode))
 		if err != nil {

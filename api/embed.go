@@ -1,4 +1,4 @@
-// The embedded OpenAPI document (R8.1).
+// Package api exposes the embedded OpenAPI document (R8.1).
 //
 // R8.1 names one path for one artifact: `api/openapi.yaml`. It appears twice in
 // requirements.md — in R8.1's own requirement text (`api/openapi.yaml`) and in
@@ -21,7 +21,6 @@
 // embed exposes is a deliberate edit to this file. The function returns bytes,
 // not an fs.FS: an fs.FS rooted here would let a caller open any sibling this
 // package later embeds and quietly depend on it.
-
 package api
 
 import (
@@ -30,9 +29,10 @@ import (
 )
 
 // OpenAPIDocumentPath is the package-relative path of the R8.1 document. It is
-// a constant so callers, the CI check and the docs all name the same string;
-// go:embed itself cannot take a constant, which is why the directive below
-// repeats it and why this is the one line a future `mv` has to touch.
+// a constant so callers, the CI check and the docs all name the same string.
+// The embed directive below cannot take a constant - a //go:embed argument is
+// not an expression - so the path is repeated there, and this is the one line a
+// future `mv` has to touch.
 const OpenAPIDocumentPath = "openapi.yaml"
 
 //go:embed openapi.yaml
