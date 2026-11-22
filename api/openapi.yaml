@@ -23,9 +23,10 @@
 # The schemas stay per-resource (components.schemas.*, referenced by $ref) so
 # that generating, extending or splitting the document never requires rewriting
 # it. x-status on each path says whether it is in code; x-planned-paths at the
-# bottom lists the routes R8.2/R8.11 name that are not in code yet (R8.3's pair
-# moved up to `paths` and its entry is retired below), so promoting one into
-# `paths` is a one-entry edit rather than a restructure.
+# bottom lists the routes R8.2 still names that are not in code yet (R8.3's
+# pair and R8.11's batched series moved up to `paths` and both entries are
+# retired below), so promoting one into `paths` is a one-entry edit rather than
+# a restructure.
 #
 # YAML note: every scalar whose text contains ": " (or starts with a backtick)
 # is double-quoted here. Seven were not at HEAD — two because their text
@@ -106,6 +107,13 @@ tags:
       get_system_metrics. Not the Prometheus exposition (that is `probes`): this
       is the query surface, proxied to a Prometheus when one is configured and
       served from the named catalogue otherwise.
+  - name: insights
+    description: |
+      R8.2's query-insights surface beyond the PromQL pair. In code now: the
+      batched per-minute series route (R8.11,
+      `/api/v1/insights/queries/series`). The rest of R8.2's list — the
+      per-fingerprint detail, wait-events, databases, users, tags — is still in
+      `x-planned-paths`.
   - name: build
     description: Build metadata (R11.3).
   - name: probes
@@ -466,6 +474,107 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /api/v1/insights/queries/series:
+    get:
+      tags: [insights]
+      operationId: getQuerySeries
+      summary: Per-minute series for up to 50 fingerprints in one response
+      description: |
+        R8.11's batched series endpoint: the per-minute series for every
+        fingerprint the request names, in ONE response. The requirement's own
+        justification is a request count — without it R10.6's per-row sparklines
+        need one request per row, and R10.14's 1.5 s page-load budget forbids 50
+        detail calls to render one table — so this route exists to replace those
+        50 calls, and its shape (one entry per requested fingerprint inside one
+        envelope) follows from that and nothing else.
+
+        Each entry carries all five R9.4 aggregate members per point
+        (`executionTimeSeconds`, `rows`, `sharedBlocksHit`,
+        `sharedBlocksRead`, `lockTimeSeconds` — the member list in
+        `internal/api/promql_catalogue.go`, not a re-invented one). That is why
+        there is no `metric=` parameter here: R8.11's signature does not name
+        one, and a per-metric fetch would need five requests per page to fill
+        one table of sparklines, which is the R10.14 budget spent on the wrong
+        thing. The same five points serve R10.7's Query Detail chart.
+
+        The body is `dto.Envelope[QuerySeries]` — R8.4's generic, the one
+        `/api/v1/clusters` serves and `web/src/api/types.ts` mirrors (R16.8),
+        named `QuerySeriesEnvelope` rather than re-typed. `meta.total` is the
+        number of fingerprints requested after de-duplication and
+        `meta.truncated` follows the invariant `dto.Meta` states
+        (`truncated` ⟺ `len(data) < total`), so a source that answers 40 of 50
+        says total 50 / truncated true instead of quietly reporting 40.
+        `meta.nextCursor` stays empty: a batch is not a page — the client names
+        the set, so there is nothing to page through. R8.10's paging rules govern
+        the list routes, not this one; its above-max-is-an-error rule does apply,
+        and that is what `fingerprints` says.
+
+        R8.7's single readiness signal gates this route exactly as it gates
+        `/api/v1/clusters`: 503 `NotReady` before the first sync rather than 200
+        with an empty `data`. The route reads the series store rather than the
+        inventory, but readiness is the process's answer about whether it has
+        collected anything at all, and one value answers both routes so they
+        cannot disagree — which is what R8.9's unconditional probe exemption
+        makes load-bearing.
+      x-status: implemented
+      parameters:
+        - $ref: '#/components/parameters/Fingerprints'
+        - $ref: '#/components/parameters/Range'
+        - $ref: '#/components/parameters/Namespace'
+        - $ref: '#/components/parameters/Cluster'
+        - $ref: '#/components/parameters/DB'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: One entry per requested fingerprint, plus the envelope metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuerySeriesEnvelope'
+              example:
+                data:
+                  - fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+                    queryid: "8123456789012345678"
+                    namespace: postgres
+                    cluster: onepg
+                    pod: onepg-1
+                    instanceRole: primary
+                    datname: appdb
+                    usename: app
+                    points:
+                      - timestamp: "2026-11-21T09:11:00Z"
+                        executionTimeSeconds: 0.4182
+                        rows: 1200
+                        sharedBlocksHit: 48200
+                        sharedBlocksRead: 12
+                        lockTimeSeconds: 0.0031
+                      - timestamp: "2026-11-21T09:12:00Z"
+                        executionTimeSeconds: 0.3907
+                        rows: 1180
+                        sharedBlocksHit: 47910
+                        sharedBlocksRead: 8
+                        lockTimeSeconds: 0.0028
+                meta:
+                  total: 1
+                  truncated: false
+                  generatedAt: "2026-11-21T09:12:03Z"
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        # Two 503 bodies in code, one response key in OpenAPI (a path item maps
+        # a status code to exactly one response): the readiness gate, which
+        # answers NotReady, and a series read that errors, which answers
+        # Unavailable. The ref names NotReady because that is the one reachable
+        # today — the default source cannot error — and Unavailable becomes the
+        # honest answer when Phase 3's store replaces it. R8.5 keeps the two
+        # codes apart precisely so "I have no answer yet" and "I asked and the
+        # answer did not come" stay distinguishable; collapsing them here is
+        # OpenAPI's limit, not the API's.
+        '503':
+          $ref: '#/components/responses/NotReady'
+
   /healthz:
     get:
       tags: [probes]
@@ -764,12 +873,14 @@ x-planned-paths:
   # `x-promql-catalogue`, and TestCatalogueMatchesOpenAPIDocument (plus
   # scripts/check-openapi.py) enforces the two lists against the table in
   # internal/api/promql_catalogue.go.
-  r8.11-batched-series:
-    # R8.11: GET /api/v1/insights/queries/series?fingerprints=a,b,c&range=…
-    # returns the per-minute series for up to 50 fingerprints in ONE response.
-    # Without it, R10.6's per-row sparklines need one request per row and
-    # R10.14's 1.5 s budget forbids 50 detail calls on page load.
-    - /api/v1/insights/queries/series   # GET (R8.11)
+  # r8.11-batched-series was the third entry here: GET
+  # /api/v1/insights/queries/series?fingerprints=a,b,c&range=…, the one response
+  # that answers the per-minute series for up to 50 fingerprints so R10.6's
+  # per-row sparklines do not cost one request per row inside R10.14's 1.5 s
+  # page-load budget. It moved up to `paths` in the commit that added the
+  # handler (internal/api/series.go), so the entry is gone rather than marked —
+  # the rule r8.3-promql-pairs states above: a planned-path that is implemented
+  # is a second name for a route that exists, and R14.7 counts one.
   # r8.7-debug was the fourth entry here: /debug/pprof/ and its four sub-paths.
   # server.go registered them in Phase 1a and they moved up to `paths` in the
   # same commit, so R8.7's surface is now entirely in code and nothing under
@@ -874,6 +985,47 @@ components:
       required: false
       schema:
         type: string
+
+    # R8.11's batch parameter and R10.15's range vocabulary, as components for
+    # the same reason as the R8.4 set above: one definition per parameter, so
+    # the route, the parser in series.go and any later insights route that takes
+    # a range cannot each have their own idea of what the parameter accepts.
+    Fingerprints:
+      name: fingerprints
+      in: query
+      description: |
+        R8.11's batch parameter: the comma-separated fingerprints to fetch, at
+        most `MaxBatchFingerprints` (50) of them. **Required** on this route —
+        the batched endpoint answers the fingerprints you name, so an empty list
+        is `InvalidRequest` rather than an empty page. Spaces around commas are
+        trimmed and duplicates collapsed, so a hand-written URL and a
+        client-generated one ask for the same set. Above 50 the request is
+        `InvalidRequest`, not a silent truncation: that is R8.10's rule for a
+        limit above its maximum applied to the batch parameter, because a client
+        that asks for 80 and gets 50 cannot tell "30 of them have no data" from
+        "you were cut off", and keeping those two answers distinguishable is the
+        whole reason R8.10 forbids the clamp.
+      required: true
+      schema:
+        type: string
+      example: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    Range:
+      name: range
+      in: query
+      description: |
+        R10.15's time-range vocabulary: `1h`, `6h`, `1d`, `7d`, `30d`, or
+        `custom`. A preset is a window, not a resolution — R8.11's bucket is
+        fixed at one minute, and R10.15's own wording separates the five presets
+        from any step size. `custom` is how R8.4's `from`/`to` pair is reached
+        on this route: with `range=custom` both bounds are required and parsed
+        by the same RFC 3339 rules the PromQL pair uses, and on a preset they are
+        ignored rather than rejected, so a client that sends `range=1h&from=…`
+        gets the hour and no error about a parameter that does not apply to it.
+      required: false
+      schema:
+        type: string
+        default: 1h
+        enum: [1h, 6h, 1d, 7d, 30d, custom]
 
     # R8.3's request fields, as components so `get` and `post` on both routes
     # describe the same five fields. `post` sends them in the body
@@ -1819,3 +1971,163 @@ components:
         values as strings and a float on the wire loses the difference between
         `"1.5"` and `"1.5000000000000002"` that the upstream text keeps.
       example: [1764209523.000, "0.4182"]
+
+    # ---- Batched query series (R8.11) --------------------------------------
+
+    QuerySeriesEnvelope:
+      type: object
+      description: |
+        `dto.Envelope[QuerySeries]` — the second projection of the Go generic
+        `Envelope[T any]`, named in this document the way `FleetEnvelope` names
+        the one for `/api/v1/clusters` (that schema says "Phase 3 adds one per
+        resource the same way"; this is one of them, early).
+
+        The Go side declares it as a type *alias*
+        (`type QuerySeriesEnvelope = dto.Envelope[QuerySeries]`), not a struct
+        with the same fields: R8.4's envelope has exactly one definition in this
+        codebase, and a slot that has already shipped a second hand-written copy
+        of a contract does not get to write a third one. The alias gives the
+        document a name to `$ref` without inventing fields.
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuerySeries'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    QuerySeries:
+      type: object
+      description: |
+        One requested fingerprint's answer: its labels, then the points. The
+        label set is R9.3's contract. `fingerprint` is the canonical key and
+        `queryid` the secondary, informational one (R9.5b — R3.4 is why: PG18
+        changes query-id jumbling, so an id can change for an unchanged query,
+        which makes it unfit as a key and fine as a display field).
+
+        `pod` and `instanceRole` are present only when the answer is a single
+        instance's — R5.7's compare-up-to-5 needs the (namespace, cluster, pod)
+        triple to label a per-instance series — and absent when the points
+        aggregate across the cluster's instances, which is what R10.6's table row
+        asks for and what makes one entry per fingerprint possible at all.
+        `datname` and `usename` are R9.3's database/user additions, the other
+        half of R9.4's row identity (per cluster, db, user).
+
+        `points` is `[]`, never null, for a fingerprint the store has never seen:
+        an absent array and an empty one mean the same thing to the UI, and the
+        house rule `FleetEnvelope.data` states for its own array applies here.
+      required: [fingerprint, namespace, cluster, points]
+      properties:
+        fingerprint:
+          type: string
+          description: |
+            R3.4's normalized fingerprint — the canonical key of the query store
+            and of this route's request (R9.5b).
+        queryid:
+          type: string
+          description: |
+            PostgreSQL's `queryid`, informational (R9.5b). Absent when the store
+            has no id for the fingerprint, which is legal because R3.4 makes the
+            id unstable and this route's key is not the id.
+        namespace:
+          type: string
+          description: The namespace the query ran in (R9.3).
+        cluster:
+          type: string
+          description: The CloudNativePG Cluster it ran on (R9.3).
+        pod:
+          type: string
+          description: |
+            The instance the series came from, present only for a single-instance
+            answer (R9.3, R5.7).
+        instanceRole:
+          type: string
+          description: |
+            `primary` or `replica` for the same case; absent on an answer that
+            aggregates across instances.
+          enum: [primary, replica]
+        datname:
+          type: string
+          description: Database (R9.3's optional label, R9.4's row identity).
+        usename:
+          type: string
+          description: Role that executed the query (R9.3, R9.4).
+        points:
+          type: array
+          description: |
+            The per-minute series, in time order. `[]` when the store has no
+            points for this fingerprint yet.
+          items:
+            $ref: '#/components/schemas/QuerySeriesPoint'
+      example:
+        fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        queryid: "8123456789012345678"
+        namespace: postgres
+        cluster: onepg
+        pod: onepg-1
+        instanceRole: primary
+        datname: appdb
+        usename: app
+        points: []
+
+    QuerySeriesPoint:
+      type: object
+      description: |
+        One minute of one fingerprint's series. The five values are R9.4's
+        aggregate family members, named from the member list in
+        `internal/api/promql_catalogue.go` rather than re-invented here:
+        `execution_time`, `rows`, `shared_blocks_hit`, `shared_blocks_read`,
+        `lock_time`. (The catalogue's sixth entry on this route,
+        `aggregate.cache_hit_ratio`, is *derived* rather than a member of the
+        family, so it is not a field here — it is computed from the two block
+        counters where it is served.)
+
+        All five are `number` — `float64` in Go — because that is the type the
+        R9.4 family carries: a per-minute delta derived from a cumulative counter
+        (R3.3) is not necessarily integral even when the underlying count is.
+        The bucket is one minute because R8.11 says "the per-minute series"; the
+        range parameter selects the window, never the resolution (R10.15).
+      required:
+        - timestamp
+        - executionTimeSeconds
+        - rows
+        - sharedBlocksHit
+        - sharedBlocksRead
+        - lockTimeSeconds
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: |
+            Start of the minute, RFC 3339 UTC (R10.21: every timestamp the API
+            emits is RFC 3339 UTC, and `meta.generatedAt` is the same type for
+            the same reason).
+        executionTimeSeconds:
+          type: number
+          description: 'R9.4 `execution_time` for the minute, in seconds.'
+        rows:
+          type: number
+          description: "R9.4 `rows` — rows returned, per R3.2's `Avg rows returned` column."
+        sharedBlocksHit:
+          type: number
+          description: 'R9.4 `shared_blocks_hit`.'
+        sharedBlocksRead:
+          type: number
+          description: 'R9.4 `shared_blocks_read`.'
+        lockTimeSeconds:
+          type: number
+          description: |
+            R9.4 `lock_time`, in seconds. R3.2 documents that per-query lock time
+            has no `pg_stat_statements` source (§5 divergence) and renders `n/a`
+            in the R3.2 column set; R9.4 nonetheless names `lock_time` as a member
+            of the aggregate family, so the field exists here and its value is
+            whatever the store can source (database/user level from R3.7's
+            `pg_locks` + `pg_stat_activity` rollup, not per execution).
+      example:
+        timestamp: "2026-11-21T09:12:00Z"
+        executionTimeSeconds: 0.4182
+        rows: 1200
+        sharedBlocksHit: 48200
+        sharedBlocksRead: 12
+        lockTimeSeconds: 0.0031

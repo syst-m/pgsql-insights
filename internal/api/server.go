@@ -8,6 +8,8 @@
 //	GET /healthz          liveness probe target (R8.7, R11.2 httpGet probes)
 //	GET /readyz           readiness probe target (R8.7)
 //	GET /api/v1/clusters  the fleet inventory (R8.2; see clusters.go)
+//	GET /api/v1/insights/queries/series  batched per-minute series for up to 50
+//	                                    fingerprints (R8.11; see series.go)
 //	GET /api/v1/version   build metadata (R11.3)
 //	GET /metrics          pgsi_build_info only (R11.3; the full R9.2 catalogue lands in Phase 2)
 //	GET /debug/pprof/*    Go runtime profiles (R8.7; follows --auth per R8.9)
@@ -78,6 +80,13 @@ type Config struct {
 	// answer deserves. cmd/pgsi builds it from --prometheus-url.
 	PromQL *PromQL
 
+	// Series is R8.11's batched series route (GET /api/v1/insights/queries/series,
+	// implemented in series.go). Nil selects the empty source, so the route still
+	// answers `data: []` instead of 404 — the document lists it, and R14.7 forbids
+	// a documented route that 404s. Phase 3's per-minute store replaces the default
+	// by assigning this field; nothing else in the wiring changes when it does.
+	Series QuerySeriesSource
+
 	// Fleet is the inventory /api/v1/clusters serves (R8.2) and, through
 	// Readiness below, the thing /readyz reports on. In `pgsi serve` it is the
 	// *discovery.Discoverer; nil means this process runs no discovery — Phase 0's
@@ -146,6 +155,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /api/v1/clusters", s.handleClusters)
+	// R8.11's batched series route (series.go). Listed inline rather than mounted
+	// through a subsystem like PromQL/CORS, because it is one pattern with one
+	// dependency — and the path comes from the package's QuerySeriesPath const so
+	// the registration and api/openapi.yaml cannot spell it two ways.
+	mux.HandleFunc("GET "+QuerySeriesPath, s.handleQuerySeries)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	// R8.3's pair registers four patterns of its own (GET and POST on each of
 	// /api/v1/metrics/query and /api/v1/metrics/system), so it mounts here
