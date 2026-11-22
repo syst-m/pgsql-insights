@@ -1,0 +1,1155 @@
+# pgsql-insights REST API (R8.1)
+#
+# R8.1 asks for "a committed OpenAPI document (api/openapi.yaml) generated from
+# the handlers and checked in CI". Two words in that sentence are in tension,
+# and the resolution is recorded here rather than left to the next reader:
+#
+#   * "generated from the handlers" — the handlers are Phase 1a's. Only
+#     /healthz, /readyz, /api/v1/version, /metrics and / exist in code today,
+#     and a generator run over them would document five routes and omit the one
+#     this document exists for.
+#   * "the contract is frozen" — internal/api/dto/clusters.go (commit 9214534)
+#     is the normative source for /api/v1/clusters, mirrored tag-for-tag in
+#     web/src/api/types.ts and byte-checked by testdata/api/clusters.json via
+#     TestGoldenFixtureIsCanonical (R16.8).
+#
+# So this file is hand-authored from the frozen dto, not generated, and it is
+# scoped to routes that exist plus the one whose contract is frozen. When the
+# Phase 1a handler lands, a generator can take over — the schemas are per
+# resource (components.schemas.*, referenced by $ref) precisely so that
+# generating, extending or splitting the document does not require rewriting it.
+# R14.7 requires every route in code to be documented; x-status on each path
+# says which of these are in code and which are contract-only.
+
+openapi: 3.0.3
+
+info:
+  title: pgsql-insights API
+  version: 0.1.0
+  description: |
+    The REST surface of pgsql-insights: CloudNativePG cluster inventory and
+    PostgreSQL query/system insights for a whole fleet, served by the same
+    binary that serves the web UI (R8.6).
+
+    **Normative sources.** The JSON shapes are defined in Go at
+    `internal/api/dto/clusters.go` (frozen at commit `9214534`), mirrored in
+    TypeScript at `web/src/api/types.ts`, and byte-checked against
+    `testdata/api/clusters.json` by `TestGoldenFixtureIsCanonical` (R16.8).
+    This document is a projection of that contract, not a fourth copy of it:
+    a field added to the Go struct without appearing here is a defect, and
+    vice versa.
+
+    **Envelope.** Every list endpoint returns `{data, meta}` (R8.4). `meta`
+    carries the partial-render contract (R10.22): `meta.failed[]` names the
+    namespaces whose discovery pass errored and `meta.loading[]` the ones still
+    in flight, so a page showing 3 of 4 clusters says so instead of looking
+    plausibly complete. A schema that omitted `meta.failed` would understate
+    the contract, which is why `FleetEnvelope` below spells it out rather than
+    reducing the envelope to `{data, meta:{total}}`.
+
+    **Errors.** Every error, at every status code, is `ErrorBody` (R8.5) —
+    modelled on the CNPG instance-manager envelope so the ecosystem's
+    error-reading code transfers unchanged. The `code` enum is the same one
+    `meta.failed[].code` uses; there is no second vocabulary.
+  contact:
+    name: pgsql-insights
+    url: https://github.com/frankellis/pgsql-insights
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+# R8.1's versioned prefix. There is one server: the API is same-origin with the
+# UI (R8.6), so a relative URL is the only correct entry — an absolute host
+# here would be wrong in every environment it gets deployed to.
+servers:
+  - url: /
+    description: Same-origin with the SPA (R8.6). No host: the binary serves both.
+
+# R8.8: / and /api/v1/* require a bearer token by default. The probe surface
+# opts out per-path below (`security: []`), which is how --auth-metrics=none
+# lets Prometheus scrape without holding a token (R8.9).
+security:
+  - bearerAuth: []
+
+tags:
+  - name: clusters
+    description: CloudNativePG cluster inventory (R8.2's `/clusters`).
+  - name: build
+    description: Build metadata (R11.3).
+  - name: probes
+    description: Liveness, readiness and Prometheus scrape endpoints (R8.7).
+  - name: ui
+    description: The embedded SPA (R8.6, R10.1).
+
+paths:
+  /api/v1/clusters:
+    get:
+      tags: [clusters]
+      operationId: listClusters
+      summary: List clusters in the fleet
+      description: |
+        The fleet inventory (R8.2's `/clusters`), rendered from the frozen
+        `dto.ClusterView` contract.
+
+        `x-status` below records that the Go type is frozen while the handler is
+        Phase 1a's: at the commit this document was written, `server.go`
+        registers no `/api/v1/clusters` route and `server_test.go`'s
+        `TestUnknownRoutesAndMethods` asserts it answers 404. The contract is
+        frozen so Phase 1b could build the Fleet page in parallel with the
+        handler; the route is documented here because R14.7 requires every
+        route in code to be documented and R8.1 requires the document to exist.
+      x-status: contract frozen at 9214534; handler lands in Phase 1a
+      parameters:
+        - $ref: '#/components/parameters/Namespace'
+        - $ref: '#/components/parameters/Cluster'
+        - $ref: '#/components/parameters/DB'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of clusters, plus the envelope metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FleetEnvelope'
+              example:
+                data:
+                  - namespace: postgres
+                    name: onepg
+                    phase: Cluster in healthy state
+                    instances: 3
+                    readyInstances: 3
+                    servingInstances: 3
+                    currentPrimary: onepg-1
+                    pgMajor: 17
+                    pgImage: ghcr.io/cloudnative-pg/postgresql:17.6
+                    pgVersionDetail: "17.6"
+                    instanceList:
+                      - name: onepg-1
+                        role: primary
+                        node: k3s-control-1
+                        ready: true
+                        serving: true
+                        phase: Running
+                        containerStatus: running
+                        restartCount: 0
+                        podIP: 10.42.1.31
+                        endpoints:
+                          postgres: 10.42.1.31:5432
+                          metrics: https://10.42.1.31:9187/metrics
+                          status: https://10.42.1.31:8000/status
+                    conditions: []
+                    certificates:
+                      clientCA: onepg-client-ca-1735689600
+                      serverTLSSecret: onepg-server
+                      replicationTLSSecret: onepg-replication
+                      expirations:
+                        onepg-client-ca-1735689600: "2026-12-22T08:39:48Z"
+                        onepg-server: "2026-12-22T08:39:48Z"
+                    pvcs:
+                      - name: onepg-1
+                        instance: onepg-1
+                        size: 1Gi
+                        storageClass: local-path
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                    services:
+                      - name: onepg-rw
+                        type: ClusterIP
+                        role: rw
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.10.11
+                    poolers: []
+                    credentialSource: secret-cluster
+                    createdAt: "2025-12-22T08:00:00Z"
+                meta:
+                  total: 1
+                  truncated: false
+                  generatedAt: "2026-11-21T09:12:03Z"
+                  nextCursor: ""
+                  failed: []
+                  loading: []
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/NotReady'
+
+  /api/v1/version:
+    get:
+      tags: [build]
+      operationId: getVersion
+      summary: Build metadata of the running binary
+      description: |
+        R11.3's version/commit endpoint. In code today (`Server.handleVersion`).
+        The same values are exported as the `pgsi_build_info` metric (R9.8) so
+        a fleet can be audited from Prometheus without calling the API.
+      x-status: implemented
+      responses:
+        '200':
+          description: The build's version and commit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionResponse'
+              example:
+                version: 0.1.0
+                commit: 9214534
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /healthz:
+    get:
+      tags: [probes]
+      operationId: getHealthz
+      summary: Liveness probe target (R8.7)
+      description: |
+        In code today (`Server.handleHealthz`). Answers `ok` whenever the
+        process is up; it is deliberately not gated on any dependency, because
+        a pod whose kube API watch is broken is still alive and restarting it
+        would not help.
+
+        `security: []` — R8.9 requires `/healthz` never to require auth when
+        `--auth-metrics=none`, and kubelet never sends an `Authorization`
+        header, so a gated liveness probe would fail every pod in the cluster.
+      x-status: implemented
+      security: []
+      responses:
+        '200':
+          description: The process is alive.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /readyz:
+    get:
+      tags: [probes]
+      operationId: getReadyz
+      summary: Readiness probe target (R8.7)
+      description: |
+        In code today (`Server.handleReadyz`). 200 once the server is serving,
+        503 before the listener is up and during the R13.8 drain. Phase 1a
+        moves this behind real readiness (kube client connected plus at least
+        one inventory sync), which is what R8.7 specifies.
+
+        `security: []` for the same reason as `/healthz`: R8.9 names only
+        `/metrics` and `/healthz`, but R11.2's probes are `httpGet` (the
+        distroless image has no shell, so an exec probe cannot run) and kubelet
+        cannot present a bearer token. Gating `/readyz` behind `--auth=token`
+        would leave every pod permanently NotReady and evict the Service's
+        endpoints. It joins the probe group as a documented extension of R8.9.
+      x-status: implemented
+      security: []
+      responses:
+        '200':
+          description: The server is ready to serve.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        '503':
+          description: |
+            Not ready — the listener is not up yet, or the server is draining
+            (R13.8). Phase 1a adds "discovery has not synced" (R8.7), which is
+            also what makes `/api/v1/clusters` answer `NotReady`.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready
+
+  /metrics:
+    get:
+      tags: [probes]
+      operationId: getMetrics
+      summary: Prometheus exposition (R9.1, R11.3)
+      description: |
+        In code today (`Server.handleMetrics`), serving `pgsi_build_info` only.
+        The full R9.2–R9.8 catalogue lands in Phase 2; R9.11's PrometheusRule
+        in the chart is authored from those names and marked provisional until
+        they exist.
+
+        `security: []` — this is R8.9's actual subject: `--auth-metrics=none`
+        exists so a Prometheus scrape needs no token while `/` and `/api/v1/*`
+        do (R8.8). Serving metrics from the same port as the API, rather than a
+        second `--metrics-listen`, is R9.1's requirement.
+      x-status: implemented (pgsi_build_info only; the R9.2 catalogue is Phase 2)
+      security: []
+      responses:
+        '200':
+          description: Prometheus text exposition format.
+          content:
+            text/plain; version=0.0.4:
+              schema:
+                type: string
+              example: |
+                # HELP pgsi_build_info Build metadata of the running pgsi binary.
+                # TYPE pgsi_build_info gauge
+                pgsi_build_info{version="0.1.0",commit="9214534"} 1
+
+  /:
+    get:
+      tags: [ui]
+      operationId: getSPA
+      summary: The embedded web UI (R8.6, R10.1)
+      description: |
+        In code today (`Server.handleSPA`, `internal/api/spa.go`). The SPA is
+        embedded with `go:embed` and served from this binary. `GET /` is the
+        mux's root pattern, so it answers for every path the API routes do not
+        match — which is how R10.16's client-side routes (`/c/<ns>/<name>`)
+        resolve to the app shell. A path under the `api` prefix that no route
+        matches answers 404 rather than the shell, so a typo in a fetch URL
+        surfaces as an error instead of a page that renders empty.
+
+        `--serve-ui=false` (R8.6) removes this route for API-only deployments.
+      x-status: implemented
+      responses:
+        '200':
+          description: The SPA shell (text/html).
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+# ---------------------------------------------------------------------------
+# Planned routes (R8.2, R8.3, R8.11) — deliberately NOT under `paths` yet.
+#
+# R14.7 requires every route *in code* to be documented; these are not in code,
+# and putting them in `paths` would make the document claim routes that 404.
+# They are listed here so Phase 3/5 extend this file by promoting entries into
+# `paths` — one edit per route — instead of restructuring it. The shape of the
+# catalogue is fixed by R8.2, so this is a list of names, not a design.
+# ---------------------------------------------------------------------------
+x-planned-paths:
+  r8.2-catalogue:
+    - /api/v1/clusters/{namespace}/{name}   # R8.2 single-cluster detail (R10.3)
+    - /api/v1/insights/queries              # R8.2, R10.4
+    - /api/v1/insights/queries/{fingerprint}
+    - /api/v1/insights/queries/{fingerprint}/plans
+    - /api/v1/insights/wait-events          # R4, R10.7
+    - /api/v1/insights/databases            # R10.8
+    - /api/v1/insights/users                # R10.9
+    - /api/v1/insights/tags                 # R7, R10.11
+    - /api/v1/insights/client-addresses     # R6, R10.12
+    - /api/v1/insights/system               # R5, R10.13
+    - /api/v1/insights/system/{metric}      # R8.2, R10.13
+    - /api/v1/active-queries                # R3.11
+    - /api/v1/insights/recommendations      # R8.2
+    - /api/v1/poolers                       # R6; PoolerView is already defined (R8.2 reuses it)
+    - /api/v1/poolers/{namespace}/{name}
+    - /api/v1/events                        # R8.2
+    - /api/v1/explain                       # R8.2
+    - /api/v1/search                        # R8.2 (?q=)
+  r8.3-promql-pair:
+    # R8.3: GET|POST /api/v1/metrics/query and /api/v1/metrics/system, each
+    # taking a PromQL string + time range and returning a Prometheus-shaped
+    # result. When a Prometheus URL is configured the query is proxied;
+    # otherwise a fixed catalogue of named queries is served and anything else
+    # returns error.code=PromQLUnavailable — "with the catalogue enumerated in
+    # the OpenAPI doc", which is the clause that makes this section normative
+    # rather than a wish list. The catalogue is R9.4's aggregate and R9.5's
+    # per-query rollups; it is enumerated here once Phase 2 names them.
+    - /api/v1/metrics/query    # GET|POST (R8.3)
+    - /api/v1/metrics/system   # GET|POST (R8.3)
+  r8.11-batched-series:
+    # R8.11: GET /api/v1/insights/queries/series?fingerprints=a,b,c&range=…
+    # returns the per-minute series for up to 50 fingerprints in ONE response.
+    # Without it, R10.6's per-row sparklines need one request per row and
+    # R10.14's 1.5 s budget forbids 50 detail calls on page load.
+    - /api/v1/insights/queries/series   # GET (R8.11)
+  r8.7-debug:
+    - /debug/pprof/            # R8.7; not yet registered in server.go, and
+                               # already in the auth probe group (auth.go) so
+                               # it is never gated behind the API token.
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        R8.8's `--auth=token` mode: the bearer token from the auth Secret the
+        chart mounts at `/etc/pgsi/auth/token`. A missing token answers 401
+        with `WWW-Authenticate: Bearer realm="pgsi"`; a wrong one answers 403.
+        The distinction lets an SPA tell "not logged in yet" from "the token
+        rotated" without probing.
+
+        `--auth=kube-rbac-proxy` replaces this with the `X-Remote-User` /
+        `X-Remote-Group` headers the proxy injects, and `--auth=none` removes
+        the requirement entirely (R8.8's lab setting).
+      bearerFormat: opaque
+
+  # R8.4's parameter set, plus R8.10's cursor, as reusable components so every
+  # list endpoint in x-planned-paths references the same definitions instead of
+  # restating them and letting them drift.
+  parameters:
+    Namespace:
+      name: namespace
+      in: query
+      description: |
+        Restrict to one namespace (R8.4). The set of namespaces pgsi looks at at
+        all is R1.1's allow-list and R12's RBAC; this narrows within it.
+      required: false
+      schema:
+        type: string
+    Cluster:
+      name: cluster
+      in: query
+      description: Restrict to one CloudNativePG Cluster (R8.4).
+      required: false
+      schema:
+        type: string
+    DB:
+      name: db
+      in: query
+      description: |
+        Restrict to one database (R8.4). Meaningful on the query endpoints;
+        accepted and ignored on `/clusters`, which is not per-database.
+      required: false
+      schema:
+        type: string
+    From:
+      name: from
+      in: query
+      description: Window start, RFC 3339 (R8.4). Endpoints without a time axis ignore it.
+      required: false
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      description: Window end, RFC 3339 (R8.4).
+      required: false
+      schema:
+        type: string
+        format: date-time
+    Limit:
+      name: limit
+      in: query
+      description: |
+        Page size (R8.4). R8.10 fixes the default at 50 and the maximum at 500;
+        a value above the maximum is `InvalidRequest`, not a silent clamp, so a
+        client that asks for 5000 learns about it instead of getting 500.
+      required: false
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 500
+    Sort:
+      name: sort
+      in: query
+      description: |
+        Sort key (R8.4). R8.10 requires every sort to carry a stable secondary
+        key (`queryid` for query lists, `pid` for sessions) so two consecutive
+        pages never overlap or drop a row; the secondary key is implicit and is
+        not a separate parameter.
+      required: false
+      schema:
+        type: string
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        R8.10's pagination cursor: opaque base64 of the last sort key, **not**
+        an offset. Clients must treat it as opaque — it encodes the sort key
+        plus the secondary key, and the shape is not part of the contract.
+        Echoed back as `meta.nextCursor`; empty on the last page.
+      required: false
+      schema:
+        type: string
+
+  responses:
+    # R8.5's error body, one entry per code so a path's `responses:` block is
+    # three lines of $ref rather than a re-typed schema per status.
+    InvalidRequest:
+      description: Bad query parameter or body (R8.5 `InvalidRequest`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: InvalidRequest
+              message: 'invalid limit: 5000 exceeds the maximum of 500 (R8.10)'
+              details: []
+    Unauthorized:
+      description: |
+        Missing or malformed credentials (R8.5 `Unauthorized`, R8.8). Carries
+        `WWW-Authenticate: Bearer realm="pgsi"` so an SPA can distinguish "no
+        token yet" from "wrong token".
+      headers:
+        WWW-Authenticate:
+          description: The supported scheme.
+          schema:
+            type: string
+            example: Bearer realm="pgsi"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: Unauthorized
+              message: missing Authorization header
+              details: []
+    Forbidden:
+      description: |
+        Credentials presented but not valid for this object (R8.5 `Forbidden`,
+        R12). A wrong bearer token is 403, not 401 — the caller proved nothing
+        about itself, and R12's per-namespace authorization uses the same code.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: Forbidden
+              message: invalid bearer token
+              details: []
+    NotReady:
+      description: |
+        Discovery has not produced an inventory sync yet (R8.5 `NotReady`,
+        R8.7). Distinct from `Unavailable`: the server is up and knows it does
+        not yet have an answer, which is why `/api/v1/clusters` returns this
+        rather than an empty `data` array that looks like an empty fleet.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: NotReady
+              message: discovery has not completed its first sync
+              details: []
+
+  schemas:
+
+    # ---- Envelope (R8.4) ---------------------------------------------------
+
+    FleetEnvelope:
+      type: object
+      description: |
+        `dto.Envelope[ClusterView]` — the concrete projection of the Go generic
+        `Envelope[T any]` for the clusters endpoint. OpenAPI 3.0 has no
+        composition mechanism for generics, so each resource's envelope is a
+        named schema wrapping the shared `Meta`; `FleetEnvelope` is the one for
+        `/api/v1/clusters`, and Phase 3 adds one per resource the same way.
+
+        `data` is always present, even when empty: an empty fleet and a missing
+        field are different answers, and R10.22's banner is built from `meta`
+        precisely so the two are not conflated.
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClusterView'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    Meta:
+      type: object
+      description: |
+        Pagination and partial-render metadata for every list endpoint (R8.4,
+        extended by R10.22, ruled on in IMPLEMENTATION.md D18). `total` is
+        R8.10's **pre-cut count** — matching rows across all pages — which is
+        exactly what `truncated` is defined against
+        (`truncated ⟺ len(data) < total`).
+        It is neither a count of what this response carries nor an "attempted"
+        count. The v0.3.0 wording here said "served", which collides with
+        R8.10 on any truncated page: with 120 matching and `limit=50`,
+        "served" is 50 and R8.10's total is 120, so two documents assigned
+        different numbers to one field. The `attempted = total + len(failed) +
+        len(loading)` that wording implied is deleted outright — it adds *rows*
+        to *namespaces*, and a namespace yields N clusters, so no arithmetic
+        over `total` recovers an attempted-cluster count. R10.22's banner
+        therefore prints `data.length`, never `meta.total`.
+      required: [total, truncated, generatedAt]
+      properties:
+        total:
+          type: integer
+          description: |
+            Matching objects across all pages, before the page was cut (R8.10,
+            per D18). On a truncated page this is larger than `len(data)`; it
+            is not the size of `data`, and the UI must not present it as the
+            number of clusters rendered.
+        truncated:
+          type: boolean
+          description: |
+            True when `data` holds fewer objects than `total`, i.e. another page
+            exists (R8.4). Purely about pagination: a page can be complete and
+            still have a failed namespace, and a truncated page can have none.
+        generatedAt:
+          type: string
+          format: date-time
+          description: |
+            When this inventory snapshot was produced (R8.4). The UI renders it
+            as "inventory age", which is how a stale discovery cache becomes
+            visible instead of looking like an empty cluster list.
+        nextCursor:
+          type: string
+          description: |
+            Opaque cursor for the following page (R8.10). Absent/empty on the
+            last page.
+        failed:
+          type: array
+          description: |
+            R10.22's partial-render contract: the namespaces whose discovery pass
+            errored. The unit is the namespace, not the cluster, because that is
+            the unit discovery fails at (R1.1's allow-list and R12's RBAC both
+            scope by namespace) — a failed namespace contributes no ClusterView
+            to hang an `error` field on.
+          items:
+            $ref: '#/components/schemas/NamespaceFailure'
+        loading:
+          type: array
+          description: |
+            Namespaces whose first discovery pass is still in flight (R10.22).
+            Distinguished from `failed` because "still working" and "errored"
+            render differently in the banner.
+          items:
+            type: string
+
+    NamespaceFailure:
+      type: object
+      description: |
+        One namespace whose discovery pass errored (R10.22). `code` reuses the
+        R8.5 enum rather than minting a second vocabulary, so the UI's existing
+        switch on error codes covers partial failures too.
+      required: [namespace, code, message]
+      properties:
+        namespace:
+          type: string
+          description: The namespace that failed to list/watch.
+        code:
+          type: string
+          description: |
+            From the R8.5 enum — typically `Forbidden` (the ServiceAccount cannot
+            read that namespace, R12.3), `Unavailable` (kube API timeout) or
+            `Internal`.
+          enum:
+            - InvalidRequest
+            - Unauthorized
+            - Forbidden
+            - NotFound
+            - MethodNotAllowed
+            - NotReady
+            - Unavailable
+            - PromQLUnavailable
+            - Unsupported
+            - Internal
+        message:
+          type: string
+          description: The underlying error text, e.g. `cannot list clusters: forbidden`.
+        lastSuccessTime:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When this namespace last synced successfully, so the UI can say
+            "stale since 09:12" rather than only "failed". Null means it has
+            never synced — the Go field is a `*time.Time` because encoding/json's
+            `omitempty` never fires on a struct value, and a bare `time.Time`
+            would emit `0001-01-01T00:00:00Z` for "never" instead of omitting it.
+
+    # ---- Errors (R8.5) -----------------------------------------------------
+
+    ErrorBody:
+      type: object
+      description: |
+        The single error shape for every endpoint (R8.5), modelled on the CNPG
+        instance-manager envelope so the ecosystem's error-reading code
+        transfers unchanged.
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+    ErrorDetail:
+      type: object
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          description: |
+            The R8.5 error-code enum. Documented as an enum here (and as Go
+            constants in `dto`) because R8.5 requires the codes be documented
+            rather than being string literals at each call site.
+          enum:
+            - InvalidRequest    # bad query parameter or body
+            - Unauthorized      # missing/bad token (R8.8)
+            - Forbidden         # token lacks scope for the object (R12)
+            - NotFound          # no such cluster/pooler/query
+            - MethodNotAllowed  # route exists, verb does not
+            - NotReady          # discovery has not synced yet (R8.7)
+            - Unavailable       # dependency down (store, kube API)
+            - PromQLUnavailable # R8.3: query outside the named catalogue
+            - Unsupported       # feature gated off by config
+            - Internal          # anything else
+        message:
+          type: string
+          description: A human-readable, single-sentence explanation.
+        details:
+          type: array
+          description: |
+            Per-item messages (validation failures, per-collector errors).
+            **Always present, possibly empty**, so clients never branch on
+            whether the array exists. `dto.NewError` normalises a nil slice to
+            `[]` because a nil marshals to `null` — a different JSON type from
+            `[]`, which would break exactly that guarantee.
+          items:
+            type: string
+
+    # ---- Cluster (R1.5's field list, verbatim and in order) ----------------
+
+    ClusterView:
+      type: object
+      description: |
+        One CloudNativePG Cluster as `GET /api/v1/clusters` renders it. The
+        field set is R1.5's list, verbatim and in order.
+
+        The R10.4 metric columns (TPS, p95 latency, connections %, disk %) and
+        the "top finding" column are deliberately absent: they are Phase 5's
+        R9 contract and Phase 6's insight engine, and the UI derives both the
+        metric values and the healthy/degraded/down rollup from the counts
+        below rather than reading a server-side judgement.
+      required:
+        - namespace
+        - name
+        - phase
+        - instances
+        - readyInstances
+        - servingInstances
+        - pgMajor
+        - instanceList
+        - conditions
+        - certificates
+        - pvcs
+        - services
+        - poolers
+        - credentialSource
+        - createdAt
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        phase:
+          type: string
+          description: |
+            CNPG's `status.phase` passed through as the human string CNPG writes
+            ("Cluster in healthy state"), not an enum we invent (R1.5). The UI
+            renders the string verbatim.
+        phaseReason:
+          type: string
+          description: CNPG's `status.phaseReason`, e.g. "Not enough disk space".
+        instances:
+          type: integer
+          description: Desired instance count (`spec.instances`) — CNPG's own number.
+        readyInstances:
+          type: integer
+          description: Pods Kubernetes reports ready — also CNPG's own number.
+        servingInstances:
+          type: integer
+          description: |
+            R1.2's correction: pods whose `postgres` container is actually
+            running. Not the same as `readyInstances` — a pod can be Running
+            with postgres in CrashLoopBackOff (live-probe.md §6, Finding 9), so
+            a collector that renders `instances` as health shows a green cluster
+            that is fully down.
+        currentPrimary:
+          type: string
+          description: `status.currentPrimary`, empty while no pod is elected.
+        pgMajor:
+          type: integer
+          nullable: true
+          description: |
+            The PostgreSQL major version resolved per R1.3: the
+            `app.kubernetes.io/version` pod label first, SQL
+            `current_setting('server_version_num')` as the fallback, cached per
+            cluster. **Null when neither source has answered yet** — a `0` would
+            render as a real version in the Fleet table's "PG major" column, and
+            R1.3's whole point is that the answer is sometimes not known yet
+            (R10.22, R1.3).
+        pgImage:
+          type: string
+          description: |
+            The image the CR reports (`status.image`, falling back to
+            `spec.imageName`) — kept because the label's "17" cannot express
+            17.11, and R2.4's matrix keys off the exact minor.
+        pgVersionDetail:
+          type: string
+          description: Full version string when known ("17.11"). Empty when unresolved.
+        instanceList:
+          type: array
+          description: |
+            R1.5's "instance list with roles, node names and ready flags".
+            Named `instanceList` because `instances` above is the count — which
+            is what both CNPG's `kubectl get` column and R1.5 call "instances".
+          items:
+            $ref: '#/components/schemas/InstanceView'
+        conditions:
+          type: array
+          description: `status.conditions` (R1.5).
+          items:
+            $ref: '#/components/schemas/ConditionView'
+        certificates:
+          $ref: '#/components/schemas/CertificateExpirations'
+        pvcs:
+          type: array
+          description: R1.5's "PVC list".
+          items:
+            $ref: '#/components/schemas/PVCView'
+        services:
+          type: array
+          description: R1.5's "services" (the `-rw`/`-ro`/`-r` Services plus pooler ones).
+          items:
+            $ref: '#/components/schemas/ServiceView'
+        poolers:
+          type: array
+          description: R1.5's "any Poolers"; discovery rule in R1.4.
+          items:
+            $ref: '#/components/schemas/PoolerView'
+        credentialSource:
+          type: string
+          description: |
+            Which of R1.8's four precedence levels supplied this cluster's
+            Postgres credentials. R1.8 requires the SQL collectors to report
+            `unconfigured` rather than fail when it is `none` while non-SQL
+            collectors keep working, so the resolution has to be observable
+            through the API — this is the field R1.6's zero-prerequisite
+            acceptance reads.
+          enum:
+            - secret-flag   # --credential-secret
+            - secret-cluster # <cluster>-app, the CNPG convention
+            - configured    # the single configured credential
+            - none          # unconfigured: SQL collectors report it (R1.8)
+        createdAt:
+          type: string
+          format: date-time
+          description: |
+            `metadata.creationTimestamp`. Not in R1.5's list; the Fleet table
+            shows cluster age, and adding it after the contract freezes is a
+            change the frontend has to react to, so it is here from the start.
+
+    InstanceView:
+      type: object
+      description: One instance pod of a Cluster (R1.2, R1.5).
+      required: [name, ready, serving, phase, containerStatus, restartCount, endpoints]
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+          description: |
+            `cnpg.io/instanceRole`: primary | replica | unhealthy, read per
+            R1.2 and falling back to the deprecated `role` label when only that
+            is present. Empty when the pod carries neither, which is the normal
+            state of a pod not yet assigned a role.
+          enum: [primary, replica, unhealthy, ""]
+        node:
+          type: string
+          description: `spec.nodeName`, empty while the pod is unscheduled (R1.5's "node names").
+        ready:
+          type: boolean
+          description: The pod's `ContainersReady` condition (R1.5's "ready flags").
+        serving:
+          type: boolean
+          description: |
+            True only when the `postgres` container is running. Not the same as
+            `ready`: a pod can be Running with postgres in CrashLoopBackOff,
+            which is exactly the case R1.2 was written against.
+        phase:
+          type: string
+          description: The pod phase.
+          enum: [Running, Pending, Succeeded, Failed, Unknown]
+        containerStatus:
+          type: string
+          description: |
+            The `postgres` container's state verbatim: "running",
+            "CrashLoopBackOff", "PodInitializing", "ImagePullBackOff",
+            "Terminating". This is the field that makes R1.2's crash-loop case
+            legible in the UI instead of just a wrong count.
+        restartCount:
+          type: integer
+          description: The postgres container's `restartCount`.
+        podIP:
+          type: string
+          description: |
+            `status.podIP`, empty while the pod has no address. R1.10's direct
+            transport needs it; `endpoints` is built from it.
+        fenced:
+          type: boolean
+          description: |
+            True when the pod is listed in the Cluster's `cnpg.io/fencedInstances`
+            annotation — a pod CNPG is deliberately keeping out of the topology,
+            which the UI must not render as a healthy member.
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: The pod's `startTime`; null while Pending.
+        endpoints:
+          $ref: '#/components/schemas/InstanceEndpoints'
+
+    InstanceEndpoints:
+      type: object
+      description: |
+        The R1.10 per-port transport table rendered for one instance. Part of
+        the contract because the scheme is per-port data, not a guess: probing
+        `http://pod:8000` reports the status endpoint as down (live-probe.md
+        §4, Finding 6). Every field is empty when the pod has no address to
+        build one from.
+      properties:
+        postgres:
+          type: string
+          description: |
+            The 5432 wire address ("10.42.2.39:5432"), **not** an HTTP URL —
+            R1.10 types that port as the postgres protocol with password/TLS auth.
+        metrics:
+          type: string
+          description: |
+            9187, the instance-manager Prometheus endpoint. HTTP, and HTTPS only
+            when `spec.monitoring.tls.enabled` (R1.10).
+        status:
+          type: string
+          description: |
+            8000, the instance-manager API. HTTPS always (R1.10/F6) — an HTTP
+            probe of this port returns "Client sent an HTTP request to an HTTPS
+            server."
+        local:
+          type: string
+          description: |
+            8010, the pod-local instance-manager endpoint that is not reachable
+            from outside the pod (R1.10). Populated only when the probe path is
+            exec/port-forward rather than a direct URL.
+
+    ConditionView:
+      type: object
+      description: One entry of a Cluster's `status.conditions` (R1.5).
+      required: [type, status, lastTransitionTime]
+      properties:
+        type:
+          type: string
+        status:
+          type: string
+          enum: [True, False, Unknown]
+        reason:
+          type: string
+        message:
+          type: string
+        lastTransitionTime:
+          type: string
+          format: date-time
+          description: CNPG's `lastTransitionTime`.
+
+    CertificateExpirations:
+      type: object
+      description: |
+        Renders `status.certificates` (R1.5's "cert expirations"). CNPG reports
+        expirations as a map of secret name to timestamp; the map is re-emitted
+        rather than flattened to three fields, because a cluster with extra
+        secrets (a custom server cert, a pooler client cert) has more than three
+        and the UI should show all of them.
+      required: [expirations]
+      properties:
+        clientCA:
+          type: string
+          description: The client CA secret name CNPG records, empty when custom.
+        serverTLSSecret:
+          type: string
+        replicationTLSSecret:
+          type: string
+        expirations:
+          type: object
+          description: |
+            Maps secret name to the certificate's `notAfter`, normalised to
+            RFC 3339 UTC. CNPG writes these as Go's default `time.String()`
+            format ("2026-12-22 08:39:48 +0000 UTC"); the discovery layer parses
+            and re-emits RFC 3339 so the UI never has to parse two time formats.
+          additionalProperties:
+            type: string
+          example:
+            onepg-client-ca-1735689600: "2026-12-22T08:39:48Z"
+            onepg-server: "2026-12-22T08:39:48Z"
+
+    PVCView:
+      type: object
+      description: |
+        One PVC of a Cluster (R1.5's "PVC list"). CNPG names a PVC exactly after
+        its instance, but `instance` is carried explicitly rather than derived so
+        a renamed or orphaned volume still renders against the right row.
+      required: [name]
+      properties:
+        name:
+          type: string
+        instance:
+          type: string
+        size:
+          type: string
+          example: 1Gi
+        storageClass:
+          type: string
+        accessModes:
+          type: array
+          items:
+            type: string
+          example: [ReadWriteOnce]
+        phase:
+          type: string
+          enum: [Bound, Pending, Lost, ""]
+
+    ServiceView:
+      type: object
+      description: |
+        One Service of a Cluster (R1.5's "services"). CNPG creates `-rw`, `-ro`
+        and `-r` per cluster plus one per Pooler.
+      required: [name]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          description: ClusterIP | LoadBalancer | NodePort.
+          enum: [ClusterIP, LoadBalancer, NodePort, ""]
+        role:
+          type: string
+          description: |
+            rw | ro | r | pooler, read from the name suffix: CNPG's service role
+            label differs between 1.29 and 1.30, so the suffix is the stable read
+            and the label is not.
+          enum: [rw, ro, r, pooler, ""]
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServicePort'
+        clusterIP:
+          type: string
+          description: `spec.clusterIP` ("None" for headless services).
+
+    ServicePort:
+      type: object
+      required: [port]
+      properties:
+        name:
+          type: string
+        protocol:
+          type: string
+          example: TCP
+        port:
+          type: integer
+        targetPort:
+          type: string
+          description: |
+            Kubernetes' `IntOrString` normalised to a string: "5432" for a
+            numeric port, "pgbouncer" for a named one.
+
+    PoolerView:
+      type: object
+      description: |
+        A pgbouncer Pooler discovered per R1.4 and attached to its Cluster
+        through `spec.cluster.name`. The same shape backs
+        `GET /api/v1/poolers` (R8.2), which is why `namespace` is carried even
+        though the nested copy sits under a cluster that already has one.
+      required: [name, namespace, instances, readyInstances]
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        cluster:
+          type: string
+          description: `spec.cluster.name` — R1.4's association rule.
+        type:
+          type: string
+          description: '`spec.type`: rw | ro.'
+          enum: [rw, ro, ""]
+        poolMode:
+          type: string
+          description: |
+            `spec.pgbouncer.poolMode`: transaction | session | statement. R6's
+            whole client-attribution problem keys off this value.
+          enum: [transaction, session, statement, ""]
+        instances:
+          type: integer
+          description: '`spec.instances` (the Deployment''s replicas).'
+        readyInstances:
+          type: integer
+        phase:
+          type: string
+          description: '`status.phase` ("active", ...).'
+        image:
+          type: string
+          example: ghcr.io/cloudnative-pg/pgbouncer:1.25.1
+        service:
+          type: string
+          description: The pooler's Service name — R6's connection surface.
+        parameters:
+          type: object
+          description: |
+            `spec.pgbouncer.parameters` (default_pool_size, max_client_conn,
+            min_pool_size, ...), which R6.2's pool sizing reads.
+          additionalProperties:
+            type: string
+        pods:
+          type: array
+          description: The pooler pods (`cnpg.io/podRole=pooler`, R1.4).
+          items:
+            $ref: '#/components/schemas/PoolerPodView'
+        metricsURL:
+          type: string
+          description: |
+            The pgbouncer exporter endpoint on 9127 (R1.10's row for pooler
+            pods) — the S5 source for R6.
+
+    PoolerPodView:
+      type: object
+      description: One pod of a Pooler Deployment.
+      required: [name, phase, ready]
+      properties:
+        name:
+          type: string
+        node:
+          type: string
+        phase:
+          type: string
+        ready:
+          type: boolean
+        ip:
+          type: string
+
+    # ---- Build (R11.3) -----------------------------------------------------
+
+    VersionResponse:
+      type: object
+      description: |
+        Body of `GET /api/v1/version` (R11.3). Defined in Go as
+        `api.VersionResponse`, not in `dto` — it is served by server.go. The
+        same values are exported as the `pgsi_build_info` metric (R9.8), so a
+        fleet's version inventory works from Prometheus alone.
+      required: [version, commit]
+      properties:
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          example: 9214534

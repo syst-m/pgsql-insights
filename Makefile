@@ -7,7 +7,11 @@ SHELL := /bin/bash
 MODULE := github.com/frankellis/pgsql-insights
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+# D6: full SHA, not --short. The first published binary carried a commit that was
+# not its own commit; a 7-character string is trivially copied from an older
+# build and hard to trace back, a 40-character one is not. CI pins the
+# relationship (see .github/workflows/ci.yml "version output carries ldflags").
+COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 # R11.3: the same values feed the binary, the OCI labels, /api/v1/version and pgsi_build_info.
 LDFLAGS := -s -w -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
@@ -119,6 +123,28 @@ render:
 render-check: render
 	@git diff --exit-code deploy/plain-yaml || \
 		{ echo "FAIL: deploy/plain-yaml is stale — run 'make render' and commit (R11.13)"; exit 1; }
+
+## rules-check: promtool check rules on the rendered PrometheusRule (R9.11).
+## The rule set is disabled in all three profiles, so `make render` never renders
+## it — this renders it with the flag that turns it on. promtool cannot parse the
+## monitoring.coreos.com/v1 envelope itself (it wants a bare {groups: [...] }
+## document), so spec.groups is extracted first: same rules, the shape promtool
+## accepts. Uses $(PROMTOOL) when set, otherwise $(PROMTOOL_IMAGE) via docker.
+## Note this checks syntax and PromQL parseability only — it says nothing about
+## whether the rules fire correctly (see the header of the template).
+PROMTOOL       ?=
+PROMTOOL_IMAGE ?= docker.io/prom/prometheus:v2.55.1
+rules-check:
+	@set -e; out=/tmp/pgsi-rules-$$(date +%s).yaml; \
+	helm template pgsi $(CHART_DIR) -n $(NS) -f $(CHART_DIR)/values-production.yaml \
+		--set metrics.prometheusRule.enabled=true \
+		-s templates/prometheusrule.yaml 2>/dev/null > $$out.crd; \
+	python3 -c "import yaml,sys; d=yaml.safe_load(open(sys.argv[1])); \
+		open(sys.argv[2],'w').write(yaml.safe_dump({'groups': d['spec']['groups']}, sort_keys=False))" \
+		$$out.crd $$out; \
+	if [ -n "$(PROMTOOL)" ]; then $(PROMTOOL) check rules $$out; \
+	else docker run --rm --entrypoint=/bin/promtool -v $$out:/rules.yaml:ro $(PROMTOOL_IMAGE) check rules /rules.yaml; fi; \
+	rm -f $$out $$out.crd
 
 ## image: multi-arch build + push (R11.2, R11.16) — needs credentials for $(IMAGE)'s registry
 image:

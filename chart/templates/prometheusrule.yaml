@@ -1,6 +1,37 @@
 {{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
-# R9.6 — the alert set is authored in Phase 4; the template exists now so turning
-# the rules on later is a values change, not a chart change.
+# R9.6 / R9.11 — the alert set.
+#
+# PROVISIONAL, and the word is doing work (R9.11's own instruction: author the
+# set from the spec's metric names, get `promtool check rules` passing on the
+# rendered output, and do not claim it validated). Two separate reasons it is
+# provisional, and they are not the same weakness:
+#
+#   1. Most rules here read metrics that Phase 2 and Phase 3 export. The spec
+#      names them exactly (R9.8 lists eight self-observability metrics, R9.12
+#      defines pgsi_up), so the PromQL is written against real names — but no
+#      binary emits them yet, so no rule has ever fired on a real sample.
+#   2. PGSICacheHitRatioLow and PGSILockWaitDominant read the R9.4 aggregate
+#      family, and R9.4 names the *family* ("execution time, rows, shared block
+#      hits/reads") without naming the metrics. The two names used here are
+#      ours, derived from Cloud SQL's insights/aggregate vocabulary (spec §3.7).
+#      If Phase 2 chooses different ones, these two rules change and the other
+#      fourteen do not — which is why the speculative pair is separated from the
+#      spec-named set rather than mixed into it.
+#
+# Validation performed: `promtool check rules` on the rendered manifest (the
+# chart's own `make render` output). Validation NOT performed: firing behaviour,
+# threshold calibration against a real fleet, and R16.4's live scrape by the
+# reference environment's kube-prometheus-stack — that is Phase 4's acceptance.
+#
+# R9.11's structural requirement is met here: a `critical` tier, which CNPG's own
+# cnpg-default-alerts lacks (all 7 of its rules are `warning`), and 16 rules
+# across the two tiers where R9.11 requires >= 10, each carrying
+# summary/description/runbook_url — the runbook linkage CNPG's set omits. The
+# runbook URLs point at docs/runbooks/, which is Phase 9's deliverable (R14.3);
+# they are committed now so the alert set stops changing when the docs land.
+#
+# Every $labels/$value reference is written as {{ "{{ $labels.pod }}" }} so Helm
+# leaves it for Prometheus to interpolate rather than trying to resolve it itself.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -13,5 +44,318 @@ metadata:
     {{- end }}
 spec:
   groups:
-    {{- toYaml .Values.metrics.prometheusRule.groups | nindent 4 }}
+    # ------------------------------------------------------------------
+    # critical — "a user cannot get an answer", not "a number moved"
+    # ------------------------------------------------------------------
+    - name: pgsi.critical
+      rules:
+        - alert: PGSINotScraped
+          # R9.8's pgsi_build_info is the cheapest possible proof that the
+          # binary is up AND being scraped: it is exported unconditionally by
+          # /metrics, so it goes absent when the pod is gone, when the
+          # ServiceMonitor stops matching it (R9.9's selector problem), or when
+          # the port moves. Everything else in this file is downstream of this.
+          expr: absent(pgsi_build_info)
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "pgsi is not exporting metrics"
+            description: >-
+              No pgsi_build_info series in the last 10m for
+              {{ "{{ $labels.job }}" }}. Either the pod is down, or the
+              ServiceMonitor no longer matches the Service, or the Service port
+              changed. Until this clears, every other pgsi alert is silent
+              because there is no data to evaluate — which is why it is critical
+              rather than an availability warning.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-not-scraped.md
+
+        - alert: PGSIClusterUnreachable
+          # R9.12's pgsi_up, carrying R9.3's full label contract
+          # (namespace, cluster, pod, instance_role) so a per-cluster and a
+          # per-instance alert are both writable from the same series.
+          expr: min by (namespace, cluster) (pgsi_up) == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No instance of {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }} is collectable"
+            description: >-
+              pgsi_up is 0 for every instance of
+              {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }} for
+              5m: the cluster is dark, not degraded. The API will render this
+              cluster with R8.4's meta.failed[] entry (R10.22's partial-render
+              contract), so the UI says "this namespace failed" rather than
+              showing a plausible-looking short list.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-cluster-unreachable.md
+
+        - alert: PGSIPrimaryUnreachable
+          # The instance_role label (R9.3) is what makes this separable from the
+          # generic instance alert: a dead replica is a warning, a dead primary
+          # with no failover is an outage.
+          expr: pgsi_up{instance_role="primary"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Primary of {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }} is not collectable"
+            description: >-
+              The instance pgsi resolved as primary
+              ({{ "{{ $labels.pod }}" }}) has not completed a collection round
+              in 5m. CNPG normally promotes a replica within
+              .spec.switchoverDelay; if this persists past that window the
+              cluster has no writable primary and the failover itself is stuck.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-primary-unreachable.md
+
+        - alert: PGSIStoreAtCapacity
+          # R13.5 requires an enforced ceiling (--max-store-bytes) with
+          # size-based eviction rather than OOM. The denominator is the shipped
+          # default from chart/values.yaml (config.maxStoreBytes: 536870912);
+          # Phase 2 should export pgsi_store_max_bytes so this rule reads the
+          # configured value instead of the default it assumes.
+          expr: (pgsi_store_size_bytes / 536870912) > 0.99
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "pgsi's store is at its configured capacity ceiling"
+            description: >-
+              The store is above 99% of the R13.5 budget for 10m. R13.5's
+              contract is eviction, not OOM, so at this point pgsi is discarding
+              collected data — the API keeps answering, but from a shrinking
+              window, and R13.3's cached-endpoint latency degrades as eviction
+              races the writers.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-store-capacity.md
+
+        - alert: PGSIAPILatencyCritical
+          # R13.3 budgets p95 < 400 ms; 1.5 s is R10.14's first-paint budget, so
+          # an API at 1.5 s p95 guarantees the UI misses its own number. The
+          # path filter keeps the probe endpoints (which the kubelet hits every
+          # 10 s and which answer in microseconds) from diluting the quantile.
+          expr: histogram_quantile(0.95, sum by (le) (rate(pgsi_http_request_duration_seconds_bucket{path!~"/healthz|/readyz|/metrics"}[10m]))) > 1.5
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "pgsi API p95 latency above 1.5s"
+            description: >-
+              p95 non-probe API latency is {{ "{{ printf \"%.2f\" $value }}" }}s
+              for 15m, against R13.3's 400 ms budget and past R10.14's 1.5 s
+              first-paint ceiling. The Fleet page cannot render inside its
+              budget at this latency, so this is user-visible, not a metric
+              drift.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-api-latency.md
+
+    # ------------------------------------------------------------------
+    # warning — degraded, slow, or about to become a critical alert
+    # ------------------------------------------------------------------
+    - name: pgsi.warning
+      rules:
+        - alert: PGSIInstanceUnreachable
+          # One series per down replica. Distinct from PGSIClusterUnreachable:
+          # the cluster answers, so the UI is not showing a failure banner, and
+          # the loss is invisible without this rule. R1.2's whole point is that
+          # a cluster can look healthy while an instance is down.
+          expr: pgsi_up{instance_role="replica"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Replica {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.pod }}" }} is not collectable"
+            description: >-
+              A replica of
+              {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }} has
+              not completed a collection round in 10m while the cluster as a
+              whole is still serving. Read together with the cluster's
+              readyInstances/servingInstances split (R1.2): a pod can be
+              Running with postgres in CrashLoopBackOff and still be counted.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-instance-unreachable.md
+
+        - alert: PGSICollectorErrors
+          # R9.8's pgsi_collector_errors_total. Any nonzero rate is a collector
+          # that ran and failed, which R1.8 requires to be reported per collector
+          # rather than collapsing the cluster's status to "broken".
+          expr: sum by (namespace, cluster) (rate(pgsi_collector_errors_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Collectors failing on {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }}"
+            description: >-
+              {{ "{{ printf \"%.2f\" $value }}" }} collector errors/s for 15m on
+              {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }}.
+              R1.8's contract is that one failing collector degrades the view
+              rather than failing it, so the API is probably still rendering —
+              but the family that collector feeds is now stale.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-collector-errors.md
+
+        - alert: PGSICollectionRoundSlow
+          # R13.1 is explicit: one cluster's full 60 s round completes in < 3 s
+          # and < 40 SQL round-trips. The duration metric is how R13.1 says to
+          # measure it, so the threshold is the requirement's own number.
+          expr: max by (namespace, cluster) (pgsi_collector_duration_seconds) > 3
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Collection round on {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }} exceeds the R13.1 budget"
+            description: >-
+              The collection round takes {{ "{{ printf \"%.2f\" $value }}" }}s,
+              over R13.1's 3 s budget for a full 60 s round. A slow cluster
+              delays the ones scheduled behind it (R2.1's per-cluster cap and
+              R2.9's global budget exist to bound exactly this), so the cost
+              shows up as staleness on other clusters first.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-collection-round-slow.md
+
+        - alert: PGSIScrapeTargetDown
+          # R9.8's pgsi_scrape_target_up{cluster,pod}: whether the HTTP scrape
+          # of an instance's exporter succeeded. R9.12's pgsi_up is the
+          # superset (a round can fail for non-scrape reasons too), so this
+          # fires slightly earlier and localises the failure to the transport —
+          # which per R1.10 is per-port and scheme-specific, not one boolean.
+          expr: pgsi_scrape_target_up == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Exporter scrape failing for {{ "{{ $labels.cluster }}" }}/{{ "{{ $labels.pod }}" }}"
+            description: >-
+              The 9187 metrics endpoint of
+              {{ "{{ $labels.cluster }}" }}/{{ "{{ $labels.pod }}" }} is not
+              scrapeable (R9.8). Check the scheme before the network: R1.10's
+              transport table says 9187 is HTTP unless
+              spec.monitoring.tls.enabled, while 8000 is always HTTPS — probing
+              the wrong scheme is the usual cause, not a firewall.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-scrape-target-down.md
+
+        - alert: PGSISchedulerShedding
+          # R2.9's shed policy "marks the shed cluster stale rather than
+          # dropping the sample", so a shed is a visible staleness event, not a
+          # silent gap.
+          expr: sum(rate(pgsi_scheduler_shed_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pgsi's scheduler is shedding work"
+            description: >-
+              {{ "{{ printf \"%.2f\" $value }}" }} sheds/s for 15m. R2.9 added
+              the global budget because 50 clusters x 13 collectors fans out to
+              ~200 concurrent queries against instances where max_connections is
+              commonly 100; a shed means the fan-out exceeded
+              --max-concurrent-sql/--max-concurrent-http-scrapes and a cluster
+              was marked stale instead of sampled.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-scheduler-shedding.md
+
+        - alert: PGSISchedulerQueueSaturated
+          # Half of R2.9's --scheduler-queue-depth default (512). Queue depth
+          # rises before sheds happen, so this is the leading indicator of the
+          # alert above.
+          expr: max(pgsi_scheduler_queue_depth) > 256
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pgsi's scheduler queue is over half full"
+            description: >-
+              Queue depth is {{ "{{ $value }}" }} against R2.9's
+              --scheduler-queue-depth default of 512. Depth grows before sheds
+              do, so this fires while there is still headroom to raise the
+              concurrency caps or drop a collector's interval.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-scheduler-queue-saturated.md
+
+        - alert: PGSIAPILatencyHigh
+          # R13.3's actual budget (p50 < 100 ms, p95 < 400 ms). The critical twin
+          # is R10.14's 1.5 s; this is the requirement's own number.
+          expr: histogram_quantile(0.95, sum by (le) (rate(pgsi_http_request_duration_seconds_bucket{path!~"/healthz|/readyz|/metrics"}[10m]))) > 0.4
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pgsi API p95 latency above the R13.3 budget"
+            description: >-
+              p95 non-probe API latency is
+              {{ "{{ printf \"%.3f\" $value }}" }}s for 15m against R13.3's
+              p95 < 400 ms for cached endpoints. If the answer is coming from
+              the store this is a store problem (see PGSIStoreNearCapacity); if
+              it is a cache miss, R8.4's endpoints are being served live.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-api-latency.md
+
+        - alert: PGSIStoreNearCapacity
+          expr: (pgsi_store_size_bytes / 536870912) > 0.9
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pgsi's store above 90% of its budget"
+            description: >-
+              The store is at {{ "{{ printf \"%.0f\" $value }}" }} bytes, over
+              90% of the R13.5 budget (chart default config.maxStoreBytes
+              536870912). R13.5's contract is size-based eviction, so the first
+              symptom is a shorter queryable history, not an error — which is
+              why this is a warning well before PGSIStoreAtCapacity.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-store-capacity.md
+
+        # --- The two rules whose metric names are ours, not the spec's. ---
+        # R9.4 names the aggregate family (execution time, rows, shared block
+        # hits/reads) but not the metrics; these two names follow Cloud SQL's
+        # insights/aggregate vocabulary (spec §3.7). If Phase 2 names them
+        # differently, edit these two rules only.
+        - alert: PGSICacheHitRatioLow
+          expr: sum(rate(pgsi_query_shared_blocks_hit_total[15m])) / clamp_min(sum(rate(pgsi_query_shared_blocks_hit_total[15m]) + rate(pgsi_query_shared_blocks_read_total[15m])), 1) < 0.9
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Shared-buffer hit ratio below 90% on {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }}"
+            description: >-
+              The R9.4 aggregate family's hit/reads pair reports a hit ratio of
+              {{ "{{ printf \"%.3f\" $value }}" }} for 30m. Below 0.9 the
+              working set has outgrown shared_buffers and queries are reading
+              from the OS cache or disk; this is the number behind the System
+              Insights "cache" card (R5.1).
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-cache-hit-ratio.md
+
+        - alert: PGSILockWaitDominant
+          expr: sum(rate(pgsi_query_lock_time_seconds_total[15m])) / clamp_min(sum(rate(pgsi_query_execution_time_seconds_total[15m])), 1) > 0.25
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Lock wait is over 25% of execution time on {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.cluster }}" }}"
+            description: >-
+              lock_time is {{ "{{ printf \"%.3f\" $value }}" }} of execution
+              time for 30m (R9.4's lock_time member). When a quarter of time
+              spent in queries is spent waiting on locks, the top-N list is
+              reporting symptoms: the expensive query is usually the one holding
+              the lock, not the one in the table. Cross-check the blocking chain
+              (R4.3) before optimising the top row.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-lock-wait.md
+
+        - alert: PGSIVersionSkew
+          # pgsi_build_info{version,commit} (R9.8) is the only place a fleet's
+          # installed versions are enumerable without calling the API (R11.3's
+          # second half: "the same values are exported as a metric so a fleet can
+          # be audited from Prometheus").
+          expr: count(count by (version) (pgsi_build_info)) > 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "More than one pgsi version is reporting metrics"
+            description: >-
+              {{ "{{ $value }}" }} distinct pgsi versions are exporting
+              pgsi_build_info. Sustained for 30m that is a rollout that stopped
+              halfway (a pod stuck on a new ReplicaSet that never became ready),
+              not a rolling update in flight — and the two versions' metric sets
+              are what dashboards and this rule set are silently disagreeing
+              about.
+            runbook_url: https://github.com/frankellis/pgsql-insights/blob/main/docs/runbooks/pgsi-version-skew.md
+    {{- with .Values.metrics.prometheusRule.groups }}
+    # Extra groups from values (metrics.prometheusRule.groups). The rule set
+    # above is inlined rather than read from values so the chart's default alert
+    # set is reviewable in one file; values groups append to it, they do not
+    # replace it.
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

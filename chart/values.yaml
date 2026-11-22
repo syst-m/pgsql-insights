@@ -72,14 +72,35 @@ config:
 # Extra CLI arguments appended verbatim to `pgsi serve`.
 extraArgs: []
 
-# R8.8 — token auth on the API surface (Phase 5). Off in the default profile so
-# Phase 0/1 serves unauthenticated; values-production.yaml turns it on. The chart
-# key exists now so the profile is expressible before the implementation lands.
+# R8.8 — auth on the API surface. Implemented in internal/api/auth.go and wired
+# through cmd/pgsi's --auth/--auth-metrics/--auth-token* flags; the chart renders
+# those flags from this block (see templates/deployment.yaml).
+#
+# Off in the default profile so a bare `helm install` serves unauthenticated,
+# which is what Phase 0/1 shipped; values-production.yaml turns it on. The
+# binary's own default is `token` (R8.8), so auth.enabled=false is not the same
+# as omitting the flag — the template passes --auth=none explicitly.
 auth:
   enabled: false
-  # Secret the pod reads the API token from (key `token`). Required when enabled.
+  # R8.8 mode for / and /api/v1/*: none | token | kube-rbac-proxy.
+  # Only consulted when enabled=true; the binary's default is token.
+  mode: token
+  # R8.9 mode for /metrics, /healthz and /readyz. `none` is the requirement's
+  # own default and the reason auth is per-route-group rather than global:
+  # Prometheus and kubelet cannot present a bearer token.
+  metricsMode: none
+  # Secret the pod reads the API token from (key `token`). Required when
+  # enabled and mode is not `none`.
   tokenSecret: ""
   tokenKey: token
+  # R8.9 CORS. Empty allow-list = no CORS headers, correct while the SPA is
+  # served by this same binary (R8.6). Set it when the UI is deployed
+  # separately, e.g. "https://pgsi.example.com". "*" is only valid with
+  # allowCredentials=false (RFC 6454), and cors.go enforces that.
+  corsAllowOrigin: ""
+  corsAllowCredentials: false
+  # "" → the binary's default of 5m.
+  corsMaxAge: ""
 
 # -----------------------------------------------------------------------------
 # Pod surface

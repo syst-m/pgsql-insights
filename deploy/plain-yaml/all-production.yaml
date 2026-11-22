@@ -258,6 +258,23 @@ spec:
             - serve
             - --listen=:8080
             - --shutdown-timeout=10s
+            # R8.8: cmd/pgsi's own default is --auth=token, so a profile that
+            # turns auth off has to say so — omitting the flag would turn auth
+            # back on. The chart's default profile ships auth.enabled=false,
+            # which is why the rendered default args carry --auth=none.
+            - --auth=token
+            # The Secret is mounted at /etc/pgsi/auth (below); the file name is
+            # the key. api.TokenFile and this path are the same string so the
+            # chart and the binary cannot disagree about where the token lives.
+            - --auth-token-file=/etc/pgsi/auth/token
+            # R8.9 (as rewritten in f08b6ac): --auth-metrics governs /metrics
+            # alone. /healthz and /readyz are never auth-gated under any value
+            # of either flag -- kubelet's httpGet probe cannot present a bearer
+            # token -- and /debug/pprof/* follows --auth. none is the
+            # requirement's default, so a Prometheus scrape needs no token.
+            - --auth-metrics=none
+            # R8.9: empty means no CORS headers at all, which is correct for the
+            # same-origin deployment R8.6 describes (the SPA is served here).
           ports:
             - name: http
               containerPort: 8080
