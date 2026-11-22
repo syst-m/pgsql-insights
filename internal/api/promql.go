@@ -34,13 +34,16 @@
 // identically for every input would be one URL, and R8.3 specifies two because
 // the MCP specifies two.
 //
-// The writers here are named writePromQLJSON/writePromQLError rather than
-// reusing clusters.go's writeJSON/writeErrorBody. Not style: clusters.go is
-// this branch's in-flight work, and a handler in a committed file calling into
-// an uncommitted one compiles in the working tree and breaks the moment anyone
-// checks out the commit on its own. The bodies are three lines and identical
-// apart from their names; when clusters.go lands, one pair can be deleted in a
-// one-line-per-call follow-up.
+// This file used to carry its own writePromQLJSON/writePromQLError pair instead
+// of clusters.go's writeJSON/writeErrorBody. Not style: when this file was
+// committed, clusters.go was still uncommitted on this branch, and a handler in
+// a committed file calling into an uncommitted one compiles in the working tree
+// and breaks the moment anyone checks out the commit on its own — the same
+// hazard §3.7's write-and-flag rule encodes. The bodies were three lines and
+// identical apart from their names, which is why the pair was duplicated rather
+// than the dependency waited on. clusters.go has since landed, so this commit is
+// the follow-up the duplicate promised: the three call sites now call
+// writeJSON/writeErrorBody directly and the pair is deleted here.
 
 package api
 
@@ -274,15 +277,15 @@ func (p *PromQL) handleSystem(w http.ResponseWriter, r *http.Request) {
 func (p *PromQL) serve(w http.ResponseWriter, r *http.Request, endpoint string) {
 	req, err := decodePromQLRequest(r)
 	if err != nil {
-		writePromQLError(w, http.StatusBadRequest, dto.NewError(dto.ErrInvalidRequest, err.Error()))
+		writeErrorBody(w, http.StatusBadRequest, dto.NewError(dto.ErrInvalidRequest, err.Error()))
 		return
 	}
 	resp, perr := p.resolve(r.Context(), endpoint, req)
 	if perr != nil {
-		writePromQLError(w, perr.status, perr.body)
+		writeErrorBody(w, perr.status, perr.body)
 		return
 	}
-	writePromQLJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // promQLError carries the status and the R8.5 body together, so resolve can
@@ -724,18 +727,4 @@ func matches(labels map[string]string, key, want string) bool {
 		return true
 	}
 	return labels[key] == want
-}
-
-// writePromQLJSON encodes a success body. See the file header for why this is
-// not clusters.go's writeJSON.
-func writePromQLJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-// writePromQLError encodes an R8.5 error body. Every error this handler emits
-// goes through dto.NewError, so `details` is `[]` and never `null`.
-func writePromQLError(w http.ResponseWriter, status int, body dto.ErrorBody) {
-	writePromQLJSON(w, status, body)
 }
