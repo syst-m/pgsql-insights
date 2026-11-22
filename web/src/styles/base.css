@@ -92,6 +92,11 @@ h3 {
   display: flex;
   align-items: center;
   gap: 24px;
+  /* R10.3's nav is thirteen links on a cluster route. They no longer fit one
+     row at R10.13's 1280 px minimum, so the bar wraps: a two-row header is a
+     layout cost, a clipped "Recommendations" is a broken requirement. */
+  flex-wrap: wrap;
+  row-gap: 8px;
   padding: 12px 24px;
   background: var(--surface-1);
   border-bottom: 1px solid var(--border);
@@ -124,6 +129,37 @@ h3 {
 
 .topbar nav a:hover {
   background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.topbar nav a {
+  /* A wrapped nav must break between links, not inside a label. */
+  white-space: nowrap;
+}
+
+/* A `planned` route says so on the link, not only on the page it leads to —
+   otherwise a route existing is indistinguishable from a page being finished. */
+.topbar nav a[data-status="planned"] {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+/* R10.3's placeholder page: the requirement, the phase, the endpoint. */
+.not-implemented-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.not-implemented-meta dt {
+  color: var(--text-secondary);
+}
+
+.not-implemented-meta dd {
+  margin: 0;
+  color: var(--text-primary);
 }
 
 .asof {

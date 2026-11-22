@@ -6,10 +6,13 @@
  * lets the R16.7 suite address any screen by URL alone.
  *
  * The shell is deliberately thin: brand, nav, theme control. Everything with
- * data in it lives in a page.
+ * data in it lives in a page. The nav is `routes.ts` rendered (see
+ * components/Nav.tsx) and the page switch below is the same table consulted by
+ * page id, so adding a page is a table edit plus a component — never an edit
+ * here.
  */
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { resolveConfig } from "./api/client";
 import {
@@ -22,9 +25,12 @@ import {
   withState,
   type UrlState,
 } from "./state/urlState";
+import { Nav, navTo } from "./components/Nav";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { FleetPage } from "./pages/Fleet";
 import { ClusterDetailPage } from "./pages/ClusterDetail";
+import { NotImplemented } from "./pages/NotImplemented";
+import { ROUTE_BY_PAGE } from "./routes";
 import { FIXTURE_CLUSTERS } from "./api/fixtures";
 import type { FleetResponse } from "./api/types";
 
@@ -74,40 +80,46 @@ export function App({ initialLocation, fixtureOverride }: AppProps = {}) {
         <a className="brand" href="/" onClick={navTo(patch, { page: "fleet", cluster: null })}>
           pgsi
         </a>
-        <nav className="nav" aria-label="Primary">
-          <a
-            href="/"
-            className={urlState.page === "fleet" ? "active" : undefined}
-            aria-current={urlState.page === "fleet" ? "page" : undefined}
-            onClick={navTo(patch, { page: "fleet", cluster: null })}
-          >
-            Fleet
-          </a>
-        </nav>
+        <Nav state={urlState} onPatch={patch} />
         <div className="topbar-right">
           <ThemeToggle />
         </div>
       </header>
 
       <main className="main">
-        {urlState.page === "fleet" ? (
-          <FleetPage state={urlState} onPatch={patch} cfg={cfg} fixtureOverride={fixtureOverride} />
-        ) : (
-          <ClusterOrFleet state={urlState} onPatch={patch} />
-        )}
+        <PageView state={urlState} onPatch={patch} cfg={cfg} fixtureOverride={fixtureOverride} />
       </main>
     </div>
   );
 }
 
-/** A plain-click handler that keeps modifier-click and middle-click semantics
- *  (open in new tab) intact — a router that swallows those is a regression. */
-function navTo(patch: (p: Partial<UrlState>) => void, to: Partial<UrlState>) {
-  return (e: MouseEvent<HTMLAnchorElement>): void => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-    e.preventDefault();
-    patch(to);
-  };
+/** The page switch, keyed off the route table rather than off an if-chain.
+ *
+ *  Two of the fourteen R10.3 pages have components at Phase 1b; the other
+ *  twelve render `NotImplemented`, which names the §9 phase that will build
+ *  them. Routing them is what makes R10.3's page set one testable artifact
+ *  today — every page in the table has a URL that answers, so a page landing at
+ *  Phase 6b swaps a component without changing a route, a nav entry or a path. */
+function PageView({
+  state,
+  onPatch,
+  cfg,
+  fixtureOverride,
+}: {
+  state: UrlState;
+  onPatch: (p: Partial<UrlState>) => void;
+  cfg: ReturnType<typeof resolveConfig>;
+  fixtureOverride?: FleetResponse;
+}) {
+  const route = ROUTE_BY_PAGE[state.page];
+
+  if (route.page === "fleet") {
+    return <FleetPage state={state} onPatch={onPatch} cfg={cfg} fixtureOverride={fixtureOverride} />;
+  }
+  if (route.page === "cluster") {
+    return <ClusterOrFleet state={state} onPatch={onPatch} />;
+  }
+  return <NotImplemented route={route} state={state} onPatch={onPatch} />;
 }
 
 /** Resolve the detail route. An unknown cluster id falls back to a card with a

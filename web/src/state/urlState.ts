@@ -25,8 +25,13 @@
 
 import type { ClusterHealth } from "../api/types";
 import { HEALTH_ORDER } from "../api/health";
+import { buildPath, matchPath, requiresCluster, type Page } from "../routes";
 
-export type Page = "fleet" | "cluster";
+/** R10.3's page ids. The table in `../routes.ts` is the single declaration;
+ *  this re-export keeps every existing `import { Page } from "./state/urlState"`
+ *  working while the URL module stops keeping its own two-member copy of a
+ *  fourteen-member list. */
+export type { Page };
 
 /** Columns the Fleet table sorts on. Mirrors ClusterTable's column list. */
 export type SortKey =
@@ -120,39 +125,30 @@ function pick<T extends string>(raw: string | null, allowed: readonly T[], fallb
   return (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
 }
 
-const CLUSTER_PATH = /^\/c\/([^/]+)\/([^/?#]+)/;
-
-/** Decode a location string ("path" + "?query") into state. */
+/** Decode a location string ("path" + "?query") into state.
+ *
+ *  The path half comes from `matchPath` (routes.ts), the query half from here.
+ *  Previously the path half was a regex here that matched `/c/{ns}/{name}` and
+ *  ignored the rest, so `/c/ns/name/queries` parsed as the Overview; now every
+ *  route in the table parses, and the two branches this function used to carry
+ *  (cluster vs everything else) collapse into one. */
 export function parseUrl(loc: string): UrlState {
   const [rawPath = "/", rawQuery = ""] = splitLocation(loc);
   const params = new URLSearchParams(rawQuery);
-
-  const m = CLUSTER_PATH.exec(rawPath);
-  if (m !== null) {
-    const ns = decodeURIComponent(m[1] ?? "");
-    const name = decodeURIComponent(m[2] ?? "").replace(/\/+$/, "");
-    return {
-      ...DEFAULT_STATE,
-      page: "cluster",
-      cluster: `${ns}/${name}`,
-      row: params.get("row"),
-      tab: pick(params.get("tab"), TABS, "overview"),
-      sort: pick(params.get("sort"), SORT_KEYS, "health"),
-      dir: pick(params.get("dir"), ["asc", "desc"] as const, "desc"),
-      ns: splitList(params.get("ns")),
-      q: params.get("q") ?? "",
-      health: parseHealthList(params.get("health")),
-      range: pick(params.get("range"), RANGES, "24h"),
-      fixtureFlag: params.get("fixture") ?? "",
-      delayFlag: params.get("delay") ?? "",
-    };
-  }
+  const match = matchPath(rawPath);
+  const page: Page = match?.page ?? "fleet";
 
   return {
     ...DEFAULT_STATE,
-    page: "fleet",
-    row: params.get("row"),
-    tab: "overview",
+    page,
+    cluster: match?.cluster ?? null,
+    // Query Detail carries its row in the path as the fingerprint; every other
+    // page takes it from `?row=` (R10.16).
+    row: match?.row ?? params.get("row"),
+    // `tab` is Cluster Overview's section list (R10.5) — on any other page it
+    // stays at the default so a stale `?tab=storage` cannot follow the user into
+    // a page that has no tabs.
+    tab: page === "cluster" ? pick(params.get("tab"), TABS, "overview") : "overview",
     sort: pick(params.get("sort"), SORT_KEYS, "health"),
     dir: pick(params.get("dir"), ["asc", "desc"] as const, "desc"),
     ns: splitList(params.get("ns")),
@@ -192,10 +188,13 @@ function parseHealthList(raw: string | null): ClusterHealth[] {
 export function formatQuery(s: UrlState): string {
   const params = new URLSearchParams();
 
-  if (s.page === "cluster" && s.cluster !== null && s.cluster.includes("/")) {
-    if (s.tab !== "overview") params.set("tab", s.tab);
-    if (s.row !== null && s.row !== "") params.set("row", s.row);
-  }
+  // `tab` is Cluster Overview's section list (R10.5), so it belongs in the
+  // query only on that page — every other page keeps it at the default.
+  if (s.page === "cluster" && s.tab !== "overview") params.set("tab", s.tab);
+  // `row` is the selected table row (R10.16). Query Detail is the one page that
+  // carries it in the *path* instead, as the fingerprint; emitting it in both
+  // places would put one value in two spots that could then disagree.
+  if (s.row !== null && s.row !== "" && s.page !== "query-detail") params.set("row", s.row);
 
   if (s.sort !== DEFAULT_STATE.sort) params.set("sort", s.sort);
   if (s.dir !== DEFAULT_STATE.dir || s.sort !== DEFAULT_STATE.sort) params.set("dir", s.dir);
@@ -203,7 +202,6 @@ export function formatQuery(s: UrlState): string {
   if (s.q !== "") params.set("q", s.q);
   if (s.health.length > 0) params.set("health", s.health.join(","));
   if (s.range !== DEFAULT_STATE.range) params.set("range", s.range);
-  if (s.page === "fleet" && s.row !== null && s.row !== "") params.set("row", s.row);
   if (s.fixtureFlag !== "") params.set("fixture", s.fixtureFlag);
   if (s.delayFlag !== "") params.set("delay", s.delayFlag);
 
@@ -214,11 +212,9 @@ export function formatQuery(s: UrlState): string {
 /** Encode state back to a location string. Defaults are omitted so the common
  *  case stays short (`/`) and every state has exactly one canonical string. */
 export function formatUrl(s: UrlState): string {
-  const path =
-    s.page === "cluster" && s.cluster !== null && s.cluster.includes("/")
-      ? `/c/${s.cluster.split("/").map(encodeURIComponent).join("/")}`
-      : "/";
-
+  // `buildPath` is the counterpart of the `matchPath` call in `parseUrl` — one
+  // table, one pattern per page, so the two directions cannot drift.
+  const path = buildPath(s.page, s.cluster, s.row);
   const qs = formatQuery(s);
   return qs === "" ? path : `${path}${qs}`;
 }
@@ -227,11 +223,24 @@ export function formatUrl(s: UrlState): string {
 export function withState(current: UrlState, patch: Partial<UrlState>): UrlState {
   const next: UrlState = { ...current, ...patch };
   // Invariants the type allows but the UI never wants:
-  if (next.page === "fleet") {
+  // 1. `tab` is Cluster Overview's own section list; on any other page it has
+  //    to sit at the default so navigating away from an Overview opened on
+  //    `?tab=storage` doesn't carry a tab the new page cannot show.
+  if (next.page !== "cluster") {
     next.tab = "overview";
   }
-  if (next.cluster === null && next.page === "cluster") {
+  // 2. A cluster-scoped page with no cluster has nothing to render — fall back
+  //    to the fleet rather than emit a URL the parser would reject. Generalised
+  //    from `page === "cluster"` to `requiresCluster(page)`, which is now 12 of
+  //    the 14 pages (R5.9's per-cluster timeline is what makes `events` one).
+  if (requiresCluster(next.page) && next.cluster === null) {
     next.page = "fleet";
+  }
+  // 3. Query Detail *is* a selected row. Without a fingerprint there is no such
+  //    page to show, so it degrades to the Queries list it was opened from —
+  //    which is what `buildPath` would have linked to anyway.
+  if (next.page === "query-detail" && (next.row === null || next.row === "")) {
+    next.page = "queries";
   }
   return next;
 }

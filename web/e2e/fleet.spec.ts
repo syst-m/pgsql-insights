@@ -24,6 +24,13 @@ const SCREENS: readonly { name: string; url: string }[] = [
   // capture races it.
   { name: "loading", url: "/?fixture=fleet&delay=60000" },
   { name: "detail", url: "/c/freeidp/freeidp-pg?fixture=fleet" },
+  // R10.3's page set is fourteen pages and two have components; the other
+  // twelve render the placeholder, and R16.7 screenshots one of them so the
+  // shell itself is covered — the nav's thirteen links and the card that names
+  // the phase. The rest are covered by routes.test.tsx, which renders all
+  // twelve; screenshotting twelve near-identical cards would only grow the
+  // matrix, not the coverage.
+  { name: "planned", url: "/c/freeidp/freeidp-pg/queries?fixture=fleet" },
 ];
 
 /** Font antialiasing differs a little between machines and OS versions; a
@@ -87,6 +94,24 @@ test.describe("interactions", () => {
     await page.getByRole("link", { name: /cookbook-pg/ }).click();
     await expect(page).toHaveURL(/\/c\/cookbook\/cookbook-pg/);
     await expect(page.getByRole("heading", { level: 1, name: /cookbook-pg/ })).toBeVisible();
+  });
+
+  test("the nav reaches the R10.3 routes from a cluster page", async ({ page }) => {
+    await page.goto("/c/freeidp/freeidp-pg?fixture=fleet");
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    // The nav is the route table rendered, so the current page is marked…
+    await expect(nav.getByRole("link", { name: "Cluster Overview", exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // …and any other route is one click away, planned or not.
+    await nav.getByRole("link", { name: "Wait Events", exact: true }).click();
+    await expect(page).toHaveURL(/\/c\/freeidp\/freeidp-pg\/wait-events\?fixture=fleet$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Wait Events" })).toBeVisible();
+    // Back to the fleet: the route changes, the cluster selection clears, and
+    // the `?fixture=` flag still rides along so the data source doesn't switch.
+    await nav.getByRole("link", { name: "Fleet", exact: true }).click();
+    await expect(page).toHaveURL(/\/\?fixture=fleet$/);
   });
 
   test("the health chart's legend table matches the bar (R10.23's non-colour channel)", async ({ page }) => {
