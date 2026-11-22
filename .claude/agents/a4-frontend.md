@@ -40,6 +40,14 @@ computable, so compute it.
 - **Types built from prose while the real contract was still in flight**, then a client that cast
   the response and defaulted a missing key to `[]` — a blank page indistinguishable from an empty
   fleet. Import the golden JSON; let `tsc` be the drift check.
+- **A commit split that absorbs half of another slot's change set.** Their `b43fbdf` split pulled
+  A2's unstaged `ci.yml` into `4e10ed4` but left the `Makefile` defining the very target that
+  `ci.yml` runs — converting a clean "not yet wired" state into
+  `make: *** No rule to make target 'openapi-check'` at the branch tip, red on every commit from
+  `362e8d3` onward. Absorb the whole change set or none of it. The check is mechanical: after any
+  absorb, grep the new commit for every command its own files invoke (`make <target>`,
+  `scripts/<x>.sh`, `bin/<tool>`) and confirm each one resolves in that same commit.
+
 - **Received a brief that belonged to another slot.** Phase 4 is A2's; the chart half is yours. If
   a brief names a phase, check `requirements.md` §7.2 before building — running two agents on one
   phase costs more than waiting.
