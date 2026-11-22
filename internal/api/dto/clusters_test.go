@@ -212,7 +212,10 @@ func TestReferenceEnvironmentAcceptance(t *testing.T) {
 		if c.Services == nil {
 			t.Errorf("%s: services is null; R8.4/R1.5 require an array so the UI never renders a missing field", key)
 		}
-		if c.PVCs == nil || len(c.PVCs) == 0 {
+		// len() covers the nil case (len(nil slice) == 0), and unlike the
+		// Services/Poolers checks above this one asks "is the list empty", not
+		// "is it null" — R1.5 requires a PVC list, so either answer fails.
+		if len(c.PVCs) == 0 {
 			t.Errorf("%s: pvcs empty; R1.5 requires the PVC list", key)
 		}
 		if c.Poolers == nil {

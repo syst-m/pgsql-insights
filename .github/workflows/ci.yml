@@ -36,11 +36,27 @@ jobs:
         run: make tidy-check
       - name: build
         run: make build
+      # D6: the old check was `grep -q "$(git rev-parse --short HEAD)"
+      # version.txt`, which a binary stamped with some *other* commit could pass
+      # — the first published binary did exactly that (stamped a47e149, built
+      # from db4f237). This parses the field out of the output and compares it to
+      # $GITHUB_SHA, then checks the other half of R11.3's tag pair: the
+      # 7-character tag the image job publishes (`${GITHUB_SHA::7}`, and the
+      # Dockerfile's org.opencontainers.image.revision) must be this commit's
+      # first 7 characters. For both push and pull_request events, actions/
+      # checkout puts HEAD at github.sha, so the comparison is exact.
       - name: version output carries ldflags (R11.3)
         run: |
           ./bin/pgsi version | tee version.txt
-          grep -q "$(git rev-parse --short HEAD)" version.txt \
-            || { echo "pgsi version does not embed the git SHA (R11.3)"; exit 1; }
+          commit="$(sed -n 's/^pgsi .* (commit \([^)]*\))$/\1/p' version.txt)"
+          test -n "$commit" || { echo "no commit parsed from 'pgsi version' output"; exit 1; }
+          if [ "$commit" != "$GITHUB_SHA" ]; then
+            echo "binary stamped $commit but this build is $GITHUB_SHA (R11.3, D6)"; exit 1
+          fi
+          if [ "${commit:0:7}" != "${GITHUB_SHA:0:7}" ]; then
+            echo "7-char form ${commit:0:7} != image tag ${GITHUB_SHA:0:7} (R11.3 tag pair)"; exit 1
+          fi
+          echo "ok: binary commit $commit == $GITHUB_SHA, image tag ${GITHUB_SHA:0:7}"
 
   lint:
     name: lint
@@ -53,6 +69,12 @@ jobs:
           cache: true
       - name: spec parity matrix (requirements.md §6 vs the §7.3 index)
         run: bash scripts/check-parity-matrix.sh
+      # R8.1's "checked in CI" half: the document api/embed.go ships is the one
+      # GET /api/v1/openapi serves, so a broken document is a broken endpoint.
+      # The check is scripts/check-openapi.py; `make openapi-check` is its local
+      # mirror (R11.11: CI runs no command the Makefile lacks).
+      - name: OpenAPI document validates (R8.1)
+        run: make openapi-check
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet
@@ -158,11 +180,16 @@ jobs:
           driver: docker-container
       # R11.2: one command must produce linux/amd64 AND linux/arm64. On a PR we build
       # to an OCI tarball (no push) so the R11.4 size gate still runs.
+      # D6: COMMIT is the full SHA — the OCI image-spec convention for
+      # org.opencontainers.image.revision and, now, what the binary's ldvar
+      # carries too. The *tag* stays the 7-character form (R11.3); the build job
+      # asserts the two are the same commit, which is what makes the pair
+      # checkable instead of merely adjacent.
       - name: "build both platforms (PR: no push)"
         if: github.ref != 'refs/heads/main'
         run: |
           docker buildx build --platform linux/amd64,linux/arm64 \
-            --build-arg VERSION="${GITHUB_SHA::7}" --build-arg COMMIT="${GITHUB_SHA::7}" \
+            --build-arg VERSION="${GITHUB_SHA::7}" --build-arg COMMIT="${GITHUB_SHA}" \
             -t ${{ env.IMAGE_REPO }}:pr-${{ github.event.number || github.sha }} \
             --output type=oci,dest=dist.oci.tar .
           python3 scripts/image-size.py --max-mb 100 dist.oci.tar
@@ -172,7 +199,7 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker buildx build --platform linux/amd64,linux/arm64 \
-            --build-arg VERSION=0.1.0-dev --build-arg COMMIT="${GITHUB_SHA::7}" \
+            --build-arg VERSION=0.1.0-dev --build-arg COMMIT="${GITHUB_SHA}" \
             -t ${{ env.IMAGE_REPO }}:dev \
             -t ${{ env.IMAGE_REPO }}:${GITHUB_SHA::7} \
             --push .
