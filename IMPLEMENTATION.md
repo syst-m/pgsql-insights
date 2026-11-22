@@ -416,6 +416,132 @@ environment; `discovery.go`'s informer plumbing compiles, lints and is exercised
 `NewWithClients` in tests. The first `kubectl logs` from a pod built off this commit is Phase 1's
 remaining live evidence (and §5-D7's unblock for A4's `?fixture=0` run).
 
+**A3's code review of the 1a file set** — run 2026-11-22 on `internal/api/clusters.go`,
+`internal/api/readiness.go`, `internal/discovery/`, `internal/kube/`, `internal/logx/`, before this
+entry was written (R14.2's ordering: review → entry → the commit that carries both). **Thirteen
+findings: eight in the code, five in the entry itself.** IDs are per-file (`DI*` discovery, `KB*`
+kube, `VA*` this entry) because `A1`–`A4` are slots, not finding IDs. Every one was re-verified
+against the tree before being written here; one of the review's mechanisms was corrected in the
+process (DI1) and one of its proposed fixes was rejected as not fixing the leak.
+
+*Code — `internal/discovery`*
+
+**DI1 (major) — `discovery.go:729-740`: the R1.9 sweep iterates the wrong map, so `d.deleted` grows
+forever and the StaleGrace expiry is unreachable.** The loop walks `d.clusters`, and `d.clusters =
+clusters` at :739 replaces that map *after* the loop. A cluster that disappears is therefore
+visited exactly once — on the first rebuild after it goes — where `d.deleted[key]` is absent, so
+the expiry branch cannot fire and the only thing that happens is `d.deleted[key] = now`. Every
+later rebuild walks the new map, which no longer holds the key, so `delete(d.deleted, key)` at :736
+never runs for it. The branch is unreachable in general: a key enters `d.deleted` only when it is
+absent from `clusters`, and `d.clusters` immediately becomes `clusters`, so no key is ever both in
+`d.clusters` and in `d.deleted` at the top of the loop. Concrete input: a five-cluster fleet loses
+one cluster; thirty rebuilds later `d.deleted` still holds it and `StaleGrace` has expired nothing.
+Fix: sweep `d.deleted` itself —
+`for key, prev := range d.deleted { if _, still := clusters[key]; still || now.Sub(prev) > d.cfg.StaleGrace { delete(d.deleted, key) } }`
+— and stamp the newly-gone keys separately. Stopping the re-stamp (the review's own fix) does not
+close the leak; the sweep's *domain* is the bug. A second leak rides along: the `continue` at :731
+skips a cluster that is still present without clearing its old stamp, so a cluster that vanishes
+and comes back keeps a stale `deleted` entry and can be expired instantly the next time it goes.
+
+**DI2 (major) — `discovery.go:691` and `:713` emit `Code:` values the contract forbids.**
+`"read_failed"` and `"build_failed"` are the only two uses repo-wide (`git grep -n
+"read_failed\|build_failed"` → those two lines; zero hits in `api/openapi.yaml`, `web/`,
+`testdata/`). R8.5's codes are the ten constants at `dto/clusters.go:108-119`
+(`InvalidRequest … Internal`), mirrored by `api/openapi.yaml:1300`'s `NamespaceFailure.code`
+`enum:` and by `web/src/api/types.ts`'s `ErrorCode` union — and that schema's own description says
+"`code` reuses the R8.5 enum rather than minting a second vocabulary". Discovery mints two codes
+anyway, and they are the two it emits most often: a client switching on the union has no member for
+them, so the partial-render path R10.22 exists for lands in a TS `never`. The right values are
+`ErrUnavailable` (the namespace read failed — dependency down) and `ErrInternal` (the build
+failed); the distinction the two strings want belongs in `Message`, which already carries
+`err.Error()`.
+
+**DI3 (minor) — `build.go:358` hardcodes R1.10's monitoring-TLS flag to `false`.**
+`iv.Endpoints = EndpointsFor(p.Status.PodIP, false)`, and the function's own doc at :367-370 says
+"monitoringTLS is spec.monitoring.tls.enabled, the one conditional in the table (9187 is HTTP
+unless it is set)". The call site never reads the field — `instanceFromPod` receives only the
+`*corev1.Pod`, so it cannot reach the CRD — so a cluster with `spec.monitoring.tls.enabled: true`
+publishes `http://…:9187` where the CRD says HTTPS, and the collector that trusts the table (R1.10:
+"every HTTP collector reads its URL from here") uses the wrong scheme. `build_test.go:565` covers
+the `true` branch, so the function is tested and the call site is the defect.
+
+**DI4 (minor) — `discovery.go:722` re-stamps the version cache from the DTO, and the re-stamp lies
+about the source.** `d.putVersion(key, &PGVersion{Major: *v.PGMajor, Detail: v.PGVersionDetail,
+Source: versionSource(v)})` rebuilds the cache entry from the *rendered* view, and `versionSource`
+(:771-779) infers the source from the value's shape — `if v.PGVersionDetail == "" { return "sql"
+}`. But `build.go:159-162` deliberately suppresses `pgVersionDetail` when the detail equals the
+major (`pv.Detail != strconv.Itoa(pv.Major)`), which is exactly what the image-tag source yields for
+a pod with no version label. Concrete input: a cluster resolved from the image tag caches
+`{17, "17", "image"}`; the DTO renders `pgMajor: 17` with `pgVersionDetail` omitted; the next
+rebuild writes `{17, "", "sql"}` — the detail is gone and the provenance now claims SQL, which
+R1.3 requires be truthful because the source field *is* the answer to "how do we know". Fix: cache
+the `*PGVersion` that was resolved (or have `BuildCluster` return it), not a reconstruction.
+
+**DI5 (minor) — `build.go:400-423` returns the first prefix match, so the metrics sidecar can
+impersonate the instance.** The loop skips names that are neither `postgres` nor prefixed by it,
+then `return`s on the first hit. CNPG's own metrics sidecar is named `postgres-exporter`, which the
+prefix match accepts; `status.containerStatuses` order follows the pod spec, so on a pod that lists
+the exporter first, the instance row reports the *exporter's* restart count and state and `serving`
+flips on the exporter's readiness. Concrete input: `containerStatuses:
+[postgres-exporter(running, restarts 3), postgres(running, restarts 7)]` → `restartCount: 3`. The
+prefix match was added for renamed instances; it should prefer an exact `postgres` and only fall
+back to a prefix match over names that aren't a known sidecar.
+
+**DI6 (major) — two call sites drop the `nestedStringMapE` error, contradicting the invariant
+`fields.go:118-121` writes about them by name.** The comment reads: "There is deliberately no
+error-dropping `nestedStringMap` sibling: every call site here (build.go's certificate expirations,
+poolers.go's pgbouncer parameters) wants the error, because a malformed map is a fact about the
+cluster that R1.5's view has to report rather than render as 'no entries'." Both named sites drop it
+anyway. `build.go:532-534`: `raw, err := nestedStringMapE(obj, "status", "certificates",
+"expirations"); if err != nil || raw == nil { return c }` — `buildCertificates` returns no error,
+so a malformed map is indistinguishable from a cluster with no certificates. `poolers.go:92`:
+`if params, err := nestedStringMapE(obj, "spec", "pgbouncer", "parameters"); err == nil {
+v.Parameters = params }` — a malformed map becomes "no parameters", which R6.2's pool sizing then
+reads as an empty set. Concrete input: `status.certificates.expirations: "not-a-map"` → the API
+answers "no certificates expiring" for a cluster whose cert status is broken. The comment is right
+and the code is wrong; either propagate the error (`BuildCluster` already returns one) or delete
+the paragraph.
+
+*Code — `internal/kube`*
+
+**KB1 (major) — `kube/client.go:183-188` reads the kubeconfig's CA fields and then never uses the
+certificate.** `tlsCfg := &tls.Config{InsecureSkipVerify: true} //nolint:gosec` followed by
+`if rc.CAFile != "" || len(rc.CAData) > 0 { tlsCfg.InsecureSkipVerify = rc.TLSClientConfig.Insecure }`.
+`RootCAs` is never populated — `git grep -n "RootCAs" -- '*.go'` returns **zero hits repo-wide** —
+so with `InsecureSkipVerify:false` Go verifies against the *system* root pool, which does not
+contain a k3s/EKS self-signed cluster CA. Concrete input: the reference cluster's kubeconfig with
+`certificate-authority-data` → the direct pod-HTTPS client (R1.10's 8000 path) fails
+`x509: certificate signed by unknown authority`, while the same kubeconfig works for client-go's own
+requests because client-go builds a pool from `CAData`. The comment two lines up describes the
+intent the code doesn't implement ("An explicit cluster CA … is trusted normally"). Fix: build
+`x509.NewCertPool()` + `AppendCertsFromPEM(rc.CAData)` into `tlsCfg.RootCAs` (or take the whole
+config from `rest.Config.TransportConfig()`), and derive `InsecureSkipVerify` from `rc.Insecure`
+unconditionally rather than only in the CA-present branch.
+
+*This entry itself (VA)*
+
+**VA1 (blocking) — the commit that carries this entry does not compile.** `45a69a1` ("Phase 1a
+(docs + packaging): the R14.2 entry, D6's Makefile, the poolers RBAC") fails
+`go build ./internal/api`: `internal/api/server.go:79:10: undefined: PromQL` — `promql.go` landed
+two commits later in `02381ba`. Verified in a detached worktree at `45a69a1` (`go build` → that
+error; `make cover` → `Error 1`). R14.2's entry is the artifact that attests a phase was checked,
+and the check it records could not have been run at the commit carrying it.
+**VA2 (major)** — the test table's `internal/api` row read `50 | 126`. `45a69a1` had **45**
+(auth 16 + clusters 10 + cors 7 + server 7 + spa 5) and HEAD has **74 / 312** (promql 17 and series
+12 arrived later, in `02381ba` and `4cef345`). No tree ever had 50. Corrected in the table above.
+**VA3 (major)** — the coverage paragraph reported the gate failing at 54.4%; `make cover` at HEAD
+prints `total coverage: 70.6% (gate 70%, R11.11)` and **exits 0**. Corrected above, and §5-D17
+carried the same stale status — fixed in this commit.
+**VA4 (minor)** — the lint paragraph listed eight findings still open in A2's and A4's files; all
+of them landed in `134206e` (whose message counts eleven across its six files) and `make lint` at
+HEAD exits 0 with zero findings repo-wide. Corrected above; §5-D4's "eight remain … theirs to land"
+is closed with it.
+**VA5 (minor)** — the entry carried `truncated ⟺ len(data) < total` as R8.4's invariant, which is
+false on every page but the first; corrected in `1a941d0` to `truncated ⟺ nextCursor != ""`. The
+residual is outside this file: `dto/clusters.go:22-23` and `api/openapi.yaml`'s `Meta` description
+still carry the old equation, and they are A1's and A2's to change — flagged, not edited over their
+trees.
+
 #### 1b — A4: the embedded SPA and the Fleet page
 
 **Toolchain (R10.1)** — react 19.3.1, typescript 5.9.3, vite 8.3.8 (the rolldown-based build:
@@ -556,8 +682,8 @@ re-implementing it.
 | R9.1 | The two-plane rule — every capability tagged with the plane that serves it, **documented in the chart README**: numbers → `/metrics` → Prometheus; query text, plan bodies, active-session rows, blocking chains → API + store only | `chart/README.md:93-157` (A4, `ed58452`), `README.md:170-181` (A4) | **satisfied (A4)** — the rule is now documented in the file R9.1 names. `chart/README.md:93-157` states it in R9.1's own wording, adds the test the rule implies (*can this be a label at a price*, not *is this useful in Prometheus*), and tags every capability the spec names rather than only the four R9.1 lists — the R9.4–R9.13 families, the R8.2 endpoint set, and the R3/R4/R6/R7 capabilities, with two rows tagged `both` and justified (R9.3's identity is a label set on one plane and a record on the other; R3.7's rollups are numbers on labels and rows in the API). It names the one capability whose numbers are not on the metrics plane — R4.3's wait-event rollup is served by the API because R9's family set has no wait-event member, and the only wait number that reaches `/metrics` is `cnpg_backends_waiting_total`, re-exported under `pgsi_` by R9.7's `cnpg_*` clause — and maps all 18 templates to the plane each serves (`:141-157`). **History:** the row read "satisfied, one clause short" for one round, because the rule was documented in `README.md:170-181` and cited by two runbooks (`docs/runbooks/pgsi-lock-wait.md:30`, `docs/runbooks/pgsi-primary-unreachable.md:56`) but absent from the named file — the half R9.1's wording actually asks for. Recorded at `dc40d70`, owner-notified at `8d59b7d`, closed by A4 in `ed58452` |
 | R9.6 | Export the **per-tag** family (Cloud SQL's `insights/pertag`) when R3.12 tags are enabled, keyed by `tag_hash` | none yet; §5's table row marks it *off unless R3.12 enabled* | **blocked (Phase 6b)** — the family's own Control cell in §5 gates it on R3.12, and R3.12 (tags) is Phase 6b's, so there is no `tag_hash` to key on until tags exist. Nothing in the chart blocks it: the family rides the same `/metrics` endpoint the ServiceMonitor already scrapes, so it needs an emitter and no plumbing. `scripts/cardinality-check.py` reads the cell as `variable` and contributes 0 at default config, which is the honest answer rather than an invented number |
 | R9.8 | Export **self-observability**: the eight named self-metrics — `pgsi_build_info{version,commit}`, `pgsi_collector_duration_seconds`, `pgsi_collector_errors_total`, `pgsi_scrape_target_up{cluster,pod}`, `pgsi_store_size_bytes`, `pgsi_http_request_duration_seconds`, `pgsi_scheduler_queue_depth`, `pgsi_scheduler_shed_total` (R2.9) | `internal/api/server.go:313` (A1) for 1 of the 8; `internal/metrics/` (A2) does not exist yet | **blocked (Phase 2)** — 1 of the 8 exists. `BuildInfoMetric()` is exported from `server.go` "so the Phase 2 MetricHub renders the same line rather than a second copy of it", which is the file itself conceding the other seven belong to a metrics package that has not been written. Six of the seven describe things Phase 2 creates (collector durations and errors, the scheduler queue and its shed counter, the store's size) and the seventh, `pgsi_http_request_duration_seconds`, needs the instrumentation middleware that ships with the MetricHub; `pgsi_scrape_target_up` additionally needs R2.x's scrape loop. Writing them now would mean inventing values for subsystems that do not run |
-| R9.9 | Ship a **ServiceMonitor** (and a **PodMonitor** variant) in the chart, off by default and enabled by `metrics.serviceMonitor.enabled`, correct for the installed `monitoring.coreos.com/v1` API | `chart/templates/servicemonitor.yaml`, `chart/templates/podmonitor.yaml`, `chart/values.yaml:243`/`:264`, `chart/README.md:93-188` (A4) | **satisfied (A4)** — both templates exist and R11.7's validation is documented at `chart/README.md:101` (field-level validation against the installed CRD, including the `scrapeTimeout ≤ interval` ratio the CRD accepts any duration string so the chart cannot enforce). Two subtleties the file rules on rather than glosses: **"off by default" vs the profile's `enabled: true`** — the flag's zero value is off (the template gates on a truthy `.enabled`, so a values file that omits the block renders nothing) and the shipped profile opts in explicitly (`chart/values.yaml:238-241`); and the **values namespace rename** — R9.9 names `metrics.serviceMonitor.enabled`, Phase 0 shipped `monitoring:`, the spec's name won, and `chart/README.md:78` records the rename instead of leaving two spellings alive |
-| R9.10 | Document the cardinality budget (§5) in the chart README **with a measured number for the reference environment**, so an adopter can predict their Prometheus bill before installing | `chart/README.md:189-270` (A4) | **satisfied (A4)** — three sections: the budget computed for the reference set (`:197`), measured on the reference environment today (`:232`), and measured for our own `/metrics` (`:260`). The third is "Not yet available" and the file says so, naming the same dependency this table records for R9.6 and R9.8 — the binary exports one metric. The computed figure is now `271b7bb`'s script output; `chart/README.md:222-228` predicted that script and its published number (24 480) is unchanged by it, which is the only outcome that would not have made the file wrong |
+| R9.9 | Ship a **ServiceMonitor** (and a **PodMonitor** variant) in the chart, off by default and enabled by `metrics.serviceMonitor.enabled`, correct for the installed `monitoring.coreos.com/v1` API | `chart/templates/servicemonitor.yaml`, `chart/templates/podmonitor.yaml`, `chart/values.yaml:243`/`:264`, `chart/README.md:158-253` (A4) | **satisfied (A4)** — both templates exist and R11.7's validation is documented at `chart/README.md:101` (field-level validation against the installed CRD, including the `scrapeTimeout ≤ interval` ratio the CRD accepts any duration string so the chart cannot enforce). Two subtleties the file rules on rather than glosses: **"off by default" vs the profile's `enabled: true`** — the flag's zero value is off (the template gates on a truthy `.enabled`, so a values file that omits the block renders nothing) and the shipped profile opts in explicitly (`chart/values.yaml:238-241`); and the **values namespace rename** — R9.9 names `metrics.serviceMonitor.enabled`, Phase 0 shipped `monitoring:`, the spec's name won, and `chart/README.md:78` records the rename instead of leaving two spellings alive |
+| R9.10 | Document the cardinality budget (§5) in the chart README **with a measured number for the reference environment**, so an adopter can predict their Prometheus bill before installing | `chart/README.md:254-335` (A4) | **satisfied (A4)** — three sections: the budget computed for the reference set (`:197`), measured on the reference environment today (`:232`), and measured for our own `/metrics` (`:260`). The third is "Not yet available" and the file says so, naming the same dependency this table records for R9.6 and R9.8 — the binary exports one metric. The computed figure is now `271b7bb`'s script output; `chart/README.md:287-293` predicted that script and its published number (24 480) is unchanged by it, which is the only outcome that would not have made the file wrong |
 | R9.11 | PrometheusRule with a `critical` tier — Phase 4 carryover | `chart/templates/prometheusrule.yaml`, `Makefile` (`rules-check`), shipped `f9aae41` | **transferred to Phase 5** — tabled in §3.7's R9.11 row (16 rules, provisional, `promtool check rules` reports 16 found, no rule has fired on a real sample). Not re-implemented here; the WBS row's caveat and §3.7 now agree on it, which is what R14.9's per-owner rule asks for |
 | R13.3 | API p50 **< 100 ms** for cached endpoints, p95 **< 400 ms**; first UI paint **< 1.5 s** (R10.14) | none | **blocked** — no measurement artifact exists. `scripts/` holds seven scripts and none measures latency (`build-push-dev.sh`, `check-openapi.py`, `check-parity-matrix.py`/`.sh`, `cardinality-check.py`, `gen-licenses.py`, `image-size.py`), and `web/e2e` asserts rendered state, not timing. The requirement's precondition is Phase 4's other half — "live scrape by the reference Prometheus" — i.e. a running deployment behind a Service, which needs Phase 2's `pgsi_up` and Phase 6b's cached endpoints. When it lands it also needs a Makefile target, because R11.11 forbids CI running a command the Makefile lacks |
 | R13.4 | The cardinality budget per §5 **with a CI-checkable assertion** that the exported series count for a fixture cluster set stays under the documented bound | `scripts/cardinality-check.py` (`271b7bb`), `Makefile` (`cardinality-check`), `.github/workflows/ci.yml` (lint job); the budget itself is documented in `chart/README.md`, one row up | **implemented** — the assertion half, written here. It computes from §5's family table × `testdata/api/clusters.json` rather than carrying a literal, and settles the three-way figure dispute at **24 480 series / 1.59 GB over 30 d** — the chart README's answer; R13.4's own 23 700 and §5's prose 24 300 are older generations of the same estimate (`requirements.md:556-560` records that), and requirements.md is A3's file to amend, so the script reports all four figures and gates on the highest. The live-count form of the same assertion — scrape `/metrics`, count series — is Phase 2's, once the MetricHub emits what the table promises |
