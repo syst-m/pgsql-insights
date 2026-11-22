@@ -23,8 +23,9 @@
 # The schemas stay per-resource (components.schemas.*, referenced by $ref) so
 # that generating, extending or splitting the document never requires rewriting
 # it. x-status on each path says whether it is in code; x-planned-paths at the
-# bottom lists the routes R8.2/R8.3/R8.11 name that are not in code yet, so
-# promoting one into `paths` is a one-entry edit rather than a restructure.
+# bottom lists the routes R8.2/R8.11 name that are not in code yet (R8.3's pair
+# moved up to `paths` and its entry is retired below), so promoting one into
+# `paths` is a one-entry edit rather than a restructure.
 #
 # YAML note: every scalar whose text contains ": " (or starts with a backtick)
 # is double-quoted here. Seven were not at HEAD — two because their text
@@ -33,10 +34,17 @@
 # `ClusterView.properties.currentPrimary.description`), five because a leading
 # backtick is a reserved YAML indicator. All seven made the whole document
 # unparseable by a YAML loader, so any validator run over this file failed on
-# syntax before it could check the contract. R14.7's "CI-validated" half of
-# R8.1 still has no CI step; the file now parses with
-# `python3 -c "import yaml; yaml.safe_load(open(...))"`, which is the cheapest
-# form of that check and the one worth adding to the lint job.
+# syntax before it could check the contract.
+#
+# R8.1's "checked in CI" half is now `scripts/check-openapi.py`, run by
+# `make openapi-check` and by a step in ci.yml's lint job next to the spec-parity
+# matrix. It is not a `yaml.safe_load` one-liner: the parse is the cheap half,
+# and the seven bugs above were all *syntax*, which a load finds and a review
+# does not, but a load says nothing about whether a documented path has an
+# operationId, whether a $ref points at something, or whether a `required` field
+# exists in `properties`. The script checks those, plus the house rules this file
+# sets for itself (every path declares x-status; every x-planned-paths entry is
+# a route; the two x-promql-catalogue lists are disjoint and well-formed).
 
 openapi: 3.0.3
 
@@ -91,6 +99,13 @@ security:
 tags:
   - name: clusters
     description: CloudNativePG cluster inventory (R8.2's `/clusters`).
+  - name: metrics
+    description: |
+      R8.3's PromQL pair — `/api/v1/metrics/query` and `/api/v1/metrics/system`,
+      each GET|POST, mirroring the Cloud SQL MCP's get_query_metrics and
+      get_system_metrics. Not the Prometheus exposition (that is `probes`): this
+      is the query surface, proxied to a Prometheus when one is configured and
+      served from the named catalogue otherwise.
   - name: build
     description: Build metadata (R11.3).
   - name: probes
@@ -235,6 +250,221 @@ paths:
                 commit: "92145342c9722b2975777ff368e87a6de67aa142"
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # R8.3's PromQL pair. Two routes, one request object, one response object.
+  #
+  # The shape is copied from the Cloud SQL MCP's get_query_metrics /
+  # get_system_metrics — `{parent, resource, promqlQuery, startTime, endTime}`
+  # in, `{promqlResult}` out — because a client written against Google's MCP can
+  # be repointed at pgsi by changing a base URL. That portability is the whole
+  # reason R8.3 exists as its own requirement instead of being part of R8.2's
+  # route table; inventing a local shape would have been a nicer API and no
+  # longer a compatible one.
+  #
+  # Three answer modes, tried in order (see internal/api/promql.go):
+  #   1. proxy     — --prometheus-url set: the query goes to /api/v1/query or
+  #                  /api/v1/query_range and the upstream result is returned
+  #                  byte-for-byte, so a proxied answer is Prometheus's answer.
+  #   2. catalogue — no Prometheus: §3.4 keeps raw samples out of SQLite and we
+  #                  ship no PromQL evaluator, so the only honest answer is the
+  #                  fixed table in promql_catalogue.go, serialised in Prometheus
+  #                  result form. R8.3 requires that table to be *enumerated in
+  #                  this document*, which is what x-promql-catalogue below is
+  #                  for; TestCatalogueMatchesOpenAPIDocument compares it against
+  #                  the table the handlers use, so the list cannot be prose.
+  #   3. error     — a query in neither mode: 404 error.code=PromQLUnavailable.
+  #                  404 and not 400 because the request is well-formed — R8.5
+  #                  gives "malformed" and "I cannot serve this" different codes,
+  #                  so they get different statuses.
+  # ---------------------------------------------------------------------------
+  /api/v1/metrics/query:
+    x-promql-catalogue:
+      - aggregate.cache_hit_ratio
+      - aggregate.execution_time
+      - aggregate.lock_time
+      - aggregate.rows
+      - aggregate.shared_blocks_hit
+      - aggregate.shared_blocks_read
+      - perquery.execution_time
+      - perquery.lock_time
+      - perquery.rows
+      - perquery.shared_blocks_hit
+      - perquery.shared_blocks_read
+    get:
+      tags: [metrics]
+      operationId: getQueryMetrics
+      summary: Query insights for a cluster (R8.3)
+      description: |
+        The MCP's `get_query_metrics`: R9.4's aggregate family and R9.5's
+        per-query (top-N) rollups, plus the derived cache-hit ratio.
+        `promqlQuery` is a catalogue name from `x-promql-catalogue` above, or
+        the exact PromQL behind one; anything else is 404 `PromQLUnavailable`
+        unless a Prometheus is configured to evaluate it.
+      x-status: implemented
+      parameters:
+        - $ref: '#/components/parameters/PromQLQuery'
+        - $ref: '#/components/parameters/Parent'
+        - $ref: '#/components/parameters/Resource'
+        - $ref: '#/components/parameters/StartTime'
+        - $ref: '#/components/parameters/EndTime'
+      responses:
+        '200':
+          description: The result, in Prometheus response form.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromQLQueryResponse'
+              example:
+                promqlResult:
+                  resultType: vector
+                  result:
+                    - metric:
+                        namespace: postgres
+                        cluster: onepg
+                        datname: appdb
+                        usename: app
+                      value: [1764209523.000, "0.4182"]
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PromQLUnavailable'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    post:
+      tags: [metrics]
+      operationId: postQueryMetrics
+      summary: Query insights for a cluster (R8.3)
+      description: |
+        The same route as `get`, with the request in the body. The MCP is
+        POST-only; R8.3 specifies GET as well so a browser, a `curl` one-liner
+        and a Prometheus-style explore box can all reach it. GET accepts
+        Prometheus' own parameter spellings (`query`, `start`, `end`) as aliases
+        of `promqlQuery`, `startTime`, `endTime` — one line each, and the
+        single most likely client for these routes already speaks that spelling.
+      x-status: implemented
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromQLQueryRequest'
+      responses:
+        '200':
+          description: The result, in Prometheus response form.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromQLQueryResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PromQLUnavailable'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+  /api/v1/metrics/system:
+    x-promql-catalogue:
+      - system.backends_by_application_name
+      - system.backends_by_state
+      - system.blks_hit
+      - system.blks_read
+      - system.checkpoints_requested
+      - system.checkpoints_timed
+      - system.cnpg_pg_is_in_recovery
+      - system.cnpg_pg_replication_lag_seconds
+      - system.cnpg_pg_status
+      - system.database_size_bytes
+      - system.deadlocks
+      - system.mxid_age
+      - system.temp_bytes
+      - system.temp_files
+      - system.tps
+      - system.tuples_deleted
+      - system.tuples_fetched
+      - system.tuples_inserted
+      - system.tuples_returned
+      - system.tuples_updated
+      - system.txid_age
+      - system.wal_generated_bytes
+      - system.wal_size_bytes
+      - system.xact_commit
+      - system.xact_rollback
+    get:
+      tags: [metrics]
+      operationId: getSystemMetrics
+      summary: System insights for a cluster (R8.3)
+      description: |
+        The MCP's `get_system_metrics`: R9.7's system family, which is the full
+        R5.2 DB metric set plus the parsed `cnpg_*` values re-exported under
+        `pgsi_` so a deployment without CNPG's PodMonitor still sees one
+        consistent namespace.
+      x-status: implemented
+      parameters:
+        - $ref: '#/components/parameters/PromQLQuery'
+        - $ref: '#/components/parameters/Parent'
+        - $ref: '#/components/parameters/Resource'
+        - $ref: '#/components/parameters/StartTime'
+        - $ref: '#/components/parameters/EndTime'
+      responses:
+        '200':
+          description: The result, in Prometheus response form.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromQLQueryResponse'
+              example:
+                promqlResult:
+                  resultType: vector
+                  result:
+                    - metric:
+                        namespace: postgres
+                        cluster: onepg
+                        pod: onepg-1
+                        instance_role: primary
+                        datname: appdb
+                      value: [1764209523.000, "181542"]
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PromQLUnavailable'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    post:
+      tags: [metrics]
+      operationId: postSystemMetrics
+      summary: System insights for a cluster (R8.3)
+      description: |
+        The same route as `get`, with the request in the body (see
+        `/api/v1/metrics/query`'s `post` for why both verbs exist).
+      x-status: implemented
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromQLQueryRequest'
+      responses:
+        '200':
+          description: The result, in Prometheus response form.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromQLQueryResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PromQLUnavailable'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 
   /healthz:
     get:
@@ -495,7 +725,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
 # ---------------------------------------------------------------------------
-# Planned routes (R8.2, R8.3, R8.11) — deliberately NOT under `paths` yet.
+# Planned routes (R8.2, R8.11) — deliberately NOT under `paths` yet.
 #
 # R14.7 requires every route *in code* to be documented; these are not in code,
 # and putting them in `paths` would make the document claim routes that 404.
@@ -523,17 +753,17 @@ x-planned-paths:
     - /api/v1/events                        # R8.2
     - /api/v1/explain                       # R8.2
     - /api/v1/search                        # R8.2 (?q=)
-  r8.3-promql-pair:
-    # R8.3: GET|POST /api/v1/metrics/query and /api/v1/metrics/system, each
-    # taking a PromQL string + time range and returning a Prometheus-shaped
-    # result. When a Prometheus URL is configured the query is proxied;
-    # otherwise a fixed catalogue of named queries is served and anything else
-    # returns error.code=PromQLUnavailable — "with the catalogue enumerated in
-    # the OpenAPI doc", which is the clause that makes this section normative
-    # rather than a wish list. The catalogue is R9.4's aggregate and R9.5's
-    # per-query rollups; it is enumerated here once Phase 2 names them.
-    - /api/v1/metrics/query    # GET|POST (R8.3)
-    - /api/v1/metrics/system   # GET|POST (R8.3)
+  # r8.3-promql-pair was the second entry here: /api/v1/metrics/query and
+  # /api/v1/metrics/system, GET|POST each. Both moved up to `paths` when R8.3
+  # landed, so the entry is gone rather than marked — a planned-path that is
+  # implemented is a second name for a route that exists, and R14.7 counts one.
+  # The old note ended "it is enumerated here once Phase 2 names them", which
+  # misread the requirement: R8.3 asks for the catalogue to be enumerated *in
+  # this document*, now, and the enumeration is what makes "we answer from our
+  # own store" a contract instead of a cache dump. It now lives on each path as
+  # `x-promql-catalogue`, and TestCatalogueMatchesOpenAPIDocument (plus
+  # scripts/check-openapi.py) enforces the two lists against the table in
+  # internal/api/promql_catalogue.go.
   r8.11-batched-series:
     # R8.11: GET /api/v1/insights/queries/series?fingerprints=a,b,c&range=…
     # returns the per-minute series for up to 50 fingerprints in ONE response.
@@ -645,6 +875,79 @@ components:
       schema:
         type: string
 
+    # R8.3's request fields, as components so `get` and `post` on both routes
+    # describe the same five fields. `post` sends them in the body
+    # (PromQLQueryRequest); `get` sends them as query parameters, which is why
+    # each one exists in both forms.
+    PromQLQuery:
+      name: promqlQuery
+      in: query
+      description: |
+        The query. In catalogue mode this is a name from the path's
+        `x-promql-catalogue`, or the exact PromQL text behind one (whitespace
+        normalised) — `Catalogue.Lookup` accepts both spellings and nothing else,
+        because interpreting an arbitrary PromQL string would be the evaluator
+        R8.3 says we do not ship. In proxy mode it is any PromQL string.
+
+        `query` is accepted as an alias: Prometheus' own parameter name, and the
+        one a Grafana-style client already sends.
+      required: true
+      schema:
+        type: string
+      example: aggregate.execution_time
+    Parent:
+      name: parent
+      in: query
+      description: |
+        The cluster the query is scoped to, in R8.2's addressing:
+        `namespaces/<ns>/clusters/<name>` — the MCP's `projects/<p>/instances/<i>`
+        with pgsi's two levels. Empty means every cluster the caller can see.
+
+        `namespaces/<ns>` alone is deliberately *not* accepted: dropping
+        `/clusters/x` would silently widen a one-cluster query to a whole
+        namespace and return a correct-looking answer to the wrong question.
+      required: false
+      schema:
+        type: string
+      example: namespaces/postgres/clusters/onepg
+    Resource:
+      name: resource
+      in: query
+      description: |
+        The MCP's optional sub-resource, spelled here as a comma-separated list of
+        R9.3's optional labels: `datname=appdb,usename=app`, or `pooler=rw`.
+        Applied as a label filter in catalogue mode; validated and not applied in
+        proxy mode, because the forwarded PromQL string carries its own selectors
+        and injecting labels into someone else's query is an evaluator again.
+      required: false
+      schema:
+        type: string
+      example: datname=appdb,usename=app
+    StartTime:
+      name: startTime
+      in: query
+      description: |
+        Range start, RFC 3339 (R8.4's rule for every timestamp the API takes, and
+        Prometheus' own accepted format). `start` is accepted as an alias.
+        Set with `endTime` or not at all: one bound alone is 400, because "a range
+        with no end" is not a range and Prometheus has no endpoint for it.
+      required: false
+      schema:
+        type: string
+        format: date-time
+      example: "2026-11-26T09:00:00Z"
+    EndTime:
+      name: endTime
+      in: query
+      description: |
+        Range end, RFC 3339. `end` is accepted as an alias. Both bounds present
+        means a range query; neither means an instant query.
+      required: false
+      schema:
+        type: string
+        format: date-time
+      example: "2026-11-26T10:00:00Z"
+
   responses:
     # R8.5's error body, one entry per code so a path's `responses:` block is
     # three lines of $ref rather than a re-typed schema per status.
@@ -715,6 +1018,43 @@ components:
             error:
               code: NotReady
               message: discovery has not completed its first sync
+              details: []
+    Unavailable:
+      description: |
+        A dependency is down or unreachable (R8.5 `Unavailable`): the store, the
+        kube API, or — since R8.3 — the Prometheus a proxy-mode query was
+        forwarded to. Distinct from `NotReady`, which is "I am up and I know I
+        have no answer yet"; `Unavailable` is "I asked, and the answer did not
+        come". A proxied query that upstream answers 400/422 is *not* this: that
+        is `InvalidRequest` with the upstream message echoed, because the caller's
+        PromQL is what upstream rejected.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: Unavailable
+              message: 'prometheus at http://prometheus.monitoring:9090 is unreachable: dial tcp 10.43.7.19:9090: connect: connection refused'
+              details: []
+    PromQLUnavailable:
+      description: |
+        R8.3's own code: the query is not in the named catalogue and no Prometheus
+        is configured to evaluate it. 404 and not 400 — the request is
+        well-formed, the PromQL string is fine, the server simply cannot serve it,
+        and R8.5 gives "malformed request" and "not something I can answer"
+        different codes precisely so a client can tell *fix the request* from *ask
+        for something else*. The message names the endpoint it was asked about; a
+        query catalogued on the other route says so too, which turns a bare 404
+        into one a client can act on.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: PromQLUnavailable
+              message: 'query "sum(node_load1)" is not in the /api/v1/metrics/query catalogue and no Prometheus is configured to evaluate it (R8.3)'
               details: []
 
   schemas:
@@ -1330,3 +1670,152 @@ components:
         commit:
           type: string
           example: 9214534
+
+    # ---- PromQL pair (R8.3) ------------------------------------------------
+
+    PromQLQueryRequest:
+      type: object
+      description: |
+        Body of `POST /api/v1/metrics/query` and `POST /api/v1/metrics/system`:
+        the Cloud SQL MCP's get_query_metrics / get_system_metrics parameters,
+        field for field. The two routes share one request type because the MCP's
+        two tools take one parameter object; the difference between them is which
+        half of the catalogue they answer, not what they accept.
+
+        `GET` takes the same five fields as query parameters
+        (`components.parameters.PromQLQuery` and friends, with Prometheus' own
+        `query`/`start`/`end` accepted as aliases).
+      required: [promqlQuery]
+      properties:
+        parent:
+          type: string
+          description: |
+            `namespaces/<ns>/clusters/<name>` — the cluster the query is scoped
+            to, in R8.2's addressing. Empty means every cluster the caller can
+            see, which is what a fleet-wide dashboard asks for.
+          example: namespaces/postgres/clusters/onepg
+        resource:
+          type: string
+          description: |
+            The MCP's sub-resource, spelled as R9.3's optional labels:
+            `datname=appdb,usename=app`, or `pooler=rw`. A key outside that set is
+            a label no pgsi series has, so it is rejected rather than silently
+            answering "no series" to a question that meant something else.
+          example: datname=appdb,usename=app
+        promqlQuery:
+          type: string
+          description: |
+            The query: a catalogue name from the path's `x-promql-catalogue`, the
+            exact PromQL behind one, or — in proxy mode — any PromQL string.
+          example: aggregate.execution_time
+        startTime:
+          type: string
+          format: date-time
+          description: |
+            Range start, RFC 3339. Set with `endTime` or not at all; one bound
+            alone is 400 InvalidRequest.
+          example: "2026-11-26T09:00:00Z"
+        endTime:
+          type: string
+          format: date-time
+          description: |
+            Range end, RFC 3339. Both bounds present means a range query (proxied
+            to `/api/v1/query_range`); neither means an instant query
+            (`/api/v1/query`).
+          example: "2026-11-26T10:00:00Z"
+
+    PromQLQueryResponse:
+      type: object
+      description: |
+        The answer both routes give — the MCP's `promqlResult` field, and the
+        reason there is one response schema and not two. In Go the field is a
+        pointer, because an *error* response carries no result at all (it is an
+        `ErrorBody` instead); on a 200 it is always present.
+      required: [promqlResult]
+      properties:
+        promqlResult:
+          $ref: '#/components/schemas/PromQLResult'
+
+    PromQLResult:
+      type: object
+      description: |
+        The Prometheus result envelope: a `resultType` plus the body that type
+        licenses. In proxy mode these are the exact bytes Prometheus returned —
+        Go holds `result` as a `json.RawMessage` rather than a decoded value
+        because re-marshalling a decoded object reorders its keys, and the
+        promise R8.3 makes about a proxied answer is that it *is* the upstream
+        answer.
+      required: [resultType, result]
+      properties:
+        resultType:
+          type: string
+          description: |
+            `vector` or `matrix` for every query the catalogue generates. In proxy
+            mode it is whatever Prometheus reported, which can also be `scalar` or
+            `string`; a plain string rather than an enum so an upstream answer we
+            did not anticipate still round-trips instead of failing to decode.
+          example: vector
+        result:
+          description: |
+            The body `resultType` licenses. `oneOf` because OpenAPI 3.0 cannot tie
+            a property's type to a sibling's value (3.1's `if`/`then` can) and
+            Prometheus really does emit a bare number for a `scalar` result.
+          oneOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/PromQLSeries'
+            - type: number
+            - type: string
+
+    PromQLSeries:
+      type: object
+      description: |
+        One series: a label set plus its sample(s). `value` and `values` are both
+        optional so one type serves both result types — a vector carries `value`,
+        a matrix carries `values` — and TestPromQLSeriesMarshalsPerResultType
+        pins that each marshals without the other.
+      required: [metric]
+      properties:
+        metric:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            The label set. R9.3's contract is `namespace`, `cluster`, `pod`,
+            `instance_role`, plus `datname`/`usename`/`pooler` where the family
+            has them; R9.4's aggregate drops `pod` and `instance_role` because an
+            aggregate across a cluster's instances has no single instance to name.
+        value:
+          allOf:
+            - $ref: '#/components/schemas/SamplePair'
+          description: |
+            The single sample of a vector result. A pointer in Go so "no value" is
+            expressible — a zero-valued SamplePair would marshal as
+            `[0.000,"0"]`, which is a real reading (the epoch, worth zero) rather
+            than the absence of one.
+        values:
+          type: array
+          items:
+            $ref: '#/components/schemas/SamplePair'
+          description: The samples of a matrix result, in time order.
+
+    SamplePair:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items:
+        oneOf:
+          - type: number
+          - type: string
+      description: |
+        Prometheus's `[unix_seconds, "value"]` sample tuple. OpenAPI 3.0 has no
+        tuple type — `items` is a single schema, and 3.1's `prefixItems` is what
+        would say "a number then a string" — so the pair is described as a
+        two-element array whose members are a number or a string. The Go type is
+        a struct with named fields plus a `MarshalJSON` that emits the array form
+        with three decimal places, which is what Prometheus itself emits.
+
+        The value is a **string**, not a number, because Prometheus renders sample
+        values as strings and a float on the wire loses the difference between
+        `"1.5"` and `"1.5000000000000002"` that the upstream text keeps.
+      example: [1764209523.000, "0.4182"]

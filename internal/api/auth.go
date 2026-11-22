@@ -360,7 +360,14 @@ func (z *Authz) GroupFor(p string) RouteGroup {
 	switch p {
 	case "/healthz", "/readyz":
 		return GroupProbe
-	case "/metrics":
+	// Both spellings, not just the one the router registers. Go's ServeMux
+	// redirects `/metrics/` to `/metrics` for its own routes, but the auth
+	// classifier runs on the raw path before the mux sees it, so a request for
+	// `/metrics/` that matched only `/metrics` would fall through to
+	// GroupAPI and be graded by --auth instead of --auth-metrics. Prometheus
+	// scrapes the exact path so nothing live broke; the metrics group's policy
+	// hinged on a trailing slash (A5).
+	case "/metrics", "/metrics/":
 		return GroupMetrics
 	default:
 		return GroupAPI

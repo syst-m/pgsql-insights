@@ -286,7 +286,12 @@ func TestAuthzGroupFor(t *testing.T) {
 		"/healthz":             GroupProbe,
 		"/readyz":              GroupProbe,
 		"/healthz/":            GroupAPI, // exact-match: a sub-path is not the probe
-		"/metrics/":            GroupAPI,
+		// A5: /metrics/ joins /metrics in the metrics group. The probes stay
+		// exact-match because a trailing slash on /healthz/ is a different
+		// request; the metrics route is the one path whose *policy* — not just
+		// its handler — changes depending on which of the two spellings a client
+		// uses, and Prometheus' own URL-joining is the usual way to get one.
+		"/metrics/": GroupMetrics,
 	}
 	for path, want := range cases {
 		if got := (&Authz{}).GroupFor(path); got != want {
