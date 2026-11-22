@@ -106,6 +106,13 @@ rules:
   resources:
     - clusters
     - clusters/status
+    # poolers is here because internal/discovery watches them (R1.4's Pooler
+    # discovery, feeding R8.2's PoolerView on the cluster row). Without it the
+    # pooler watch on every namespace returns Forbidden, which R10.22 reports as
+    # a failed namespace rather than a cluster with no poolers — so a missing
+    # verb here looks like a broken cluster, not a missing permission.
+    - poolers
+    - poolers/status
     - backups
     - scheduledbackups
     - pooledqueries

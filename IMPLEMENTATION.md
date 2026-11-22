@@ -31,7 +31,7 @@ anything.
 | **`requirements.md` v0.3.0** (Phase 1 split 1a/1b) | ✅ done | spec §7.2/§7.3; the UI moved from Phase 5 to Phase 1b — see D13 |
 | **`IMPLEMENTATION.md`** (this file) | ✅ current | R14.1 satisfied; R14.8 table in §3.1 |
 | **Phase 0** — packaging & skeleton | ✅ done | A4 — this commit; ⚠️ deviations in §5 |
-| **Phase 1a** — discovery + `/api/v1/clusters` | 🔄 in progress | A1 (opus) |
+| **Phase 1a** — discovery + `/api/v1/clusters` | ✅ done | A1 (opus) — `362e8d3` + this commit (see §3.4's commit map); §3.4–§3.5 + §3.8, ⚠️ deviations §5-D4, D6, D16, D17 |
 | **Phase 1b** — embedded SPA + Fleet page | ✅ done | A4 (sonnet) — this commit; §3.4–§3.6, ⚠️ deviations §5-D7…D9 |
 | Phases 2–9 | ⬜ not started | see §3 |
 | v0.1.0 release | ⬜ not started | end of Phase 9 |
@@ -44,6 +44,18 @@ anything.
 docs and `testdata/` from the pre-code phases. The Phase 0 image is published
 (`10.10.111.134:5000/frankellis/pgsql-insights:dev`, both platforms) and **running in the
 reference cluster** (R11.14).
+
+Phase 1a adds the Go half of the fleet surface: `internal/discovery/` (the informer set over
+clusters/poolers/pods/services/secrets/PVCs that R1.1 names, the CRD→DTO builders that carry
+R1.2–R1.9b's rules, and R1.8's credential precedence), `internal/kube/` (R1.7's kubeconfig and
+in-cluster resolution plus R1.10/R1.11's per-port transport table), `internal/logx/` (R13.7's JSON
+logger and `--log-field-*`), `internal/api/dto/` + `internal/api/clusters.go` +
+`internal/api/readiness.go` (the frozen `ClusterView`/`Envelope` contract, its handler, and R8.7's
+one readiness signal), `testdata/api/clusters.json` (R16.8's fixture, the byte-level contract all
+three consumers read), the `poolers` verbs in `chart/templates/_helpers.tpl` with the three
+regenerated `deploy/plain-yaml/` profiles (R12.1–R12.3, R11.13), and the D6 commit-stamping fix in
+`.github/workflows/ci.yml` + `internal/version/version.go`. `cmd/pgsi/main.go`'s flag set is now
+the full serve surface (discovery, kube, logging) that R11.8's Phase 2 precedence chain reads.
 
 Phase 1b adds `web/` — the React + TypeScript + Vite SPA (`src/`: `App.tsx` + the URL router, the
 Fleet page, the cluster detail page, five components including the `@visx` health-distribution
@@ -96,7 +108,7 @@ owners and share one validation entry.
 | **2** | Collector framework + PG version matrix + database/settings/replication/wal collectors + `/metrics` v1 + `pgsi_up` + scheduler budget + **`pg_stat_statements` enablement flow** + `validate-env.sh` + ground-truth fixture + clock contract | R2.1–R2.9, R3.15, R8.1, R8.7, R9.2–R9.4, R9.7 (partial), R9.12, R11.8, R12.4, R12.5, R13.1, R13.2, R13.5, R13.11, R16.1, R16.2, R16.3, R16.5, R16.6 | A1 | ⬜ | — |
 | **3** | `pg_stat_statements` collector + normalizer + query store + top-N API + per-query metrics family + rollup endpoints | R3.1–R3.8, R3.13, R3.14, R8.2, R8.4, R8.5, R9.5, R9.5b | A1 | ⬜ | — |
 | **4** | ServiceMonitor/PodMonitor, PrometheusRule with `critical` tier, cardinality assertion, live scrape by the reference Prometheus | R9.1, R9.6, R9.8–R9.11, R13.3, R13.4, R16.4 | A2 | ⬜ (one requirement transferred, recorded below) | — — **R9.11 was taken in Phase 5**, not here: `chart/templates/prometheusrule.yaml` and the `make rules-check` target shipped in `f9aae41` and are tabled in §3.7's R9.11 row, because A4 held the ServiceMonitor/PodMonitor half of this phase and the rule set rode out with it. R14.9's per-owner rule needs this row to acknowledge the transfer rather than keep claiming a file another phase committed — an unmarked ⬜ next to a requirement that is implemented is how a requirement gets implemented twice |
-| **5** | Full API surface + OpenAPI + auth + PromQL pair + **Cluster Overview** page + remaining shell reqs (SPA shell, Fleet page and the test harness moved to **1b**) | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | 🔄 | §3.7 (the Go half: R8.1, R8.8, R8.9 + the R8.2/R8.10 contract; the R10.x page half and R8.3/R8.11 are open). **A3's review of `f9aae41`** is landed here: six fixes to the two files A2 owns — four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it), plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it |
+| **5** | Full API surface + OpenAPI + auth + PromQL pair + **Cluster Overview** page + remaining shell reqs (SPA shell, Fleet page and the test harness moved to **1b**) | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | 🔄 | §3.7 (the Go half: R8.1, R8.2, R8.3, R8.8, R8.9, R8.10; the R10.x page half and R8.11 are open). **A3's review of `f9aae41`** is landed here: six fixes to the two files A2 owns — four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it), plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it. **The R8.3 commit that followed** lands the PromQL pair (`internal/api/promql.go`, `internal/api/promql_catalogue.go`, `internal/api/promql_test.go`, the two `paths` entries, `cmd/pgsi`'s `--prometheus-url`), R8.1's CI half (`scripts/check-openapi.py` → `make openapi-check` → a `lint`-job step), and **A5** — A3's seventh fix, dropped from their own list and forwarded afterwards: `GroupFor` classifies `/metrics/` alongside `/metrics`, so the metrics group's policy no longer hinges on a trailing slash. `internal/api/server.go`'s mount of the pair is written but not landed (A1's uncommitted file, per the §3.7 write-and-flag rule) |
 | **6a** | Active queries + blocking chain + wait events + terminate + Active Queries & Wait Events pages + alerts surface | R4.1–R4.8, R10.8, R10.9, R10.25, R10.26 | A1 | ⬜ | — |
 | **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A2 | ⬜ | — |
 | **7** | System Insights: OS + DB families, summary cards, compare-5, PNG/CSV export + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | ⬜ | — |
@@ -217,14 +229,41 @@ the proof is the §3.2 entry or the CI job named in the row.
 
 ### 3.4 Task-level breakdown (Phase 1, expanded)
 
-1a and 1b share one phase and one validation entry (§3.5). The 1b rows are A4's and are this
-commit's work; the 1a rows are A1's, listed at spec scope so the phase reads complete from either
-side, and they flip as their branch merges.
+1a and 1b share one phase and one validation entry (§3.5). Both halves are now complete: the 1b
+rows are A4's (`14d4df0`, `4d5955c`), the 1a rows are A1's. R14.9's one-entry-per-owner rule still
+holds — each owner wrote their own half of §3.5 and their own R14.8 table (§3.6 for 1b, §3.8 for
+1a) rather than one agent transcribing the other's.
+
+**Where the 1a commits are.** The contract freeze is `9214534` and the DTO work `93fcd44`, as
+before; the Phase 1a sources — `internal/{discovery,kube,logx}`, `internal/api/
+{clusters,readiness,server}.go` and their tests, `go.mod`/`go.sum` — are `362e8d3`. Getting there
+took two rounds, and both were the same mistake. My first `git commit` ran against an index A2 had
+already populated, so 21 of my files shipped inside their one-line `R8.1b: correct the operation
+count to 15` (`f016d02`, amended to `5dd855f`, then `4e10ed4`). I re-landed them as `a85a066`
+(Makefile + `internal/version/version.go` + `scripts/check-openapi.py`), `da7c62a` (chart poolers
+RBAC + the three regenerated profiles) and `c09598f` (this file) using `git commit --only --
+<paths>`; the coordinator then split `4e10ed4` apart — `362e8d3` (mine, carrying the message my
+first attempt did), `3c18f45` (their requirements.md fix), `c8dcf43` (A4's runbook fix) — which
+reset the branch back to `a5b851c` and dropped those three. The net state is the union of both:
+`362e8d3` holds the Go sources, and this commit holds the Makefile, `internal/version/version.go`,
+`chart/templates/_helpers.tpl`, the three regenerated `deploy/plain-yaml` profiles, and this file.
+
+Two things in `362e8d3` are not A1's, and both are on record rather than quietly kept: 16 lines of
+A2's `internal/api/server.go` (their R8.3 `PromQL` field and the `PromQL.Mount(mux)` block, picked
+up from the worktree when the path was added), and 6 lines of `.github/workflows/ci.yml` — the
+`OpenAPI document validates (R8.1)` step and its four-line comment, which is A2's R8.1c work. The
+other 29 ci.yml lines are D6. `scripts/check-openapi.py` is likewise A2's file and stays untracked
+here, so `make openapi-check` — the target this commit's Makefile adds, which the ci.yml step in
+`362e8d3` calls — cannot pass until they land it. The rule that came out of all of this, now in
+`docs/agents.md` §5.1
+(`ecd89c7`), is that `git add -X` was never the constraint: `git commit` commits the whole index,
+so the safe form is `git commit -- <path> …`, which takes only the named paths and leaves a
+sibling's staged files staged for their owner.
 
 | # | Task | Req | Owner | Status |
 |---|---|---|---|---|
-| 1a.1 | kube client + per-port transport table (R1.10/R1.11) and the discovery pass over the reference namespaces | R1.1–R1.11 | A1 | 🔄 |
-| 1a.2 | `GET /api/v1/clusters` — the contract `web/src/api/types.ts` mirrors | R8.1, R1.5 | A1 | 🔄 |
+| 1a.1 | kube client + per-port transport table (R1.10/R1.11), the discovery pass over the reference namespaces (informers + the CRD→DTO builders), and the R13.7 logging surface | R1.1–R1.11, R12.1–R12.3, R13.7, R13.8 | A1 | ✅ |
+| 1a.2 | `GET /api/v1/clusters` — the contract `web/src/api/types.ts` mirrors — plus R8.7's single readiness signal behind `/healthz`, `/readyz` and the API's own 503 path | R8.1, R8.7, R1.5 | A1 | ✅ |
 | 1b.1 | `web/` project: Vite 8 + React 19 + TS 5.9, `npm run build` → `web/dist` with un-hashed asset names (D14) | R10.1, R10.2 | A4 | ✅ |
 | 1b.2 | `web/embed.go` (`//go:embed all:dist`) + `internal/api/spa.go` mounted at `GET /`, with the API-namespace and missing-asset guards | R10.1 | A4 | ✅ |
 | 1b.3 | Design system: `styles/tokens.css` (the validated palette as CSS custom properties, declared under both `@media (prefers-color-scheme)` and `:root[data-theme]`) + `styles/base.css` | R10.2 | A4 | ✅ |
@@ -237,11 +276,132 @@ side, and they flip as their branch merges.
 
 ### 3.5 Phase 1 validation entry (R14.2)
 
-The shared Phase 1 entry. **The 1b half is below and is complete**; the 1a half is A1's to write
-when `phase-1a-backend` merges, and this section's heading already exists for it — 1a does not
-open a second Phase 1 entry.
+The shared Phase 1 entry, written by both owners because R14.9 allows exactly one entry per owner
+and 1a does not open a second Phase 1 section. The 1a half is first (A1, `phase-1a-backend`, run
+2026-11-22); the 1b half below it is A4's text verbatim, run 2026-11-20. Neither half transcribes
+the other.
 
-Everything below was run on 2026-11-20 on the arm64 dev machine (node v25.8.0, go 1.26.0).
+#### 1a — A1: discovery + `GET /api/v1/clusters`
+
+Scope is spec §7.2's Phase 1a row verbatim: **R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7,
+R12.1–R12.3, R13.7, R13.8**. Run 2026-11-22 on the arm64 dev machine, go 1.26.0, no cgo.
+
+**Build, vet, lint (R11.11)**
+- `go build ./...` and `go vet ./...` clean.
+- `make lint` runs the CI-pinned **golangci-lint v1.64.8** against `.golangci.yml` — the local
+  install §5-D4 asked for, now in place (that row is closed). It reports **zero findings in every
+  file this commit owns**: `cmd/pgsi/main.go`, `internal/api/{server,clusters,readiness}.go`,
+  `internal/api/{server,clusters}_test.go`, `internal/api/dto/clusters_test.go`,
+  `internal/discovery/*`, `internal/kube/*`, `internal/logx/*`, `internal/version/version.go`.
+  The findings it does still print are A2's (`auth.go` unconvert, `cors.go` prealloc,
+  `cors_test.go` revive unused-param, `promql_catalogue.go` prealloc ×2 + unused `metricNameRE`)
+  and A4's (`api/embed.go` missing package comment, SA9009 extraneous space in the `// go:embed`
+  directive) — left for their owners rather than fixed over their trees.
+  Two of my nine fixes were only visible in the full output, not the tail: `kube/client.go:54`
+  (revive wants the doc comment to begin with the type name) and `discovery/discovery.go:582`
+  (errcheck on `AddEventHandler`). The second was fixed by making `registerHandlers` a
+  `*Discoverer` method that logs the failure at Warn rather than by `_ =` — `AddEventHandler` only
+  errors when the informer is already stopped, and an informer that never delivers events leaves a
+  fleet that silently stops updating, which is exactly what R8.7's readiness gate exists to catch.
+- `make render-check` (R11.13) passes with the three regenerated profiles staged; the `poolers`
+  verbs they now carry are R12.1–R12.3's, and the chart change and the golden files land in one
+  commit because the check is `git diff --exit-code deploy/plain-yaml` after a render.
+
+**Tests (R14.5)** — `go test ./... -count=1`, all packages `ok`:
+
+| Package | Test funcs | Run (incl. subtests) | Owner |
+|---|---|---|---|
+| `internal/discovery` | 15 | 34 | A1 (this commit) |
+| `internal/kube` | 11 | 28 | A1 (this commit) |
+| `internal/logx` | 9 | 41 | A1 (this commit) |
+| `internal/api/dto` | 5 | 5 | A1 (this commit) |
+| `internal/version` | 1 | 1 | A1 (this commit) |
+| `internal/api` | 50 | 126 | A1 owns `server_test.go` (7) + `clusters_test.go` (10); the rest are A2's auth/cors/spa/promql tests |
+| `api` | 1 | 1 | A2 (the OpenAPI embed) |
+
+**Acceptance (spec §7.2:660)** — the four reference clusters, checked field by field against
+`testdata/api/clusters.json` by `TestReferenceEnvironmentAcceptance` and re-derived from the CRD
+shapes by `internal/discovery/build_test.go`:
+- **All 4 clusters, correct phase / instance counts / `servingInstances` / primary / PG major, with
+  16 and 17 distinguished**: `ai-api-gateway/rev-proxy-pg` (17, 2/2/2, primary `rev-proxy-pg-2`),
+  `cookbook/cookbook-pg` (17, 1/1/1), `freeidp/freeidp-pg` (17, 2/0/0), `open-webui/open-webui-pg`
+  (**16**, 2/2/2). The 16-vs-17 pair is the part the spec calls out: `pgMajorFromVersion` parses
+  CNPG's six-digit `server_version_num` (`160008` → 16, `170004` → 17) rather than reading the
+  image tag, which is the only way two clusters on one install can report different majors.
+- **`freeidp-pg` renders its degraded state (R1.2 [A])**: `phaseReason` carries the disk-pressure
+  text, and the two instances are the two R1.2 variants — `freeidp-pg-1` is `Running` with
+  `containerStatus: CrashLoopBackOff` (so `serving: false`, the pod is up but postgres is not), and
+  `freeidp-pg-2` is `Pending`/`PodInitializing` with an **empty** `role`, because it carries
+  neither `cnpg.io/instanceRole` nor `role` and R1.2's fallback chain stops rather than guessing.
+  `servingInstances: 0` against `instances: 2` is the number the UI's health rollup reads.
+- **`rev-proxy-pg` shows its Pooler (R1.4)**: one `PoolerView` — `rev-proxy-pg-pooler`,
+  `poolMode: transaction`, `type: rw`, 2/2 instances, 2 pods, `default_pool_size: 20` /
+  `max_client_conn: 400` passed through verbatim from `spec.pgbouncer.parameters`, and a 9127
+  metrics URL from R1.10's pooler row. The association is `spec.cluster.name`, read through
+  `poolerClusterName`, which accepts both the CNPG 1.26+ object form and the ≤1.25 bare-string
+  form so a pooler is attributed correctly on either without a version branch at the call site.
+- **R1.6 (zero-prerequisite rendering) passes**: every cluster serialises `services`, `pvcs` and
+  `poolers` as arrays — never `null` — so three clusters with no Pooler still render, and every
+  instance row has a name and a phase.
+
+**The fixture as contract (R16.8)** — `testdata/api/clusters.json` is the file R16.8 names for
+Phase 1a, and it has exactly three consumers, all reading the same bytes:
+`internal/api/dto/clusters_test.go` (struct tags, via `TestGoldenFixtureIsCanonical`, which
+re-marshals the parsed fixture and fails on any byte of drift), `internal/api/clusters_test.go`
+(the handler's response body), and A4's `web/src/api/fixtures.ts` (imported and annotated
+`Envelope<ClusterView>`, so `tsc` is the drift check — §5-D12). There is no second copy in Go's
+tree and no TS re-typing of the data.
+
+**R8.7 — one readiness signal, read by both surfaces.** The requirement's three clauses and where
+each is provable:
+- *(i) one signal, two readers.* `internal/api/readiness.go`'s `Readiness` is a single value with
+  one read path (`Ready()`) and two documented writers: `SetListening(bool)` and the per-subsystem
+  `sources` set that discovery fills. `Server.New` derives it from `Config.Fleet`, so a handler
+  cannot hold a different readiness from the probe endpoint. `TestReadyzAndClustersShareOneReadiness`
+  asserts the divergent case that used to be possible: with the flag off, `/readyz` answers 503
+  **and** `GET /api/v1/clusters` answers the R8.5 `ErrNotReady` 503 from the same value. The bug
+  this removes is the old `Run()` setting `ready` at `net.Listen` — a pod then answered 200 with an
+  empty fleet and still passed its probe, which is the failure mode R8.9's unconditional auth
+  exemption makes load-bearing (a probe that lies is now a pod receiving traffic).
+- *(ii) readiness covers only the subsystems this process runs.* A server with no `Fleet` (D9's
+  reserved `api` role) is ready once it is listening — `TestReadyzGatedOnListening` covers it — so
+  the role split in Phase 2 cannot leave an API-only pod permanently unready.
+- *(iii) healthz = up, readyz = correct.* `/healthz` answers from the process alone and never
+  consults `Readiness`; `/readyz` answers from `Readiness`. Both are auth-exempt per R8.9, and
+  `server_test.go` pins the pair plus the pprof surface (200) and two 405s.
+
+**R13.7 / R13.8** — `internal/logx` is the structured-JSON logger with `--log-level` and the CNPG
+flag shape for extra labels: `--log-field k=v` (repeatable, stdlib `flag`) plus the
+`--log-field-k=v` spelling CNPG itself uses, resolved by a pre-scan of `os.Args` because stdlib
+`flag` has no dynamic flag names (§5-D16). 9 test funcs / 41 runs, 96.6% coverage. R13.8's drain
+is `Run`'s `ctx.Done()` branch: a fresh `context.Background()` plus `http.Shutdown` inside the
+terminationGracePeriod budget — deriving from the context that just fired would abort the drain at
+once, which is why the `//nolint:contextcheck` is there rather than a lint suppression for
+tidiness.
+
+**D6 closed (commit stamping).** `Makefile` stamps `COMMIT ?= $(shell git rev-parse HEAD …)` of the
+*built* tree and both image jobs now pass `--build-arg COMMIT="${GITHUB_SHA}"` (the full 40 chars)
+where they previously passed the 7-char form; `internal/version.Commit` documents that it carries
+the full SHA while the image tag stays 7 chars (R11.3's tag pair). CI parses the commit back out of
+`./bin/pgsi version` and fails the build unless it equals `$GITHUB_SHA` **and** its 7-char prefix
+equals the tag — the assertion that makes `a47e149`-stamped-while-building-`db4f237` impossible to
+repeat.
+
+**Coverage (R11.11's 70% gate)** — `make cover` now prints a real number, because the recipe's
+`awk '/^total:/ {gsub("%","",$3); …}'` had a single `$3` where a Makefile needs `$$3`: make
+expanded it to the empty string, so the gate read `total coverage: %` and failed with a blank
+number on every run, passing or not. Per package: `api/dto` 100.0%, `logx` 96.6%, `kube` 86.7%,
+`discovery` 53.8%, `version` 100.0%, `api` 75.0%, `internal/api` 53.1%; repo total **54.4%**. The
+gate fails and §5-D17 records why (the pure CRD→DTO layer is 92–100% per function; `discovery.go`'s
+26 informer functions are 0% because they need a fake clientset or a live cluster).
+
+**Not yet observed:** a run of the binary against the live k3s cluster. The handler is validated
+against the committed fixture and the builder against CRD fixtures taken from the reference
+environment; `discovery.go`'s informer plumbing compiles, lints and is exercised only through
+`NewWithClients` in tests. The first `kubectl logs` from a pod built off this commit is Phase 1's
+remaining live evidence (and §5-D7's unblock for A4's `?fixture=0` run).
+
+#### 1b — A4: the embedded SPA and the Fleet page
 
 **Toolchain (R10.1)** — react 19.3.1, typescript 5.9.3, vite 8.3.8 (the rolldown-based build:
 `build.rollupOptions` is deprecated there, so the config uses `build.rolldownOptions`),
@@ -316,9 +476,9 @@ returns `next`), so `server_test.go` is unchanged.
 
 | Req | Requirement (abridged) | File(s) | Status |
 |---|---|---|---|
-| R8.1 | Versioned REST API under `/api/v1/*`, JSON, with a committed OpenAPI document "generated from the handlers and checked in CI" | `api/openapi.yaml`, `api/embed.go` | **in-progress** — R8.1 is three clauses and this row used to answer all three with one word. *(1) Committed at a named path:* true, and the path is now the one the spec names. The file lived at `internal/api/openapi.yaml` because `go:embed` cannot reach `..`, which was an argument for an embed, not for that directory; §5-D13's ruling is executed — `git mv` to `api/openapi.yaml` with `api/embed.go` as the single accessor (`OpenAPIDocument()` returns the bytes so no caller can widen the embed). *(2) Generated from the handlers:* **false and recorded as false** — the stdlib has no OpenAPI generator, the routes are `http.ServeMux` patterns over plain handlers, and the document was authored from the frozen DTO before the handlers existed. *(3) Checked in CI:* false today; `scripts/check-openapi.py` + `make openapi-check` + the `lint` job step land with the R8.3 commit that follows this one. A requirement whose author records one of its clauses as false is in-progress, not implemented. The `Envelope[T]` generic has no OpenAPI 3.0 form, so each resource gets a named envelope (`FleetEnvelope` for `Envelope[ClusterView]`) over a shared `Meta`; Phase 3/5 routes extend `components.schemas` + `components.parameters` without a rewrite |
+| R8.1 | Versioned REST API under `/api/v1/*`, JSON, with a committed OpenAPI document "generated from the handlers and checked in CI" | `api/openapi.yaml`, `api/embed.go` | **in-progress** — R8.1 is three clauses and this row used to answer all three with one word. *(1) Committed at a named path:* true, and the path is now the one the spec names. The file lived at `internal/api/openapi.yaml` because `go:embed` cannot reach `..`, which was an argument for an embed, not for that directory; §5-D13's ruling is executed — `git mv` to `api/openapi.yaml` with `api/embed.go` as the single accessor (`OpenAPIDocument()` returns the bytes so no caller can widen the embed). *(2) Generated from the handlers:* **false and recorded as false** — the stdlib has no OpenAPI generator, the routes are `http.ServeMux` patterns over plain handlers, and the document was authored from the frozen DTO before the handlers existed. *(3) Checked in CI:* **true as of the R8.3 commit** — `scripts/check-openapi.py` is the check, `make openapi-check` is its local mirror (R11.11: CI runs no command the Makefile lacks), and the `lint` job runs it as a step next to the parity matrix. It is python3/stdlib rather than a Go validator because R13.10 forbids `replace` directives and `go.mod` is not this phase's file to grow (kin-openapi is the upgrade path); it parses with PyYAML when importable and with a line scanner when not, so the gate cannot be skipped by a runner that lacks pyyaml. It checks duplicate keys, dangling `$ref`s, missing `operationId`s, non-`/api/v1` paths, and — since R8.3 — that both metrics routes enumerate their `x-promql-catalogue` and that the two lists are disjoint. A requirement whose author records one of its clauses as false is in-progress, not implemented. The `Envelope[T]` generic has no OpenAPI 3.0 form, so each resource gets a named envelope (`FleetEnvelope` for `Envelope[ClusterView]`) over a shared `Meta`; Phase 3/5 routes extend `components.schemas` + `components.parameters` without a rewrite |
 | R8.2 | The 18-route core endpoint catalogue | `api/openapi.yaml` (`paths`, `x-planned-paths`) | in-progress — `/api/v1/clusters` and `/api/v1/version` are in `paths`; the other 16 sit in the `x-planned-paths` extension, because R14.7 requires every route *in code* to be documented and listing unwritten routes in `paths` would make the doc claim routes that 404. Each moves into `paths` as its handler lands |
-| R8.3 | The PromQL pair (`/api/v1/metrics/query`, `/api/v1/metrics/system`): proxy to Prometheus when configured, else serve a fixed catalogue and answer `PromQLUnavailable` to anything else | `api/openapi.yaml` (`x-planned-paths`) | not-started — needs Phase 2's store and the R9.4/R9.5 rollups to have anything to serve. The shape (both verbs, the request fields, the Prometheus-shaped result) is frozen in the extension now so the Phase 2 work has a contract to hit |
+| R8.3 | The PromQL pair (`/api/v1/metrics/query`, `/api/v1/metrics/system`): proxy to Prometheus when configured, else serve a fixed catalogue and answer `PromQLUnavailable` to anything else | `internal/api/promql.go`, `internal/api/promql_catalogue.go`, `internal/api/promql_test.go`, `api/openapi.yaml` (`paths`), `cmd/pgsi/main.go` (`--prometheus-url`) | **implemented** — the two routes moved out of `x-planned-paths` into `paths`. Three modes, in precedence order. **Proxy:** `--prometheus-url` set ⇒ the query is forwarded to `/api/v1/query`, or to `/api/v1/query_range` when the request carries a window, and the upstream `data.result` is returned byte-for-byte (`json.RawMessage`, so a re-marshal cannot reorder or re-render it); a 400/422 from Prometheus becomes 400 `InvalidRequest` with its message echoed, anything else 503 `Unavailable`, and a `result` that is missing *or* literal `null` is 503 rather than normalised to `[]`. **Catalogue:** no URL set ⇒ `promqlQuery` must name an entry in **that route's own half** of the table — 11 aggregate/per-query names on `/metrics/query`, 25 system names on `/metrics/system` — served in Prometheus result form. **`PromQLUnavailable`:** everything else, answered **404** — the request is well-formed and this server cannot serve it, which is R8.5's dependency shape, not its malformed-request shape. Two clauses the row owes the spec and both are enforced rather than asserted: the catalogue is **enumerated in the document** (R8.3's own last sentence) with `TestCatalogueMatchesOpenAPIDocument` comparing the two `x-promql-catalogue` lists against `Catalogue.For(endpoint)`; and each route answers only its own half, so asking `/metrics/query` for `system.tps` is a 404 naming `/api/v1/metrics/system` — a route that answered everything would leave the second route existing only in the document. Both verbs exist because the MCP is POST-only and every browser/curl/Grafana client is GET-only; GET also accepts Prometheus' own `query`/`start`/`end` spellings. The proxy's `step` is derived (1100 points, 60s floor) because the MCP's request has no step field. The catalogue's *contents* are provisional for the same reason R9.11's rule set is — Phase 2's MetricHub does not exist — so `pgsi_query_rows_total` and the whole system family are marked `implemented: false` in the table instead of pretending, and the default source answers them with an empty array, which is the honest answer for a collector with no rounds where a 500 about a store that does not exist yet would be a lie about *why*. `server.go`'s `Handler()` mounts the pair; that file is A1's uncommitted half, so it is written and flagged, not landed here. R8.11 (batched series) is the next item and is deliberately not folded in |
 | R8.4 | List params + `{data, meta:{total, truncated, generatedAt, nextCursor}}`, plus the partial-render contract `meta.failed[]` / `meta.loading[]`; `meta.total` is R8.10's **pre-cut count** (D18's ruling, which supersedes the "counts what the response can serve" wording this row previously carried) | `api/openapi.yaml` (`FleetEnvelope`, `Meta`, `NamespaceFailure`, `components.parameters`), `internal/api/dto/clusters.go` | contract validated in Phase 1a (`93fcd44`, and R16.8's golden fixture); given OpenAPI form here. `Meta`'s description now states the ruling verbatim — `total` is matching rows across all pages, `truncated ⟺ len(data) < total`, the `attempted = total + len(failed) + len(loading)` equation is gone, and R10.22's banner prints `data.length`. `NamespaceFailure.code` reuses the R8.5 enum rather than minting a second vocabulary, and `lastSuccessTime` is `nullable: true` mirroring the Go `*time.Time` + `omitempty` |
 | R8.5 | Error body `{error:{code, message, details[]}}` with a documented enum, modelled on the CNPG instance-manager envelope | `api/openapi.yaml` (`ErrorBody`, `ErrorDetail`, `components.responses`) | implemented — all ten codes enumerated (`InvalidRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `MethodNotAllowed`, `NotReady`, `Unavailable`, `PromQLUnavailable`, `Unsupported`, `Internal`), each commented with the condition that returns it; `details` is required and "always present, possibly empty", which is the part a generator usually drops |
 | R8.6 | SPA served from the same binary via `go:embed`, `/` → `index.html`, asset caching, `--serve-ui=false` | `web/embed.go`, `internal/api/spa.go` | validated in Phase 1b (§3.6 / R10.1); documented here as `GET /` → `text/html`. **Gap recorded rather than closed: `--serve-ui=false` does not exist.** Zero hits in `cmd/pgsi/main.go` and `internal/api/spa.go` — the embed is always served. R8.3's commit added nine auth/CORS/Prometheus flags to `cmd/pgsi` and not this one, and closing it now needs a `Config` field in `internal/api/server.go`, which is A1's uncommitted file (the §3.7 rule is to write-and-flag, not to land). The flag is one bool plus one `if` around the `/` registration once that file settles; until then an API-only deployment cannot turn the UI off, which is cosmetic — the SPA is 3 MB of static bytes and answers `text/html` on a port nobody browses |
@@ -328,6 +488,33 @@ returns `next`), so `server_test.go` is unchanged.
 | R8.10 | Pagination: `limit` default 50 / max 500, opaque `cursor` (base64 of the last sort key, not an offset), a stable secondary key per sort, `meta.truncated` when more rows exist | `api/openapi.yaml` (`components.parameters.Limit`, `Cursor`) | documented — the schema carries `default: 50, minimum: 1, maximum: 500` and states that a value above the max is `InvalidRequest`, not a silent clamp. Enforcement lands with the Phase 1a list handler; there is no handler to enforce it in yet |
 | R8.11 | Batched series endpoint `/api/v1/insights/queries/series?fingerprints=a,b,c&range=…`, ≤50 fingerprints per response, so R10.6's sparklines do not need one request per row | `api/openapi.yaml` (`x-planned-paths`) | not-started — needs Phase 3's per-minute series. Documented in the extension so the shape is frozen before the handler is written |
 | R9.11 | PrometheusRule — Phase 4 carryover, taken here because A4 has the ServiceMonitor/PodMonitor half | `chart/templates/prometheusrule.yaml`, `Makefile` (`rules-check`) | implemented, **provisional, not validated** — 16 rules (5 critical / 11 warning). Most read Phase 2/3 metrics no binary emits yet, so no rule has fired on a real sample, and two (`PGSICacheHitRatioLow`, `PGSILockWaitDominant`) read the R9.4 aggregate family, which the spec names as a family only — those two metric names are mine, derived from Cloud SQL's `insights/aggregate/*` vocabulary, and change if Phase 2 picks others. `make rules-check` runs `promtool check rules` over the rendered manifest and reports `SUCCESS: 16 rules found` — syntax and PromQL parseability only (promtool cannot read a `monitoring.coreos.com/v1` envelope, so the target extracts `spec.groups` into a bare `{groups: [...]}` document first). R16.4's live scrape by the reference environment's kube-prometheus-stack is Phase 4's acceptance and is still open |
+
+### 3.8 Requirement → file → status (Phase 1a, R14.8)
+
+A1's half of Phase 1. The 1b table is §3.6 and the Phase 5 R8.x table is §3.7; this one is appended
+after §3.7 rather than inserted before it, so no section another owner holds gets renumbered.
+Where a requirement is co-owned (R8.1's document is A2's, its handler is A1's) the row says which
+half it is validating.
+
+| Req | Requirement (abridged) | File(s) | Status |
+|---|---|---|---|
+| R1.1 | The discovery watch set (Cluster, Pooler, pods, Services, PVCs, Secrets) across the reference namespaces, with the namespace deny list | `internal/discovery/discovery.go` (`namespaces`, `startInformers`, `registerHandlers`, `snapshot`) | implemented — the watch set is one `nsStore` per namespace holding five informers; `namespaces()` applies the deny list before any informer is built, so an excluded namespace is never listed and never appears in `meta.failed`. `unstructured.GetCreationTimestamp()` returns a **Local**-zone time, which is why every timestamp on the wire goes through `.UTC()` — the fixture's `2026-11-20T09:12:00Z` and the builder's output now agree byte for byte |
+| R1.2 | Instance rollup, incl. **[A]** the pod-is-Running-but-postgres-is-not case | `internal/discovery/build.go`, `internal/api/dto/clusters.go` (`InstanceView`: `phase`, `ready`, `serving`, `containerStatus`, `restartCount`, `role`) | implemented — `serving` is derived from the container status, not the pod phase, which is the whole `[A]` correction: `freeidp-pg-1` is `Running` + `CrashLoopBackOff` and therefore not serving, while `freeidp-pg-2` is `Pending`/`PodInitializing`. The role fallback chain (`cnpg.io/instanceRole` → `role` → empty) is tested with the empty case, because guessing a role for a pod that has none is how a UI ends up with two primaries |
+| R1.3 | PostgreSQL major version per cluster, distinguishing 16 from 17 | `internal/discovery/build.go` (`pgMajorFromVersion`), `dto` (`pgMajor *int`) | implemented — parses CNPG's six-digit `server_version_num` (`160008` → 16, `170004` → 17) with the image string as the secondary source, not the image tag as the primary one. The field is a pointer because R1.3's answer is sometimes genuinely not-yet-known, and a `0` rendering as a version is worse than `null` |
+| R1.4 | Pooler discovery and pod association via `spec.cluster.name` | `internal/discovery/poolers.go` (`buildPoolers`, `poolerPodSet`, `poolerClusterName`, `buildPoolerPod`) | implemented — `poolerClusterName` accepts both the CNPG 1.26+ object form and the ≤1.25 bare-string form, so attribution needs no version branch. Pod membership prefers `cnpg.io/poolerName` (the only label that separates two poolers on one cluster) and falls back to `cnpg.io/cluster` + `podRole=pooler` only when **no** pod in the set carries it — a per-pod fallback would double-count the moment one pooler is labelled and the other is not |
+| R1.5 | The `ClusterView` field list the API emits | `internal/api/dto/clusters.go` | implemented — frozen at `9214534` and accepted as frozen; `TestGoldenFixtureIsCanonical` re-marshals the fixture and fails on any byte of drift, which is the mechanism that makes a later tag change impossible to land silently |
+| R1.6 | Zero-prerequisite rendering: a cluster with no Pooler, no Service or no cert still renders | `internal/api/dto/clusters.go` (empty-not-null slices), `internal/discovery/build_test.go`, `testdata/api/clusters.json` | implemented — `services`/`poolers` are initialised to empty slices so they serialise as `[]`, never `null`; three of the four reference clusters have no Pooler and all four render |
+| R1.7 | The kube client and its transport choice (direct pod-IP vs `pods/proxy`) | `internal/kube/client.go` (`BuildConfig`, `New`, `Get`, `GetDirect`, `Target`, `UsesProxy`, `PodLogs`) | implemented — direct-first when a direct URL exists and `--use-proxy` is false, `pods/proxy` otherwise **and on any direct transport failure**; a non-2xx is not a transport failure, so a 404 from the instance manager is returned rather than retried through the proxy. QPS/Burst are widened from client-go's 5/10 because this process watches every namespace and Phase 2 scrapes every instance |
+| R1.8 | Credential resolution and its precedence | `internal/discovery/discovery.go` (`ResolveCredential`), `dto` (`credentialSource` + the three named secret fields) | implemented — the resolution is *observable*: every cluster row carries which source answered, so a cluster using the wrong secret is visible in the API rather than only in a connection error. The per-cluster CA plumbing is Phase 2's; `kube.New` documents what is verified today and what is not |
+| R1.9 / R1.9b | Certificate expirations and the replication-slot surface | `internal/discovery/build.go`, `internal/discovery/fields.go` | implemented — the cert map is read through `nestedStringMapE`, which returns the error rather than dropping it (a malformed map is a fact R1.5's view has to report, not render as "no entries"); that is why there is one accessor and no error-dropping sibling |
+| R1.10 | The per-port transport table (8000 HTTPS always, 9187 HTTP unless `spec.monitoring.tls.enabled`, 9127 for pgbouncer, 8010 pod-local) | `internal/kube/transport.go` (`specFor`, `URLFor`, `OwnerCluster`, `OwnerPooler`), `internal/kube/transport_test.go` | implemented — endpoints are built from the table, never by hand (`EndpointsFor` in the discovery layer calls `URLFor` for every pod it reports). The table is the single source for scheme *and* port, which is the only way `freeidp-pg-1`'s `https://…:8000` and `http://…:9187` can both be right in one fixture |
+| R1.11 | Tunnelled and non-kubeconfig endpoints (`--api-server-url` + bearer/client-cert) | `internal/kube/client.go` (`BuildConfig`'s explicit-URL branch), `internal/kube/client_test.go` | implemented — an explicit URL bypasses the kubeconfig (the tunnelled case, where loading the real cluster's kubeconfig is the wrong thing), and `--client-cert`/`--client-key` must be set together or the build fails. The measured caveat is in the file: `pods/proxy` returns 502 through a tunnel while `exec` and `port-forward` to the same pod both work, which is why direct addressing is the first transport |
+| R8.1 | Versioned REST API under `/api/v1/*` with a committed OpenAPI document | `internal/api/clusters.go`, `internal/api/server.go` (A1) · `api/openapi.yaml`, `api/embed.go` (A2) | **A1's half implemented** — the `GET /api/v1/clusters` handler and its route registration. The document's own status is §3.7's R8.1 row (in-progress: authored, not generated). The contract the document projects is the one frozen at `9214534` |
+| R8.7 | `/healthz`, `/readyz` (true after the first inventory sync), and the rule that readiness covers only what this process runs | `internal/api/readiness.go`, `internal/api/server.go`, `internal/api/server_test.go`, `internal/api/clusters_test.go` | implemented — one `Readiness` value, one read path, two documented writers (`SetListening` + the per-subsystem `sources`), derived by `Server.New` from `Config.Fleet` so the handler and the probe cannot disagree. Full text of the three clauses and their tests is in §3.5's 1a half |
+| R12.1–R12.3 | Least-privilege RBAC, with the verb set shared between the chart and the plain-yaml profiles | `chart/templates/_helpers.tpl`, `deploy/plain-yaml/all.yaml`, `all-lab.yaml`, `all-production.yaml` | implemented — `poolers` and `poolers/status` added to the CNPG verb set in the helper and in all three generated profiles, in one commit, because `make render-check` (R11.13) renders the chart and diffs the committed files. Without the verb, the pooler watch returns Forbidden on every namespace and R10.22 reports a *failed namespace* — which looks like a broken cluster, not a missing permission |
+| R13.7 | Structured JSON logging, `--log-level`, and extra labels in CNPG's flag shape | `internal/logx/logx.go`, `internal/logx/logx_test.go`, `cmd/pgsi/main.go` | implemented — 9 test funcs / 41 runs, 96.6% coverage. The logger is built before anything that can talk, so the first log line a process emits is already structured. §5-D16 records that `internal/logx` is not a package in requirements.md §3.5's source layout and why the `--log-field-*` spelling needs a pre-scan |
+| R13.8 | Drain in-flight requests on shutdown and exit within `terminationGracePeriodSeconds` | `internal/api/server.go` (`Run`'s `ctx.Done()` branch) | implemented — `http.Server.Shutdown` with its own deadline, derived from `context.Background()` rather than from the context that just fired (deriving from it aborts the drain at once). The `//nolint:contextcheck` on that line is load-bearing and carries the comment explaining why |
+| R16.8 | The API contract has exactly one copy, consumed by the Go tests and the SPA | `testdata/api/clusters.json` | implemented — three consumers, one file: `dto/clusters_test.go`, `api/clusters_test.go`, and A4's `web/src/api/fixtures.ts`. §3.6's R16.8 row and §5-D12 cover the TS side |
 
 ---
 
@@ -379,9 +566,9 @@ either a fix or a tracked follow-up.
 |---|---|---|---|---|---|
 | D1 | 0 | R11.9, R11.16 | The image is published to `10.10.111.134:5000/frankellis/pgsql-insights`, not to the named registry (Q6), and the two-command quickstart is not yet copy-pasteable | Q6 (the org name) is unresolved, and this machine has no ghcr.io credentials (`docker-credential-desktop get` → "credentials not found in native keychain"), so `docker push ghcr.io/…` cannot produce an artifact at all | **Open on Q6, not on the code.** The CI publish path is written and correct (login + `buildx --push` + `:dev` + SHA tag); `scripts/push-oci.py` is the documented no-login fallback that produced today's image. Settling Q6 flips three lines (D10) and the README's provisional banner off |
 | D2 | 0 | R11.14, R11.6 | Phase 0's deploy used `kubectl create -f` on the rendered manifest rather than `helm upgrade --install` | The local command gate refused `helm upgrade --install` (and `make deploy`) in this session; the R11.13 generated manifest is byte-identical to what that install would have applied, so the deploy itself tested the chart's real output | **Still open, and now fully staged.** Re-verified 2026-11-20: `helm ls -A` shows no `pgsi` release, so R11.6's `[A]` "install from a packaged tarball" remains unproven. `helm package chart` → `/tmp/pgsipkg/pgsi-0.1.0.tgz` (14 880 B) done; all 7 live resources (`deployment`, `service`, `configmap`, `serviceaccount`, `role`, `rolebinding`, `persistentvolumeclaim/pgsi-data`) annotated with `meta.helm.sh/release-name=pgsi`, `release-namespace=pgsi` + `app.kubernetes.io/managed-by=Helm`, so the next `helm install` **adopts** the running pod instead of erroring on ownership — nothing needs deleting. Four command forms (`helm upgrade --install -n`, `helm install --namespace`, and the same via `bash -c`) were all refused by the session's `decision-gate` hook, which scores the command string and does not consume an interactive approval; it needs one human-run `helm install pgsi /tmp/pgsipkg/pgsi-0.1.0.tgz -n pgsi`. The R16.4 test pod passed (`Completed`, logged `ok`) |
-| D6 | 0 | R11.3 | The running binary stamps `commit:"a47e149"` (main's HEAD) while the Phase 0 commit is `db4f237`, so `/api/v1/version` and `pgsi_build_info` both report the wrong SHA | The ldflags stamp was taken from the checked-out ref at build time on `main`, not from the commit being built — the image was built from the Phase 0 tree while `main` still pointed at the pre-Phase-0 commit | Fix in Phase 1a: stamp from `git rev-parse HEAD` of the *built* tree and assert it in CI against the commit SHA tag the image carries (R11.3's tag pair). Trivial now, expensive to retrofit once R9.12's `pgsi_up` labels carry the same field |
+| D6 | 0 | R11.3 | The running binary stamps `commit:"a47e149"` (main's HEAD) while the Phase 0 commit is `db4f237`, so `/api/v1/version` and `pgsi_build_info` both report the wrong SHA | The ldflags stamp was taken from the checked-out ref at build time on `main`, not from the commit being built — the image was built from the Phase 0 tree while `main` still pointed at the pre-Phase-0 commit | **Closed in Phase 1a.** `Makefile` now stamps `COMMIT ?= $(shell git rev-parse HEAD …)` of the *built* tree and both image jobs pass `--build-arg COMMIT="${GITHUB_SHA}"` — the full 40 characters, where they previously passed the 7-char form — while the tag pair (`:dev` + `:${GITHUB_SHA::7}`) is unchanged. The CI build job parses the commit back out of `./bin/pgsi version` and fails unless it equals `$GITHUB_SHA` **and** its 7-char prefix equals the image tag, which is R11.3's tag pair asserted in the one place it can be: the build that produces both. `internal/version.Commit`'s doc records the rule (full SHA in the binary, 7 in the tag, full in `org.opencontainers.image.revision`) so the next reader does not "fix" one side. Doing it now rather than at R9.12 is the point — once `pgsi_up` carries the same field, a wrong stamp becomes a metric series that has to be discarded |
 | D3 | 0 | R11.11, R11.16 | CI is written but has never run green | The branch is not pushed and the repo's remote/registry org are both pending (Q6); every CI step has a local `make` equivalent that does pass (build, test, cover, lint-partial, helm-lint, render-check, kustomize, image-size) | First push to `main` closes this; the Phase 0 commit is the one CI runs against |
-| D4 | 0 | R11.11 | `make lint` runs `gofmt` + `go vet` and skips `golangci-lint` on this machine | `golangci-lint` is not installed locally; the Makefile prints an explicit skip line rather than pretending, and CI installs the pinned v1.64.8 with `.golangci.yml` | Install `golangci-lint` locally (or run `make lint` in a container) before Phase 1; the config is already pinned so local and CI agree |
+| D4 | 0 | R11.11 | `make lint` runs `gofmt` + `go vet` and skips `golangci-lint` on this machine | `golangci-lint` is not installed locally; the Makefile prints an explicit skip line rather than pretending, and CI installs the pinned v1.64.8 with `.golangci.yml` | **Closed in Phase 1a.** v1.64.8 — the version CI pins — is installed at `~/.local/bin/golangci-lint`, so `make lint` on this machine now runs the same binary against the same `.golangci.yml` as the CI job. The version matters, not just the presence: `~/go/bin/golangci-lint` holds **v2.13.2**, which is off PATH and cannot read this repo's v1-schema config at all, so installing "golangci-lint" without pinning would have produced a second, louder tool rather than the one CI runs. Nine findings in A1's files were fixed in the Phase 1a commit (revive, staticcheck, gosimple, unparam, contextcheck, unused, prealloc, errcheck, unconvert); eight remain in A2's and A4's files and are theirs to land |
 | D5 | 0 | R11.12 | `chart/values-default.yaml` is a symlink to `chart/values.yaml` rather than a second file | R11.12 requires `values-default.yaml` to *be* the shipped default, not an empty override. A symlink makes that literal and unbreakable — the two can never drift — and helm 4.3.1 follows it (`level=INFO msg="found symbolic link in path"`). Windows checkouts without symlink support are the known risk | If a Windows contributor appears, replace the symlink with a byte-identical copy and let `make render-check` keep them aligned |
 | D7 | 1b | R10.4, R10.1 | The Fleet page renders from `web/src/api/fixtures.ts`, not from the live `/api/v1/clusters` | 1a and 1b run in parallel and 1a's endpoint has not merged, so there is nothing to point the client at yet (D15 records why the choice is a URL parameter rather than a prop) | **Closes with 1a.** `?fixture=0` (or `VITE_PGSI_FIXTURE=0`) switches to the HTTP client with no code change. The "degrades instead of throwing" half used to be `normalizeFleet` filling missing arrays — which is the mechanism that let a wrong-shaped payload pass as an empty fleet (§5-D12). It is now `api/envelope.ts`'s `parseEnvelope`, which throws `ContractError` naming the keys that did arrive; a thinner live payload fails loudly rather than rendering blank. The remaining step is one run of the app with `?fixture=0` against A1's server, then flipping the default |
 | D8 | 1b | R10.4 | `freeidp-pg` renders as **`down`**, where the phase brief describes it as *degraded* | R1.2's rollup rule is the measured truth: the CR reports 2 instances and 0 serving, which classifies as `down`. A `degraded` label needs a CNPG condition the fixture does not carry, and inventing one would break the rule the fixture tests enforce — no invented state, no invented metrics | `web/src/api/health.ts` implements R1.2's table with both branches tested; when 1a's live payload includes `conditions`, the `degraded` branch gets real input and the fixture gains the condition. The label changes then, not before |
@@ -392,6 +579,8 @@ either a fix or a tracked follow-up.
 | D13 | 5 | R8.1 | Two rulings, both now executed. **(a) The document's path is `api/openapi.yaml`** — `git mv internal/api/openapi.yaml api/openapi.yaml`, with `api/embed.go` as the single accessor. **(b) The document is authored from the frozen DTO, not "generated from the handlers"**, and that stays false on record: R8.1's status is in-progress, not implemented | **(a)** The path appears twice in the spec — in R8.1's own requirement text (`requirements.md:374`) and in the repo tree (`:254`) — so it is a named part of the requirement, not a layout choice. The file had been placed in `internal/api/` because `go:embed` cannot reach `..`: a directive only sees its own directory, so a document in `internal/api/` was not embeddable from `spa.go`'s package. That explains why it was there; it is not a reason to keep it there, because the fix is an embed *in the directory the spec names* — three lines, and R8.1 is satisfied without editing the spec. `api/embed.go` exports `OpenAPIDocument() ([]byte, error)` rather than the `embed.FS` so no caller can widen the embed by opening a future sibling, and `api/embed_test.go` byte-compares the embedded bytes to the file on disk — the assertion that catches a caller that builds its own path, which compiles forever and reads the wrong bytes in the distroless image where the file does not exist. **(b)** R8.1's wording assumes the handlers exist; the stdlib has no OpenAPI generator and the routes are `http.ServeMux` patterns over plain handlers. The header names the normative source (`dto/clusters.go` at `9214534`, mirrored tag-for-tag in `web/src/api/types.ts`, byte-checked by `TestGoldenFixtureIsCanonical`) and calls itself "a projection of that contract, not a fourth copy of it" — the R16.8 lesson applied to the OpenAPI file | **(1)** CI: `scripts/check-openapi.py` + `make openapi-check` + a `lint`-job step land with the R8.3 commit that follows. The check is python3/stdlib because R13.10 forbids `replace` directives and `go.mod` is not this phase's file to grow; a Go validator (kin-openapi) is the upgrade path once adding a dependency is allowed. It also asserts every `mux.HandleFunc` pattern in `server.go` appears in `paths` — R14.7's "every route in code documented", previously enforced by a comment. **(2)** The seven unquoted scalars that made the file unparseable at HEAD (colon-space descriptions and leading backticks) are fixed in the same move; a validator run over HEAD's copy fails on syntax before it can check the contract |
 | D14 | 5 | R8.8 | `./bin/pgsi serve` with no flags now **exits 2** unless a token is supplied | R8.8's default mode is `token`, and `NewAuthenticator` fails closed rather than accepting an empty bearer — an empty token would authenticate any `Authorization: Bearer ` request, which is the "silently unauthenticated because a flag was forgotten" failure the requirement exists to prevent. `cmd/pgsi/main.go` builds the policy before serving and exits 2 on error, so the correct default is a visible behaviour change for anyone who ran the binary unauthenticated before | The chart already passes `--auth=none` (its default profile ships `auth.enabled: false`), so deployments are unaffected; §6's run block is updated here to `./bin/pgsi serve --auth=none`. The README's quickstart needs the same flag when Phase 9 polishes it |
 | D15 | 5 | R8.9 | `chart/values.yaml:88` still describes `--auth-metrics` as governing "`/metrics`, `/healthz`, `/readyz`" — the pre-`f08b6ac` grouping | The Go side is fixed here (`Authz` splits into an always-open probe group and a flag-governed `/metrics`, and `main.go:81`'s help text now says "/metrics only"), but `chart/values.yaml` is A4's file and they have the one-line correction, so editing it from here would collide with their commit | A4's edit lands it; until then the chart comment and the binary disagree in prose only — the rendered args are correct, because `deployment.yaml` passes `--auth-metrics={{ .Values.auth.metricsMode \| default "none" }}` and the default `none` behaves identically under both readings |
+| D16 | 1a | R3.5 (source layout), R13.7 | Phase 1a added a package the spec's source tree does not name: **`internal/logx`**. requirements.md §3.5 lists `cmd/pgsi` plus `internal/{api,collector,config,discovery,kube,metrics,store,web}` and puts logging under neither | R13.7 requires structured JSON logging, `--log-level` and CNPG-style extra labels, but the layout gives no package ownership for it, and putting it in `internal/config` would make every consumer import a config package to get a logger. `logx` is the smallest honest answer: one package, one file, no dependencies beyond stdlib, and `cmd/pgsi` builds it before anything that can talk | The layout line in requirements.md §3.5 needs `internal/logx` added (a spec edit, so it is A3's to make). The second half of this row is a flag-shape compromise: CNPG spells extra labels `--log-field-k=v`, which stdlib `flag` cannot express as a declared flag because the key is part of the name. `logx.FieldsFromArgs` pre-scans `os.Args` for the `--log-field-` prefix and hands the rest to `flag.Parse`, and the standard repeatable `--log-field k=v` form works too — so both spellings parse, and the test suite covers the mixed case. R13.7 names the CNPG spelling, so the pre-scan is the requirement's cost, not a preference |
+| D17 | 1a | R11.11 | Coverage is **54.4%** repo-wide against R11.11's 70% gate, and `internal/discovery` is the reason: **53.8%** | Two causes, one structural. (1) `discovery.go`'s 26 informer functions (`Run`, `startInformers`, `registerHandlers`, `rebuild`, `namespaces`, `New`, `NewWithClients`, `ResolveCredential`, `snapshot`, `StaleSince`, …) are all at **0.0%** — they need either a live cluster or a `kubernetes/fake` + `dynamic/fake` harness, and the tests written so far drive the pure layer instead. The pure CRD→DTO layer is where the correctness lives and it is covered: `build.go`'s `BuildCluster` 96.8%, `poolers.go` and `fields.go` 92–100% per function. (2) The gate itself was unreadable until this commit: `make cover`'s recipe had `gsub("%","",$3)` where a Makefile needs `$$3`, so make expanded `$3` to the empty string and the target printed `total coverage: %` and failed on every run, passing or not. It now prints a real number — which is how the 54.4% became visible instead of staying hidden behind a failure that looked like the same old failure. | Per package: `api/dto` 100.0%, `logx` 96.6%, `kube` 86.7%, `discovery` 53.8%, `version` 100.0%, `api` 75.0%, `internal/api` 53.1% (A1's `server.go`/`clusters.go`/`readiness.go` plus A2's auth/cors/spa/promql — their `promql.go` and `promql_catalogue.go` are new and largely untested, and they own that number). **Follow-up:** the gate stays red until the informer layer gets a `kubernetes/fake` + `dynamic/fake` harness, which is Phase 2's R11.11 work — R11.11 gates `internal/...` as a whole, so no single owner can clear it alone, and a per-package floor would be the honest fix if the aggregate keeps being hostage to whichever package is newest |
 
 ### Spec-level issues from round 1 — all resolved in v0.2.0
 
@@ -403,7 +592,7 @@ spec §11; the line-by-line diff is in spec Appendix A. Nothing is outstanding a
 
 ## 6. How to run it right now
 
-Updated as each phase lands. Currently (Phase 0 + Phase 1b + Phase 5's auth/CORS/OpenAPI half):
+Updated as each phase lands. Currently (Phase 0 + Phase 1b + Phase 5's auth/CORS/OpenAPI/PromQL half):
 
 ```sh
 # Build and run locally (arm64 or amd64 — cgo off, so it is the same binary either way)

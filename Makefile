@@ -40,7 +40,7 @@ REGISTRY ?= 10.10.111.134:5000
 REPO     ?= frankellis/pgsql-insights
 TAG      ?= dev
 
-.PHONY: all build test cover vet lint lint-go tidy-check web test-web typecheck-web \
+.PHONY: all build test cover vet lint lint-go openapi-check tidy-check web test-web typecheck-web \
        helm-lint render render-check image image-size push-local licenses deploy verify clean help
 
 all: build
@@ -78,13 +78,13 @@ test-web: web typecheck-web
 cover:
 	@mkdir -p dist
 	@go test ./... -count=1 -coverprofile=dist/coverage.out >/dev/null
-	@total=$$(go tool cover -func=dist/coverage.out | awk '/^total:/ {gsub("%","",$3); print $$3}'); \
+	@total=$$(go tool cover -func=dist/coverage.out | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
 	echo "total coverage: $$total% (gate 70%, R11.11)"; \
 	awk -v t="$$total" 'BEGIN { exit (t+0 >= 70 ? 0 : 1) }' || \
 		{ echo "FAIL: coverage $$total% is below the 70% gate (R11.11)"; exit 1; }
 
 ## lint: go vet + golangci-lint when installed (R11.11)
-lint: vet lint-go
+lint: vet lint-go openapi-check
 
 vet:
 	go vet ./...
@@ -95,6 +95,18 @@ lint-go:
 	else \
 		echo "golangci-lint not installed locally; go vet ran instead (CI runs golangci-lint with .golangci.yml)"; \
 	fi
+
+## openapi-check: validate api/openapi.yaml (R8.1's "checked in CI" half).
+# The document is the one api/embed.go ships and GET /api/v1/openapi serves, so a
+# broken document is a broken endpoint — R8.1 asks for it validated in CI, and
+# api/embed_test.go's header names this target as the gate. scripts/check-openapi.py
+# parses it (PyYAML when importable, a stdlib line scan otherwise, so it runs on a
+# runner with no pyyaml) and checks what a hand-written 3.0 document actually
+# breaks on: duplicate keys, dangling $refs, missing operationIds, non-/api/v1
+# paths, and — since R8.3 — that both metrics routes enumerate their catalogues
+# and that the two lists are disjoint.
+openapi-check:
+	python3 scripts/check-openapi.py
 
 ## tidy-check: fail if go.mod is not tidy (R13.10: no replace, tidy in CI)
 tidy-check:
