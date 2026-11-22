@@ -51,7 +51,10 @@ on, not into a comment.
 **Cite requirement IDs in comments** (`R8.8`, not "the auth bit"), and keep
 `scripts/check-parity-matrix.sh` green — it runs in CI and a spec edit that breaks it is a defect.
 
-**Commit by explicit path. Never `git add -A`.** End the message with
+**Commit by explicit path — and name the path to `git commit`, not just to `git add`.** A bare
+`git commit` commits the whole *index*, not just what you added, so whatever another slot had
+already staged rides into yours; `git commit -- <path> [<path>…]` is the form that commits only
+yours. End the message with
 `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. When your commit's code depends on
 another slot's uncommitted file, say so plainly rather than committing over their tree — A2's
 `server.go` mount was written inert and flagged, and the resulting "the branch tip compiles only

@@ -38,9 +38,14 @@ with an empty fleet and still pass its probe.
 **Requirement IDs are the contract.** Comments cite `R3.4`, not "the fingerprinting bit". Every §4
 requirement maps to exactly one phase, and `scripts/check-parity-matrix.sh` enforces it in CI.
 
-**Commit by explicit path. Never `git add -A`.** Three other agents share this working tree; a
-blanket add sweeps their in-flight files into your commit. End the commit message with
-`Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
+**Commit by explicit path — and name the path to `git commit`, not just to `git add`.** Three
+other agents share this working tree; a blanket add sweeps their in-flight files into your commit.
+But `git add <path>` followed by a bare `git commit` fails the same way, because `git commit`
+commits the whole *index*, not just the file you added: a one-line `requirements.md` fix, staged
+with an explicit path, once shipped 21 of your already-staged Phase 1a files (5,995 lines) under
+the wrong message. The form that is actually safe is `git commit -- <path> [<path>…]`, which
+commits only the named paths and leaves everything else staged for its owner. End the commit
+message with `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
 
 **Don't edit files another slot owns while they're mid-flight.** Write the change and flag it, or
 ask for it. `internal/api/server.go` is yours; `internal/api/auth.go`, `cors.go`, and

@@ -140,9 +140,13 @@ ours to record, not to infer.
 
 These apply to every slot.
 
-1. **Commit by explicit path. Never `git add -A`.** Four agents share one working tree; a
-   blanket add sweeps another agent's in-flight files into your commit and attributes their work
-   to you.
+1. **Commit by explicit path — and name the path to `git commit`, not just to `git add`.** Four
+   agents share one working tree; a blanket add sweeps another agent's in-flight files into your
+   commit and attributes their work to you. The subtler form of the same bug is `git add <path>`
+   followed by a bare `git commit`: `git commit` commits the whole *index*, not merely what you
+   just added, so a one-line spec fix once shipped 21 of another slot's staged files (5,995 lines)
+   under its message. `git commit -- <path> [<path>…]` commits only the named paths and leaves the
+   rest of the index staged for its owner.
 2. **One commit per phase**, containing that phase's code **and** its `IMPLEMENTATION.md` update
    (R14.1). Small in-phase commits are fine; the phase-closing commit carries both.
 3. **Attribution is the committing model's own**, not a fixed string:

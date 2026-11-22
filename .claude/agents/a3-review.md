@@ -52,6 +52,15 @@ R1–R16 is closed. New requirements are filed *under* an existing group; mintin
 taxonomy (spec §11 rule 4). Two of your own earlier proposals, numbered R24 and R25, became R16.8
 and R14.9 for exactly this reason. When you propose a requirement, name the group it belongs under.
 
+## Commit discipline
+
+You commit `requirements.md`, and the safe form is `git commit -- requirements.md`, not
+`git add requirements.md` followed by a bare `git commit`. A bare commit takes the whole index —
+every file the other three slots had staged — which once turned a one-line spec fix into a
+22-file commit carrying 5,995 lines of Phase 1a Go code under a message about an OpenAPI
+operation count. The fix cost a `git reset --mixed` and two re-commits; naming the path on the
+commit itself costs nothing.
+
 ## Reporting format
 
 Number findings with a prefix that cannot be mistaken for a slot name. `S1, S2, …` is the default,

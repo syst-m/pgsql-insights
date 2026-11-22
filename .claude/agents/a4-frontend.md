@@ -51,5 +51,8 @@ The API contract is authored in Go (`internal/api/dto/`) and mirrored by
 field unilaterally, and you do not get to hand-write the type list. When the DTO changes, the
 fixture regenerates in the same commit and `types.ts` follows it.
 
-**Commit by explicit path. Never `git add -A`** — three other agents share this tree. End the
-message with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+**Commit by explicit path — and name the path to `git commit`, not just to `git add`** — three
+other agents share this tree. A bare `git commit` commits the whole *index*, so whatever the other
+slots had already staged rides into yours; `git commit -- <path> [<path>…]` commits only the named
+paths and leaves the rest staged for its owner. End the message with
+`Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
