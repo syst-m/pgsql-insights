@@ -97,7 +97,7 @@ jobs:
           cache: true
       - name: go test
         run: go test ./... -count=1
-      - name: coverage gate (R14.5)
+      - name: coverage gate (R11.11)
         run: make cover
 
   # R10.1 + R16.7 — the web half of the test surface. It is a separate job (not a
