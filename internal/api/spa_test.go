@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/frankellis/pgsql-insights/internal/api/dto"
 	"github.com/frankellis/pgsql-insights/web"
 )
 
@@ -79,12 +80,19 @@ func TestUnknownAPIPathIsNotTheShell(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Fatalf("Content-Type = %q, want application/json", ct)
 	}
-	var body map[string]string
+	// R8.5's envelope, parsed with the same struct the API's own handlers
+	// marshal — which is the point: a client that can read a 404 from
+	// /api/v1/clusters must be able to read a 404 from this handler with the
+	// same code path, not a second reader for a second shape.
+	var body dto.ErrorBody
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("404 body is not JSON: %v (%q)", err, rec.Body.String())
+		t.Fatalf("404 body is not an R8.5 envelope: %v (%q)", err, rec.Body.String())
 	}
-	if body["error"] != "not_found" {
-		t.Fatalf("404 body = %v, want error=not_found", body)
+	if body.Error.Code != dto.ErrNotFound {
+		t.Fatalf("404 code = %q, want %q", body.Error.Code, dto.ErrNotFound)
+	}
+	if body.Error.Details == nil {
+		t.Fatal("404 details is null; R8.5 requires the array always present")
 	}
 }
 

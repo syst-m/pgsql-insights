@@ -15,6 +15,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/frankellis/pgsql-insights/internal/api/dto"
 	"github.com/frankellis/pgsql-insights/web"
 )
 
@@ -25,9 +26,11 @@ func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 
 	// An unknown /api/... path must answer 404, not the app shell. Without this
-	// guard a client calling an endpoint this build doesn't have (the Phase 1a
-	// /api/v1/clusters, before it lands) would get HTTP 200 + HTML and a JSON
-	// decode error instead of a clean 404.
+	// guard a client calling an endpoint this build doesn't have (the Phase 3
+	// /api/v1/queries, until it lands) would get HTTP 200 + HTML and a JSON
+	// decode error instead of a clean 404. Phase 1a's /api/v1/clusters is
+	// registered on the mux now, so the mux's own routing answers it and it
+	// never reaches here; this guard is for the routes after it.
 	if name == "api" || strings.HasPrefix(name, "api/") {
 		writeNotFound(w, r)
 		return
@@ -62,9 +65,21 @@ func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFileFS(w, r, web.Assets(), name)
 }
 
-// writeNotFound answers a 404 as JSON. Phase 1a introduces the API's error
-// envelope (R8.1); until then this is the smallest shape that a JSON client can
-// parse, so an unknown endpoint never looks like a successful call.
+// writeNotFound answers a 404 with R8.5's error envelope — the same ErrorBody
+// every /api/v1/* handler emits, built by the same constructor, so one JSON
+// reader parses a 404 from here and a 404 from the clusters endpoint without
+// branching on the shape.
+//
+// Before Phase 1a it hand-rolled {"error":"not_found"}: `error` as a string
+// where R8.5 makes it an object, and `not_found` where the enum spells it
+// `NotFound`. Two spellings of one code is exactly what R8.5's "single error
+// shape for every endpoint" exists to prevent, and the SPA's own envelope.ts
+// reader is the client that notices.
+//
+// Both callers use it: an unknown /api/... path, whose client is an API client
+// and is the case the envelope is written for, and a missing asset, whose
+// client is a browser that reads the status and ignores the body. One shape
+// for both is the cheaper contract than two shapes for one handler.
 func writeNotFound(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
@@ -73,5 +88,5 @@ func writeNotFound(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": "not_found"})
+	_ = json.NewEncoder(w).Encode(dto.NewError(dto.ErrNotFound, "no such path "+r.URL.Path))
 }
