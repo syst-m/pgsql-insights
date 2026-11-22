@@ -61,7 +61,9 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
     );
   }
 
-  const bannerCopy = copyFor(panel, fleet?.meta);
+  // The response, not `rows`: the banner counts what the API served, and a
+  // filter is a view over that set rather than a smaller response.
+  const bannerCopy = copyFor(panel, fleet ?? undefined);
 
   return (
     <div className="page" data-page="fleet">

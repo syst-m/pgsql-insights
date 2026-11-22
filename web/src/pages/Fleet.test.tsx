@@ -13,6 +13,7 @@ import {
   FIXTURE_FLEET,
   FIXTURE_GENERATED_AT,
   FIXTURE_PARTIAL,
+  FIXTURE_TRUNCATED_PARTIAL,
   FIXTURE_UNAVAILABLE,
 } from "../api/fixtures";
 import type { FleetResponse } from "../api/types";
@@ -55,6 +56,18 @@ describe("Fleet page", () => {
     const { container } = renderPage("/", FIXTURE_PARTIAL);
     expect(screen.getByText("Partial results")).toBeInTheDocument();
     expect(rows(container)).toHaveLength(3);
+  });
+
+  it("counts the rows it rendered in the banner, not meta.total (R10.22)", () => {
+    // Truncated *and* partial: four clusters match, this page serves two, and
+    // the banner has to say "2 clusters served" over a two-row table. The
+    // pre-fix code interpolated meta.total and rendered "4 clusters served"
+    // above two rows — the pair this fixture exists to catch.
+    const { container } = renderPage("/", FIXTURE_TRUNCATED_PARTIAL);
+    expect(screen.getByText("Partial results")).toBeInTheDocument();
+    expect(screen.getByText(/^2 clusters served/)).toBeInTheDocument();
+    expect(screen.queryByText(/4 clusters served/)).toBeNull();
+    expect(rows(container)).toHaveLength(2);
   });
 
   it("renders the unavailable state when no metrics source exists", () => {
@@ -122,6 +135,10 @@ describe("derivePanelState", () => {
     expect(derivePanelState({ phase: "ready", fleet: FIXTURE_FLEET })).toBe("unavailable");
     expect(derivePanelState({ phase: "ready", fleet: FIXTURE_EMPTY })).toBe("empty");
     expect(derivePanelState({ phase: "ready", fleet: FIXTURE_PARTIAL })).toBe("partial");
+    // Truncation alone is paging; truncation *with* a loading namespace is the
+    // second partial case, and it still keys off partialBanner, not off
+    // `truncated`.
+    expect(derivePanelState({ phase: "ready", fleet: FIXTURE_TRUNCATED_PARTIAL })).toBe("partial");
     expect(derivePanelState({ phase: "error", fleet: null, error: "boom" })).toBe("error");
     // R10.22: a failed refresh over a good frame keeps the frame.
     expect(derivePanelState({ phase: "error", fleet: FIXTURE_FLEET, error: "boom" })).toBe("partial");

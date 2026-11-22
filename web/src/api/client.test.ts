@@ -15,13 +15,14 @@ import {
   FIXTURE_ENVELOPE,
   FIXTURE_FLEET,
   FIXTURE_PARTIAL,
+  FIXTURE_TRUNCATED_PARTIAL,
   FIXTURE_UNAVAILABLE,
   FIXTURE_CLUSTERS,
   FIXTURE_GENERATED_AT,
 } from "./fixtures";
 import { FIXTURES, fetchFleet, resolveConfig, type FixtureName } from "./client";
 import { ContractError, emptyEnvelope, parseEnvelope, parseErrorBody, partialBanner, toFleetResponse } from "./envelope";
-import type { ClusterView, Envelope, ErrorDetail, FleetResponse } from "./types";
+import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta } from "./types";
 
 describe("resolveConfig", () => {
   it("defaults to the fixture", () => {
@@ -53,9 +54,10 @@ describe("resolveConfig", () => {
       fleet: FIXTURE_FLEET,
       empty: FIXTURE_EMPTY,
       partial: FIXTURE_PARTIAL,
+      "truncated-partial": FIXTURE_TRUNCATED_PARTIAL,
       unavailable: FIXTURE_UNAVAILABLE,
     };
-    for (const name of ["fleet", "empty", "partial", "unavailable"] as const) {
+    for (const name of ["fleet", "empty", "partial", "truncated-partial", "unavailable"] as const) {
       const cfg = resolveConfig(`?fixture=${name}`, {});
       expect(cfg.source).toBe("fixture");
       expect(cfg.fixture).toBe(name);
@@ -287,50 +289,86 @@ describe("toFleetResponse", () => {
 });
 
 describe("partialBanner", () => {
+  /** Build an envelope serving `rows` of the four reference clusters with
+   *  `meta` around them.
+   *
+   *  The signature takes a response, not a `Meta`, and this helper is why the
+   *  test had to change with it: passing bare `{ total: 3, ... }` objects is
+   *  what let the bug hide, because `meta.total` was the only count in reach.
+   *  Constructing a real `Envelope<ClusterView>` forces every case to say how
+   *  many rows it served *and* what `total` claims, so the two can disagree. */
+  const env = (rows: number, meta: Omit<Meta, "generatedAt">): Envelope<ClusterView> => ({
+    data: FIXTURE_ENVELOPE.data.slice(0, rows),
+    meta: { ...meta, generatedAt: FIXTURE_GENERATED_AT },
+  });
+
   it("is null for a full render, even when truncated", () => {
     // R8.10's `truncated` is a paging affordance, not a warning.
-    expect(partialBanner({ total: 4, truncated: false, generatedAt: FIXTURE_GENERATED_AT })).toBeNull();
-    expect(partialBanner({ total: 4, truncated: true, generatedAt: FIXTURE_GENERATED_AT, nextCursor: "abc" })).toBeNull();
+    expect(partialBanner(FIXTURE_ENVELOPE)).toBeNull();
+    expect(partialBanner(env(4, { total: 4, truncated: true, nextCursor: "abc" }))).toBeNull();
   });
 
   it("names a loading namespace (R10.22)", () => {
-    expect(
-      partialBanner({ total: 3, truncated: false, generatedAt: FIXTURE_GENERATED_AT, loading: ["freeidp"] }),
-    ).toBe("3 clusters served. 1 namespace still in the first discovery pass (freeidp).");
+    expect(partialBanner(env(3, { total: 3, truncated: false, loading: ["freeidp"] }))).toBe(
+      "3 clusters served. 1 namespace still in the first discovery pass (freeidp).",
+    );
   });
 
   it("names a failed namespace with its code and staleness", () => {
-    const banner = partialBanner({
-      total: 3,
-      truncated: true,
-      generatedAt: FIXTURE_GENERATED_AT,
-      nextCursor: "eyJv",
-      failed: [
-        {
-          namespace: "cookbook",
-          code: "Forbidden",
-          message: "cannot list pods",
-          lastSuccessTime: "2026-11-19T09:00:00Z",
-        },
-      ],
-    });
-    expect(banner).toContain("more pages available");
+    const banner = partialBanner(
+      env(3, {
+        total: 3,
+        truncated: true,
+        nextCursor: "eyJv",
+        failed: [
+          {
+            namespace: "cookbook",
+            code: "Forbidden",
+            message: "cannot list pods",
+            lastSuccessTime: "2026-11-19T09:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(banner).toContain("3 clusters served, more pages available");
     expect(banner).toContain("cookbook (Forbidden, stale since 2026-11-19T09:00:00Z)");
   });
 
-  it("truncates a long namespace list instead of wrapping the banner", () => {
-    const banner = partialBanner({
-      total: 0,
-      truncated: false,
-      generatedAt: FIXTURE_GENERATED_AT,
-      loading: ["a", "b", "c", "d", "e"],
+  it("counts served rows, not meta.total, on a truncated page (R10.22)", () => {
+    // The regression A3 found. R8.4's corrected wording makes `meta.total` the
+    // pre-cut count — matching rows across *all* pages — so with 4 matching and
+    // a 2-row page, a banner built from `total` announces "4 clusters served"
+    // above a table rendering 2. R10.22 names the fix: `data.length`, never
+    // `meta.total`.
+    const truncatedPartial = env(2, {
+      total: 4,
+      truncated: true,
+      nextCursor: "eyJvZmZzZXQiOjJ9",
+      loading: ["freeidp", "open-webui"],
     });
+    const banner = partialBanner(truncatedPartial);
+    expect(banner).toBe(
+      "2 clusters served, more pages available. 2 namespaces still in the first discovery pass (freeidp, open-webui).",
+    );
+    expect(banner).not.toContain("4 clusters served");
+
+    // The same number through the other arm of BannerSource: the banner reads
+    // `clusters.length` off the presentation type, which toFleetResponse maps
+    // 1:1 from `data`, so the two arms cannot drift apart.
+    expect(partialBanner(toFleetResponse(truncatedPartial))).toBe(banner);
+    expect(partialBanner(FIXTURE_TRUNCATED_PARTIAL)).toBe(banner);
+  });
+
+  it("truncates a long namespace list instead of wrapping the banner", () => {
+    const banner = partialBanner(env(0, { total: 5, truncated: false, loading: ["a", "b", "c", "d", "e"] }));
+    expect(banner).toContain("0 clusters served");
     expect(banner).toContain("(a, b, c +2 more)");
   });
 
   it("is what StatePanel keys the partial state off", () => {
-    expect(partialBanner(FIXTURE_PARTIAL.meta)).not.toBeNull();
-    expect(partialBanner(FIXTURE_FLEET.meta)).toBeNull();
+    expect(partialBanner(FIXTURE_PARTIAL)).not.toBeNull();
+    expect(partialBanner(FIXTURE_TRUNCATED_PARTIAL)).not.toBeNull();
+    expect(partialBanner(FIXTURE_FLEET)).toBeNull();
   });
 });
 

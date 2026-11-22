@@ -123,6 +123,33 @@ const PARTIAL_ENV: Envelope<ClusterView> = {
 
 export const FIXTURE_PARTIAL: FleetResponse = toFleetResponse(PARTIAL_ENV, PRESENTATION);
 
+/** R10.22's second partial case: truncated *and* partial, which is the pair the
+ *  spec says the fixture set was missing.
+ *
+ *  `FIXTURE_PARTIAL` sets `meta.total` to the filtered length with
+ *  `truncated: false`, so `total` and `data.length` are equal there and a
+ *  banner built from either one reads the same. R8.4 says paging and a partial
+ *  render co-occur in contract — with 120 matching and `limit=50`, `total` is
+ *  120 and `data.length` is 50 — and only that case separates the two.
+ *
+ *  Here four clusters match, this page serves two of them, and the other two
+ *  (freeidp, open-webui) are named in `loading` because their namespaces are
+ *  still in the first discovery pass — so `total: 4` and `data.length: 2` are
+ *  both correct and the banner has to pick the second one. */
+const TRUNCATED_PARTIAL_ENV: Envelope<ClusterView> = {
+  data: FIXTURE_ENVELOPE.data.slice(0, 2),
+  meta: {
+    total: FIXTURE_ENVELOPE.data.length,
+    truncated: true,
+    generatedAt: FIXTURE_GENERATED_AT,
+    nextCursor: "eyJvZmZzZXQiOjJ9",
+    loading: ["freeidp", "open-webui"],
+  },
+};
+
+export const FIXTURE_TRUNCATED_PARTIAL: FleetResponse =
+  toFleetResponse(TRUNCATED_PARTIAL_ENV, PRESENTATION);
+
 /** R10.12's "unavailable (source not configured)". A separate object from
  *  FIXTURE_FLEET so the two stay addressable individually even while their
  *  content is the same — see the note on FIXTURE_FLEET. */

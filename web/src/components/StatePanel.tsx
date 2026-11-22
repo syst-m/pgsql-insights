@@ -12,8 +12,8 @@
  * clusters says so rather than looking complete.
  */
 
-import type { ClusterMetrics, FleetResponse, FleetRow, Meta } from "../api/types";
-import { partialBanner } from "../api/envelope";
+import type { ClusterMetrics, FleetResponse, FleetRow } from "../api/types";
+import { partialBanner, type BannerSource } from "../api/envelope";
 import { FIXTURE_EMPTY, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "../api/fixtures";
 
 export type PanelState = "loading" | "empty" | "partial" | "unavailable" | "ready" | "error";
@@ -43,9 +43,10 @@ export function derivePanelState(input: PanelInput): PanelState {
   }
   if (fleet === null) return "loading";
   if (fleet.clusters.length === 0) return "empty";
-  // R10.22's banner is derived from meta.failed / meta.loading — the API has
-  // no `partial` key, and `truncated` alone is pagination, not a warning.
-  if (partialBanner(fleet.meta) !== null) return "partial";
+  // R10.22's banner is derived from the response — meta.failed / meta.loading
+  // for the reason, and data.length for the count. The API has no `partial`
+  // key, and `truncated` alone is pagination, not a warning.
+  if (partialBanner(fleet) !== null) return "partial";
   // Clusters exist but not one of them has a metrics source that can answer:
   // the R10.12 "unavailable (source not configured)" state, which on the
   // reference environment is the normal case (live-probe Finding 1).
@@ -101,13 +102,13 @@ const COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   },
 };
 
-export function copyFor(state: PanelState, meta?: Meta): PanelCopy | null {
+export function copyFor(state: PanelState, source?: BannerSource): PanelCopy | null {
   if (state === "ready") return null;
   const copy = COPY[state];
   // R10.22's wording is composed from the payload, not fixed: the page that
   // served 3 of 4 clusters has to name the fourth, which generic copy cannot.
-  if (state === "partial" && meta !== undefined) {
-    const derived = partialBanner(meta);
+  if (state === "partial" && source !== undefined) {
+    const derived = partialBanner(source);
     if (derived !== null) return { ...copy, body: derived };
   }
   return copy;

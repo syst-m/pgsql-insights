@@ -63,9 +63,16 @@ export interface ErrorBody {
 
 /** R8.4's pagination metadata, carried by every list endpoint. */
 export interface Meta {
-  /** Matching objects before the page was cut. Counts clusters the response
-   *  can *serve*: a 3-of-4 page says `total: 3` and names the fourth in
-   *  `failed`, because "attempted" would make `total` mean two things. */
+  /** R8.10's **pre-cut** count: matching objects across *all* pages, not the
+   *  rows in this response. With 120 matching and `limit=50` this is 120 while
+   *  `data.length` is 50 — which is exactly what `truncated` is defined against
+   *  (`truncated ⟺ len(data) < total`).
+   *
+   *  v0.3.0 worded this as "counts what the response can serve, not what was
+   *  attempted", and R8.4 retired that at A1's `f08b6ac`: on a truncated page
+   *  the two documents then assign different numbers to the same field. The UI
+   *  consequence is R10.22's — the partial banner's served count is
+   *  `data.length`, never this field (`partialBanner()` in envelope.ts). */
   total: number;
   /** True when `data` holds fewer objects than `total` — i.e. there is another
    *  page (R8.10). Purely pagination: a page can be complete and still have a

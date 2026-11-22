@@ -19,7 +19,13 @@
  * `clusters` key and `?? []` turned that into a plausible-looking empty state.
  */
 
-import { FIXTURE_EMPTY, FIXTURE_FLEET, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "./fixtures";
+import {
+  FIXTURE_EMPTY,
+  FIXTURE_FLEET,
+  FIXTURE_PARTIAL,
+  FIXTURE_TRUNCATED_PARTIAL,
+  FIXTURE_UNAVAILABLE,
+} from "./fixtures";
 import { parseEnvelope, parseErrorBody, toFleetResponse } from "./envelope";
 import type { ErrorCode, FleetResponse } from "./types";
 
@@ -31,16 +37,23 @@ export type Source = "http" | "fixture";
  * what makes every named state reachable by a URL — the requirement's own
  * wording ("reachable by a stable URL") and the handle R16.7's visual suite
  * uses to screenshot each one. `1`/`true` is the plain fleet fixture. */
-export type FixtureName = "fleet" | "empty" | "partial" | "unavailable";
+export type FixtureName = "fleet" | "empty" | "partial" | "truncated-partial" | "unavailable";
 
 export const FIXTURES: Record<FixtureName, FleetResponse> = {
   fleet: FIXTURE_FLEET,
   empty: FIXTURE_EMPTY,
   partial: FIXTURE_PARTIAL,
+  "truncated-partial": FIXTURE_TRUNCATED_PARTIAL,
   unavailable: FIXTURE_UNAVAILABLE,
 };
 
-const FIXTURE_NAMES: readonly string[] = ["fleet", "empty", "partial", "unavailable"];
+const FIXTURE_NAMES: readonly string[] = [
+  "fleet",
+  "empty",
+  "partial",
+  "truncated-partial",
+  "unavailable",
+];
 
 export interface ClientConfig {
   source: Source;

@@ -201,14 +201,36 @@ export function emptyEnvelope(generatedAt: string): Envelope<ClusterView> {
   return { data: [], meta: { total: 0, truncated: false, generatedAt } };
 }
 
-/** R10.22's banner sentence, composed from `meta` rather than read from a
+/** Everything the banner needs: the rows this response actually served, plus
+ *  their `meta`. Both the wire type and the presentation type qualify, which is
+ *  the point — the banner is derived from a *response*.
+ *
+ *  Taking `Meta` alone was the first signature, and it is how the bug got in:
+ *  with only `meta` in reach, the served count available to interpolate is
+ *  `meta.total`, and R8.4 (corrected at A1's `f08b6ac`) says `meta.total` is
+ *  R8.10's **pre-cut** count — matching rows across *all* pages. On a truncated
+ *  page that overstates the banner by the rest of the result set: "120 clusters
+ *  served" above a table rendering 50. R10.22 now names the rule directly:
+ *  "The banner's served-cluster count comes from `data.length`, never
+ *  `meta.total`." */
+export type BannerSource = Envelope<ClusterView> | FleetResponse;
+
+/** `data.length` on the wire type, `clusters.length` on the presentation type —
+ *  the same number, because `toFleetResponse` maps `data` 1:1. */
+function rowsServed(source: BannerSource): number {
+  return "data" in source ? source.data.length : source.clusters.length;
+}
+
+/** R10.22's banner sentence, composed from the response rather than read from a
  *  `partial` key the API does not emit.
  *
  *  `truncated` alone is not a partial render — it means there is another page
  *  (R8.10), which is a paging affordance, not a warning. The banner fires only
  *  when a namespace failed or is still loading, which is what R10.22's
- *  "3 of 4 clusters shown, and it says so" is about. */
-export function partialBanner(meta: Meta): string | null {
+ *  "3 of 4 clusters shown, and it says so" is about. `meta.generatedAt` is
+ *  R10.21's page-header stamp and is deliberately not a banner input either. */
+export function partialBanner(source: BannerSource): string | null {
+  const meta = source.meta;
   const failed = meta.failed ?? [];
   const loading = meta.loading ?? [];
   if (failed.length === 0 && loading.length === 0) return null;
@@ -229,7 +251,7 @@ export function partialBanner(meta: Meta): string | null {
     parts.push(`${failed.length} namespace${failed.length === 1 ? "" : "s"} failed to sync: ${detail}`);
   }
 
-  const served = `${meta.total} cluster${meta.total === 1 ? "" : "s"} served`;
+  const served = `${rowsServed(source)} cluster${rowsServed(source) === 1 ? "" : "s"} served`;
   const paging = meta.truncated && meta.nextCursor !== undefined ? ", more pages available" : "";
   return `${served}${paging}. ${parts.join("; ")}.`;
 }
