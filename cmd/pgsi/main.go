@@ -55,6 +55,8 @@ serve flags (run "pgsi serve -h" for the full set):
   --cors-allow-origin           CORS allow-list (R8.9); empty = same-origin  (none)
   --cors-allow-credentials      Access-Control-Allow-Credentials (R8.9)      false
   --cors-max-age                preflight cache lifetime (R8.9)              5m
+  --prometheus-url              Prometheus the R8.3 pair proxies PromQL to;  (unset)
+                                empty serves the fixed catalogue only (R8.3)
 
   --discover                    run discovery in this process (D9's role      true
                                 knob; --discover=false is the ` + "`api`" + ` role,
@@ -173,6 +175,17 @@ func runServe(args []string) int {
 	corsCreds := fs.Bool("cors-allow-credentials", false, "send Access-Control-Allow-Credentials on CORS responses (R8.9)")
 	corsMaxAge := fs.Duration("cors-max-age", 0, "how long a browser may cache a preflight (R8.9); 0 selects 5m")
 
+	// --- R8.3 PromQL pair --------------------------------------------------
+	// One flag picks the mode the pair answers in. Set, and
+	// /api/v1/metrics/{query,system} proxy the query to that Prometheus, so any
+	// PromQL the cluster's Prometheus can evaluate is answerable. Empty — the
+	// default — and they answer only the fixed catalogue of named queries (R9.4's
+	// aggregates, R9.5's per-query rollups, R9.7's system family) and return
+	// PromQLUnavailable for anything else, because §3.4 keeps raw samples out of
+	// SQLite and the binary ships no PromQL evaluator. The pair is mounted either
+	// way; the flag changes what it can answer, not whether it exists.
+	prometheusURL := fs.String("prometheus-url", "", "base URL of the Prometheus the R8.3 pair proxies PromQL to (R8.3); empty serves the fixed named-query catalogue only")
+
 	// --- R13.7 logging ---------------------------------------------------
 	logLevel := fs.String("log-level", "info", "log level: debug|info|warn|error (R13.7); debug is where a collector dumps the SQL it ran")
 	// The flag value is seeded with the --log-field-* fields the pre-scan
@@ -258,6 +271,13 @@ func runServe(args []string) int {
 			MaxAge:           *corsMaxAge,
 		}
 	}
+
+	// --- R8.3 PromQL pair --------------------------------------------------
+	// Built unconditionally, unlike the nil-unless-configured CORS above: with
+	// --prometheus-url the pair proxies, without it it serves the catalogue
+	// (NewPromQL fills in DefaultCatalogue and an empty source), and there is no
+	// configuration in which the two documented routes should not exist.
+	cfg.PromQL = api.NewPromQL(api.PromQLConfig{PrometheusURL: *prometheusURL})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
