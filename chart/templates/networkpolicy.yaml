@@ -24,7 +24,7 @@ spec:
         {{- range .Values.networkPolicy.ingressFrom }}
         - {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- if and .Values.monitoring.enabled .Values.monitoring.serviceMonitor.enabled .Values.networkPolicy.prometheusNamespace }}
+        {{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled .Values.networkPolicy.prometheusNamespace }}
         # R9.1: allow the Prometheus namespace to scrape /metrics.
         - namespaceSelector:
             matchLabels:

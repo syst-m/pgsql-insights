@@ -207,31 +207,50 @@ serviceAccount:
   automountServiceAccountToken: true
 
 # -----------------------------------------------------------------------------
-# Monitoring (R9.1, R9.6, R11.7)
+# Metrics / monitoring (R9.1, R9.6, R9.9, R11.7)
 # -----------------------------------------------------------------------------
-monitoring:
+# R9.9 names the key `metrics.serviceMonitor.enabled`; Phase 0 shipped this block
+# as `monitoring:`. The spec's name won — one requirement, one key name (the
+# chart README's "Values namespace" section records the rename).
+#
+# R9.9's "off by default" is about the flag's zero value: a values file that
+# omits `metrics.serviceMonitor` renders no ServiceMonitor, because the template
+# gates on a truthy `.enabled`. This profile sets it explicitly — see the header
+# for what each profile ships.
+metrics:
   enabled: true
   serviceMonitor:
     enabled: true
     path: /metrics
     interval: 60s
+    # R9.9: scrapeTimeout must be <= interval; the CRD accepts any duration
+    # string, so the chart cannot enforce it and 10s/60s is the shipped ratio.
     scrapeTimeout: 10s
     # Labels your Prometheus requires to discover the ServiceMonitor.
     # kube-prometheus-stack sets serviceMonitorSelector to {release: <release>};
     # the reference environment's is `release: prom-operator`
-    # (docs/research/live-probe.md). {} on clusters with a permissive selector.
+    # (docs/research/live-probe.md, re-read 2026-11-21 against
+    # prom-operator-kube-prometh-prometheus). {} on clusters with a permissive
+    # selector — and on the reference cluster, where {} means the object is
+    # created but never scraped. See chart/README.md "Making it discoverable".
     additionalLabels: {}
     tlsConfig: {}
     relabelings: []
     metricRelabelings: []
-  # R11.7 — the PodMonitor variant, for scraping pod IPs directly.
+  # R11.7 / R9.9 — the PodMonitor variant, for scraping pod IPs directly.
+  # Same knob set as the ServiceMonitor (path/tlsConfig/relabelings/
+  # metricRelabelings), because the CRD accepts the same set on both.
   podMonitor:
     enabled: false
+    path: /metrics
     interval: 60s
     scrapeTimeout: 10s
     additionalLabels: {}
-  # R9.6 — the rule set lands in Phase 4; the template exists now so enabling it
-    # later is a values change, not a chart change.
+    tlsConfig: {}
+    relabelings: []
+    metricRelabelings: []
+  # R9.6 / R9.11 — the rule set lands in Phase 4; the template exists now so
+  # enabling it later is a values change, not a chart change.
   prometheusRule:
     enabled: false
     additionalLabels: {}

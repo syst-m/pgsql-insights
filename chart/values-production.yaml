@@ -50,10 +50,12 @@ persistence:
   mountPath: /var/lib/pgsi
   existingClaim: ""
 
-# --- Monitoring on (overrides monitoring, same values, kept explicit) ---------
-# R9.1 — the Service is scraped. Set additionalLabels to whatever your Prometheus
-# selects on; the reference environment needs `release: prom-operator`.
-monitoring:
+# --- Monitoring on (overrides metrics, same values, kept explicit) -----------
+# R11.6 names "ServiceMonitor on" as part of the production profile, and R9.9 is
+# the requirement that makes it real. Set additionalLabels to whatever your
+# Prometheus selects on; the reference environment needs `release: prom-operator`
+# (chart/README.md "Making it discoverable").
+metrics:
   enabled: true
   serviceMonitor:
     enabled: true
@@ -63,6 +65,7 @@ monitoring:
     additionalLabels: {}
   podMonitor:
     enabled: false
+    path: /metrics
     interval: 60s
     scrapeTimeout: 10s
     additionalLabels: {}

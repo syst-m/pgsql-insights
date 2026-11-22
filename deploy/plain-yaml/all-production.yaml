@@ -344,6 +344,16 @@ spec:
 ---
 # Source: pgsi/templates/servicemonitor.yaml
 # R9.1 — the Service is scraped directly; R11.7 ships the PodMonitor as a variant.
+#
+# R9.9 names this key `metrics.serviceMonitor.enabled`; Phase 0 shipped it as
+# `monitoring.serviceMonitor.enabled`. The spec's name won (chart README,
+# "Values namespace").
+#
+# API version validated against the reference environment's installed CRD
+# (R9.9's "[A]" clause): `servicemonitors.monitoring.coreos.com`, single served
+# version `v1`, from kube-prometheus-stack 66.1.1 / prometheus-operator 0.78.1.
+# Every field emitted below exists in that CRD's openAPIV3Schema — see the
+# field-by-field table in chart/README.md.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -356,14 +366,26 @@ metadata:
     app.kubernetes.io/version: "0.1.0-dev"
     app.kubernetes.io/part-of: pgsql-insights
 spec:
+  # R9.9 [A]: a ServiceMonitor is only scraped if the local Prometheus selects on
+  # it. The reference environment's Prometheus requires `release: prom-operator`
+  # (spec.serviceMonitorSelector), so `additionalLabels` is not cosmetic — with
+  # `{}` the object is created and silently ignored. chart/README.md gives the
+  # per-install one-liner.
   selector:
     matchLabels:
       app.kubernetes.io/name: pgsi
       app.kubernetes.io/instance: pgsi
+  # Scrape only the Service this chart owns, in this release's namespace. Without
+  # this the CRD defaults to "the ServiceMonitor's own namespace", which is the
+  # same thing today but stops being true the moment someone moves the CR to a
+  # monitoring namespace (R9.1's cross-namespace scrape).
   namespaceSelector:
     matchNames:
       - pgsi
   endpoints:
+    # `port` must name a Service port (R8.7's single HTTP port, named `http` in
+    # templates/service.yaml). Not a number — a numeric port is a schema error on
+    # this CRD; use targetPort for that.
     - port: http
       path: /metrics
       interval: 60s
