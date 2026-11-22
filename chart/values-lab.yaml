@@ -23,13 +23,18 @@ persistence:
   existingClaim: ""
 
 # --- Smaller footprint (overrides resources) ---------------------------------
+# R13.6 caps lab mode at "< 100 MB RAM", and `limits.memory` is the value that
+# enforces it — 128Mi (134.2 MB) did not. 80Mi, not 96Mi: 96 MiB is 100.66 MB in
+# decimal, so a 96Mi limit passes only if "MB" is read as "MiB"; 80Mi (83.9 MB) is
+# under 100 on both readings. The request stays at 64Mi, so the pod keeps a 0.8
+# request-to-limit ratio rather than the 0.5 the old pair implied.
 resources:
   requests:
     cpu: 25m
     memory: 64Mi
   limits:
     cpu: 200m
-    memory: 128Mi
+    memory: 80Mi
 
 # --- Auth off (overrides auth.enabled: false, kept explicit) -----------------
 auth:
