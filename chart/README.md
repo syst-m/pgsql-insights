@@ -329,14 +329,22 @@ Two things an adopter should be able to read off this table:
 
 ### 3. Measured for our own `/metrics`
 
-Not yet available. The families above are Phase 4–8 collector output; the binary
-serves `/metrics` from Phase 5 onward (R9.12's `pgsi_up` is the first series that
-exists before then). Until then the chart README's promise is the computed budget
-plus the measured baseline. R13.4's script has since landed (`271b7bb`) and it is a
-computation over §5's table and the fixture, not a scrape of a running binary, so it
-confirms the first number and converts nothing — the thing that measures it is the
-Phase 5 `/metrics` itself. This is the same dependency that makes R9.6 and R9.8
-deferred to Phase 2's `/metrics` rather than validated now.
+**One series, today.** `internal/api/server.go:171` mounts `GET /metrics` and its
+handler writes exactly one line — `pgsi_build_info{version,commit}` (R11.3) — which
+is what the file's own header comment scopes it to: *"pgsi_build_info only (R11.3;
+the full R9.2 catalogue lands in Phase 2)"*. This section previously answered "not
+yet available" and dated the endpoint to Phase 5; the endpoint is Phase 1a's and the
+number is one. R9.12's `pgsi_up` — the series this section named as the first to
+exist, and which §7's WBS row files under Phase 2 — does not exist in the tree yet.
+
+R13.4's script (`271b7bb`) computes the 24 480 from §5's table and the fixture rather
+than scraping, so it confirms the computed budget and converts nothing; the figure
+stops being a projection when the R9.2 catalogue is wired into that handler. Two of
+the R9.8 self-metrics have since been written — `pgsi_collector_duration_seconds`
+and `pgsi_collector_errors_total`, rendered from `internal/collector/metrics.go:186`
+and `:209` (A1, `4360e21`) — but neither is mounted on the handler, so the served
+count is still one. That is the same dependency that makes R9.6 and R9.8 deferred to
+Phase 2's `/metrics` rather than validated now.
 
 ---
 
