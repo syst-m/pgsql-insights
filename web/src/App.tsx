@@ -33,14 +33,28 @@ import { NotImplemented } from "./pages/NotImplemented";
 import { ROUTE_BY_PAGE, type PageProps } from "./routes";
 import type { FleetResponse } from "./api/types";
 
-export interface AppProps {
+export interface AppProps<T = FleetResponse> {
   /** Test-only: render a fixed location instead of the real window's. */
   initialLocation?: string;
-  /** Test-only: render a fixed payload, skipping the fetch. */
-  fixtureOverride?: FleetResponse;
+  /** Test-only: render a fixed payload, skipping the fetch.
+   *
+   *  Generic and defaulted to `FleetResponse`, rather than a union of every
+   *  payload. The payload belongs to the routed page — `PageProps<T>` is
+   *  per-page for exactly that reason, and says so in `routes.ts` — so pinning
+   *  this field to `FleetResponse` made the shell's fixture the fleet's even on
+   *  a route whose page takes a `QueryResponse`. That was invisible while the
+   *  only two implemented pages were the fleet and the cluster (the cluster
+   *  detail reads neither field), and it is a compile error the moment a
+   *  `PageProps<QueryResponse>` page gets mounted through here. A union would
+   *  need a new member at each of the ten remaining route flips, which is the
+   *  hand-widening `routes.ts` criticises in its own `PageProps` doc; a generic
+   *  needs none, because `T` is whatever the caller passes. Every existing call
+   *  site passes a `FleetResponse` and infers the default, so this is
+   *  source-compatible with all of them. */
+  fixtureOverride?: T;
 }
 
-export function App({ initialLocation, fixtureOverride }: AppProps = {}) {
+export function App<T = FleetResponse>({ initialLocation, fixtureOverride }: AppProps<T> = {}) {
   const [urlState, setUrlState] = useState<UrlState>(() => initialLocation !== undefined
     ? parseUrl(initialLocation)
     : typeof window === "undefined"
@@ -95,14 +109,18 @@ export function App({ initialLocation, fixtureOverride }: AppProps = {}) {
 /** The page switch: the route table's component for this page, or the
  *  placeholder that names the phase that will build it.
  *
- *  Two of the fourteen R10.3 pages have components at Phase 1b; the other
- *  twelve render `NotImplemented`. Routing them is what makes R10.3's page set
- *  one testable artifact today — every page in the table has a URL that answers,
- *  so a page landing at Phase 6b swaps a component without changing a route, a
- *  nav entry, a path, or this file. That last clause is why `Route` carries the
- *  component: the if-chain this replaced had a branch per page, so twelve more
- *  pages meant twelve more edits to a file A6 doesn't own. */
-function PageView(props: PageProps) {
+ *  Which pages have components is the table's answer, not this file's: the
+ *  switch reads `route.component` and renders whatever it finds, so a page
+ *  landing swaps a component without changing a route, a nav entry, a path, or
+ *  this file. That last clause is why `Route` carries the component — the
+ *  if-chain this replaced had a branch per page, so twelve more pages meant
+ *  twelve more edits to a file A6 doesn't own.
+ *
+ *  Generic over the payload for the same reason `AppProps` is. The props handed
+ *  to a page are that page's own, and `AnyPageComponent` in the table is what
+ *  lets one switch forward a `FleetResponse`, a `QueryResponse` and a
+ *  `QueryDetailView` without a union appearing here. */
+function PageView<T>(props: PageProps<T>) {
   const route = ROUTE_BY_PAGE[props.state.page];
   const Page = route.component;
 

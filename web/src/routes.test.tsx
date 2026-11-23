@@ -11,7 +11,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
-import { FIXTURE_FLEET } from "./api/fixtures";
+import { toQueriesResponse } from "./api/envelope";
+import { FIXTURE_FLEET, FIXTURE_QUERY_DETAIL, FIXTURE_QUERIES } from "./api/fixtures";
 import {
   ROUTES,
   ROUTE_BY_PAGE,
@@ -61,6 +62,49 @@ const R10_3_TITLES = [
 ];
 
 const CLUSTER = "freeidp/freeidp-pg";
+
+/** Every implemented route: the URL it mounts at, the payload it takes, and the
+ *  h1 it renders.
+ *
+ *  `App`'s fixture is generic over the routed page's payload (`AppProps<T>`), so
+ *  mounting a page through the shell means handing it *its* type. The queries
+ *  page reads a `QueryResponse` and the detail page a `QueryDetailView`; hand
+ *  either one the fleet response and the first field it touches is undefined —
+ *  which is what broke in this file when the two Phase 6b routes flipped from
+ *  `null` to a component. The shell had one fixture, typed for the fleet, only
+ *  because until then the two pages that could be mounted were the two that read
+ *  it (`ClusterDetail.tsx` takes the prop and never uses it).
+ *
+ *  The list is asserted against the table below, so it cannot drift the way the
+ *  hardcoded pair did: the test was named "for each implemented route" while
+ *  rendering Fleet and Cluster Overview by hand, which was true only for as long
+ *  as the two lists happened to agree. */
+const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknown; heading: string | RegExp }> = [
+  { page: "fleet", location: "/", fixture: FIXTURE_FLEET, heading: "Fleet" },
+  // ClusterDetailPage resolves its row from the URL and reads neither `cfg` nor
+  // the fixture, so the fleet payload is here to answer the type, not because
+  // the page looks at it.
+  { page: "cluster", location: `/c/${CLUSTER}`, fixture: FIXTURE_FLEET, heading: /freeidp-pg/ },
+  {
+    page: "queries",
+    location: `/c/${CLUSTER}/queries`,
+    fixture: toQueriesResponse(FIXTURE_QUERIES),
+    heading: "Queries",
+  },
+  {
+    page: "query-detail",
+    location: `/c/${FIXTURE_QUERY_DETAIL.namespace}/${FIXTURE_QUERY_DETAIL.cluster}/queries/${FIXTURE_QUERY_DETAIL.fingerprint}`,
+    fixture: FIXTURE_QUERY_DETAIL,
+    heading: FIXTURE_QUERY_DETAIL.query,
+  },
+];
+
+/** Derived from the list above so the nav test and the render test read one
+ *  table instead of keeping two copies of the same answer. Routes with no entry
+ *  render `NotImplemented`, which takes no payload. */
+const FIXTURE_BY_PAGE: Partial<Record<Page, unknown>> = Object.fromEntries(
+  IMPLEMENTED.map((entry) => [entry.page, entry.fixture]),
+);
 
 describe("the route table", () => {
   it("has exactly the fourteen pages R10.3 names, with their titles", () => {
@@ -234,8 +278,11 @@ describe("navFor", () => {
 
   it("marks the current page on every route", () => {
     for (const route of ROUTES.filter((r) => r.inNav)) {
+      // The payload comes from the same table the render tests use: a route with
+      // a component needs its own payload type, and the ten without one ignore
+      // the prop entirely, so `undefined` is the right answer for them.
       const { container } = render(
-        <App initialLocation={buildPath(route.page, CLUSTER, null)} fixtureOverride={FIXTURE_FLEET} />,
+        <App initialLocation={buildPath(route.page, CLUSTER, null)} fixtureOverride={FIXTURE_BY_PAGE[route.page]} />,
       );
       const current = container.querySelector('nav[aria-label="Primary"] a[aria-current="page"]');
       expect(current?.textContent).toBe(route.title);
@@ -244,11 +291,27 @@ describe("navFor", () => {
 });
 
 describe("App routing", () => {
-  const renderAt = (location: string) => render(<App initialLocation={location} fixtureOverride={FIXTURE_FLEET} />);
+  const renderAt = (location: string, fixture?: unknown) =>
+    render(<App initialLocation={location} fixtureOverride={fixture} />);
 
   it("renders the real page for each implemented route", () => {
-    expect(renderAt("/").getByRole("heading", { level: 1, name: "Fleet" })).toBeInTheDocument();
-    expect(renderAt("/c/freeidp/freeidp-pg").getByRole("heading", { level: 1, name: /freeidp-pg/ })).toBeInTheDocument();
+    // The list above and the table have to agree, or this test is a snapshot of
+    // someone's memory. `statusOf` is the derivation of "implemented", so it is
+    // what says so here: the old version of this test rendered two pages by hand
+    // and was named "for each implemented route" on the strength of the two
+    // lists happening to match.
+    expect(IMPLEMENTED.map((entry) => entry.page).sort()).toEqual(
+      ROUTES.filter((r) => r.component !== null).map((r) => r.page).sort(),
+    );
+    for (const entry of IMPLEMENTED) {
+      const { container, unmount } = renderAt(entry.location, entry.fixture);
+      // The h1 alone would also pass on `NotImplemented`, which renders the
+      // route's title as its heading; `data-page` is what proves the page's own
+      // component mounted rather than the placeholder standing in for it.
+      expect(container.querySelector("[data-page]")?.getAttribute("data-page")).toBe(entry.page);
+      expect(container.querySelector("h1")?.textContent ?? "").toMatch(entry.heading);
+      unmount();
+    }
   });
 
   it("renders the placeholder for each planned route, naming its phase", () => {
@@ -262,7 +325,8 @@ describe("App routing", () => {
     for (const route of planned) {
       // Query Detail's path needs a fingerprint — without one `buildPath`
       // returns its parent list, which is the correct fallback but renders the
-      // Queries page, not this one.
+      // Queries page, not this one. It is implemented now, so the branch is
+      // dormant here and live in the table above.
       const row = route.page === "query-detail" ? "0x84f2a91c" : null;
       const { unmount } = renderAt(buildPath(route.page, CLUSTER, row));
       expect(screen.getByRole("heading", { level: 1, name: route.title })).toBeInTheDocument();
@@ -270,12 +334,5 @@ describe("App routing", () => {
       expect(screen.getByText(`§9 Phase ${route.phase}`, { exact: false })).toBeInTheDocument();
       unmount();
     }
-  });
-
-  it("renders the placeholder for a query fingerprint, with the row resolved", () => {
-    const { unmount } = renderAt("/c/cookbook/cookbook-pg/queries/0x84f2a91c");
-    expect(screen.getByRole("heading", { level: 1, name: "Query Detail" })).toBeInTheDocument();
-    expect(screen.getByText("cookbook/cookbook-pg")).toBeInTheDocument();
-    unmount();
   });
 });

@@ -24,13 +24,20 @@ const SCREENS: readonly { name: string; url: string }[] = [
   // capture races it.
   { name: "loading", url: "/?fixture=fleet&delay=60000" },
   { name: "detail", url: "/c/freeidp/freeidp-pg?fixture=fleet" },
-  // R10.3's page set is fourteen pages and two have components; the other
-  // twelve render the placeholder, and R16.7 screenshots one of them so the
-  // shell itself is covered — the nav's thirteen links and the card that names
-  // the phase. The rest are covered by routes.test.tsx, which renders all
-  // twelve; screenshotting twelve near-identical cards would only grow the
-  // matrix, not the coverage.
-  { name: "planned", url: "/c/freeidp/freeidp-pg/queries?fixture=fleet" },
+  // R10.6's page, screenshotted now that routes.ts mounts a component there.
+  // The page reads a QueryResponse and takes its own fixture when the URL names
+  // none, so `?fixture=fleet` here is for the shell's benefit — the nav and the
+  // theme — not the page's.
+  { name: "queries", url: "/c/freeidp/freeidp-pg/queries?fixture=fleet" },
+  // R10.3's page set is fourteen pages; the ones with components render, the
+  // rest render the placeholder, and R16.7 screenshots one placeholder so the
+  // shell itself is covered — the nav's links and the card that names the phase.
+  // Which routes are planned is `routes.ts`'s answer, so this file names a URL
+  // rather than restating a count (docs/agents.md §5 rule 10); the URL has to be
+  // a route still without a component, which is why it moved off `/queries`
+  // when that page got one. routes.test.tsx renders every planned route;
+  // screenshotting near-identical cards would grow the matrix, not the coverage.
+  { name: "planned", url: "/c/freeidp/freeidp-pg/databases?fixture=fleet" },
 ];
 
 /** Font antialiasing differs a little between machines and OS versions; a

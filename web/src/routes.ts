@@ -1,12 +1,19 @@
 /* R10.3's page set, as one table (and with it, R10.16's URL scheme).
  *
- * R10.3 names fourteen pages. Until now the app had two — Fleet and Cluster
- * Overview — and the other twelve existed only as a row in a requirements
+ * R10.3 names fourteen pages. The Phase 1b shell shipped two of them — Fleet and
+ * Cluster Overview — and the other twelve existed only as a row in a requirements
  * table, so there was no way to link to them, no way to tell a user which ones
  * were coming, and nothing for R16.7 to screenshot when they landed. The shell
- * is the Phase 1b half of R10.3: the routes exist and answer, and the twelve
- * pages that Phase 5+ builds render an honest placeholder naming the phase that
- * will build them.
+ * is the Phase 1b half of R10.3: the routes exist and answer, and every route
+ * still without a component renders an honest placeholder naming the phase that
+ * will build it.
+ *
+ * How many that is moves every time a page lands — Phase 6b's work added Queries
+ * and Query Detail to the two from 1b — so the count is stated here as a fact
+ * about those commits and nowhere as an invariant. `routes.test.tsx` derives the
+ * implemented set from `Route.component` rather than restating it, which is the
+ * half that stays true; `docs/agents.md` §5 rule 10 is the rule that says a
+ * count written in two files needs a third thing asserting they agree.
  *
  * Putting the table in one file is what makes it testable as a single artifact.
  * `routes.test.ts` asserts the properties that were previously spread across
@@ -46,6 +53,8 @@ import type { ClientConfig } from "./api/client";
 import type { FleetResponse } from "./api/types";
 import { ClusterDetailPage } from "./pages/ClusterDetail";
 import { FleetPage } from "./pages/Fleet";
+import { QueryDetailPage } from "./pages/QueryDetail";
+import { QueriesPage } from "./pages/Queries";
 import type { UrlState } from "./state/urlState";
 
 /** The 14 pages R10.3 names. This is the canonical declaration; `state/urlState.ts`
@@ -181,7 +190,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.6",
     endpoint: "GET /api/v1/insights/queries",
     phase: "6b",
-    component: null,
+    component: QueriesPage,
     scope: "cluster",
     path: "/c/:ns/:name/queries",
     inNav: true,
@@ -192,7 +201,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.7",
     endpoint: "GET /api/v1/insights/queries/{fingerprint}",
     phase: "6b",
-    component: null,
+    component: QueryDetailPage,
     scope: "cluster",
     // The fingerprint is `state.row` — R10.16's "selected row", which is what a
     // query detail is when opened from the Queries table.
