@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -106,8 +107,30 @@ func rowFor(p Projection, over map[string]string) Row {
 	return row
 }
 
+// databaseNames is the set of databases a fixture round reports for one view: the
+// app database plus a second one, and — for pg_stat_database only — the
+// shared-objects row every real result set has and whose datname is NULL.
+//
+// This is D20's S12. The fixture used to be exactly one row per view, which made a
+// multi-database round untested rather than thinly tested: with one row, "one
+// sample per metric column" is the whole hypothesis, so every bug that only shows
+// up on a second row — S8's empty datname, a label read off the wrong row, a
+// per-row timestamp that leaks between rows — had no test that could see it. Two
+// named rows plus one nameless row is what a real cluster returns.
+func databaseNames(view pgversion.View) []string {
+	names := []string{"app", "analytics"}
+	if view == pgversion.ViewStatDatabase {
+		// pg_database and pg_stat_database_conflicts have no shared-objects row:
+		// that row is a pg_stat_database artefact (datid 0), and the S8 filter is
+		// written per view, not per collector.
+		names = append(names, "")
+	}
+	return names
+}
+
 // newTestDatabase builds the collector plus the fake opener and tx it runs on,
-// with rows for every projection the collector would issue against tgt.
+// serving databaseNames' rows for every projection the collector would issue
+// against tgt.
 func newTestDatabase(t *testing.T, tgt Target, over map[string]string) (*DatabaseCollector, *fakeOpener, *fakeTx) {
 	t.Helper()
 	projections, err := NewDatabaseCollector(nil, SQLConfig{}).projections(tgt)
@@ -116,10 +139,30 @@ func newTestDatabase(t *testing.T, tgt Target, over map[string]string) (*Databas
 	}
 	tx := &fakeTx{rows: map[string][]Row{}}
 	for _, pv := range projections {
-		tx.rows[pv.Query] = []Row{rowFor(pv.Projection, over)}
+		for _, name := range databaseNames(pv.view) {
+			// The name goes through `over` rather than through a rowFor parameter so
+			// there is one way to set a column and it is always the same one.
+			row := rowFor(pv.Projection, map[string]string{"datname": name})
+			for k, v := range over {
+				row[k] = v
+			}
+			tx.rows[pv.Query] = append(tx.rows[pv.Query], row)
+		}
 	}
 	opener := &fakeOpener{tx: tx}
 	return NewDatabaseCollector(opener, SQLConfig{Now: func() time.Time { return fixedClock }}), opener, tx
+}
+
+// datnamesOf returns the datname of every sample in a list, sorted, so an
+// assertion can name the whole label set in one string instead of asserting on one
+// sample and hoping the others agree.
+func datnamesOf(samples []Sample) string {
+	names := make([]string, 0, len(samples))
+	for _, s := range samples {
+		names = append(names, s.Labels["datname"])
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
 }
 
 func TestDatabaseDescriptor(t *testing.T) {
@@ -175,8 +218,25 @@ func TestDatabaseQueriesAreSchemaQualified(t *testing.T) {
 		}
 		for _, pv := range projections {
 			want := " FROM pg_catalog." + string(pv.view)
-			if !strings.HasSuffix(pv.Query, want) {
-				t.Errorf("PG%d %s: query %q does not end in %q (R2.5)", major, pv.view, pv.Query, want)
+			// Containment, not suffix: a view with a WHERE clause (pg_database,
+			// D20's S7) no longer ends at the table name, and a suffix check would
+			// have failed on the very query the fix added. The suffix check survives
+			// where it is still the right shape — and the WHERE clause gets its own.
+			if !strings.Contains(pv.Query, want) {
+				t.Errorf("PG%d %s: query %q does not contain %q (R2.5)", major, pv.view, pv.Query, want)
+			}
+			if pv.Where == "" {
+				if !strings.HasSuffix(pv.Query, want) {
+					t.Errorf("PG%d %s: query %q does not end in %q", major, pv.view, pv.Query, want)
+				}
+			} else if !strings.HasSuffix(pv.Query, " WHERE "+pv.Where) {
+				t.Errorf("PG%d %s: query %q does not end in the spec's own WHERE clause %q",
+					major, pv.view, pv.Query, pv.Where)
+			}
+			if pv.view == pgversion.ViewDatabase &&
+				!strings.Contains(pv.Where, "pg_catalog.has_database_privilege") {
+				t.Errorf("PG%d pg_database: WHERE %q has no has_database_privilege guard (D20's S7: pg_database_size(oid) needs CONNECT per database, and without the filter the whole SELECT throws on template0)",
+					major, pv.Where)
 			}
 			cols, _ := pgversion.Columns(pv.view, major)
 			for _, col := range cols {
@@ -189,9 +249,16 @@ func TestDatabaseQueriesAreSchemaQualified(t *testing.T) {
 	}
 }
 
-// TestDatabaseCollectSamples is the golden sample set for one round: one row per
-// view, and every metric column of each row turned into a sample carrying the
-// R9.3 datname label, R13.11's two timestamps and R3.3's epoch.
+// TestDatabaseCollectSamples is the golden sample set for one round: every
+// database the fixture reports, and every metric column of each of their rows
+// turned into a sample carrying the R9.3 datname label, R13.11's two timestamps
+// and R3.3's epoch.
+//
+// The expected count is derived — metric columns times named rows, summed over the
+// three projections — not typed. A number a test asserts on is a claim about the
+// collector, and a recalled number is a claim nobody checked; the product form is
+// also what makes this test cover S8's rule on every metric of pg_stat_database,
+// because the fixture's nameless row is excluded from the product.
 func TestDatabaseCollectSamples(t *testing.T) {
 	tgt := tgtPG("pg", "pg-1", "primary")
 	c, _, _ := newTestDatabase(t, tgt, map[string]string{"stats_reset": "2026-01-01 00:00:00+00"})
@@ -204,22 +271,31 @@ func TestDatabaseCollectSamples(t *testing.T) {
 	projections, _ := c.projections(tgt)
 	wantMetric := 0
 	for _, pv := range projections {
+		metrics, named := 0, 0
 		for _, col := range pv.Columns {
 			if kindOf(pv.view, col) == kindMetric {
-				wantMetric++
+				metrics++
 			}
 		}
+		for _, name := range databaseNames(pv.view) {
+			if name != "" {
+				named++
+			}
+		}
+		wantMetric += metrics * named
 	}
 	if len(res.Samples) != wantMetric {
-		t.Fatalf("len(Samples) = %d, want %d (one per metric column across the three projections)",
+		t.Fatalf("len(Samples) = %d, want %d (metric columns x named rows across the three projections)",
 			len(res.Samples), wantMetric)
 	}
 
 	// Spot checks that the value, the labels and the three timestamps all came
-	// from the row rather than from a default.
-	byMetric := map[string]Sample{}
+	// from the row rather than from a default. byMetric holds a slice per family:
+	// a map keyed by metric alone keeps whichever database the loop saw last and
+	// silently hides the other, which is the half of S12 the count alone cannot see.
+	byMetric := map[string][]Sample{}
 	for _, s := range res.Samples {
-		byMetric[s.Metric] = s
+		byMetric[s.Metric] = append(byMetric[s.Metric], s)
 	}
 	for _, name := range []string{
 		"pg_stat_database_xact_commit",
@@ -229,37 +305,45 @@ func TestDatabaseCollectSamples(t *testing.T) {
 		"pg_database_frozenxid_age",
 		"pg_database_minmxid_age",
 	} {
-		s, ok := byMetric[name]
-		if !ok {
-			t.Errorf("no sample for %s", name)
+		got := byMetric[name]
+		if len(got) != 2 {
+			t.Errorf("%s: %d samples, want 2 (one per named database)", name, len(got))
 			continue
 		}
-		if s.Value != 7 {
-			t.Errorf("%s value = %v, want 7", name, s.Value)
+		if names := datnamesOf(got); names != "analytics,app" {
+			t.Errorf("%s datnames = %q, want \"analytics,app\" (R9.3: database series add datname)", name, names)
 		}
-		if s.Labels["datname"] != "app" {
-			t.Errorf("%s labels = %v, want datname=app (R9.3: database series add datname)", name, s.Labels)
-		}
-		if !s.SourceTime.Equal(sourceNow) {
-			t.Errorf("%s SourceTime = %s, want %s (R13.11's instance clock, from the now() column)",
-				name, s.SourceTime, sourceNow)
-		}
-		if !s.IngestTime.Equal(fixedClock) {
-			t.Errorf("%s IngestTime = %s, want %s (R13.11's our-clock, from the injected clock)",
-				name, s.IngestTime, fixedClock)
+		for _, s := range got {
+			if s.Value != 7 {
+				t.Errorf("%s{%s} value = %v, want 7", name, s.Labels["datname"], s.Value)
+			}
+			if !s.SourceTime.Equal(sourceNow) {
+				t.Errorf("%s{%s} SourceTime = %s, want %s (R13.11's instance clock, from the now() column)",
+					name, s.Labels["datname"], s.SourceTime, sourceNow)
+			}
+			if !s.IngestTime.Equal(fixedClock) {
+				t.Errorf("%s{%s} IngestTime = %s, want %s (R13.11's our-clock, from the injected clock)",
+					name, s.Labels["datname"], s.IngestTime, fixedClock)
+			}
 		}
 	}
 
 	// The epoch lands on the samples that have one and not on the ones that do
 	// not: pg_stat_database has stats_reset, pg_database and
 	// pg_stat_database_conflicts do not, and a zero there is "no epoch" rather
-	// than a missing value.
+	// than a missing value. Every row of each family is checked, not one of them.
 	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if s := byMetric["pg_stat_database_xact_commit"]; !s.StatsReset.Equal(epoch) {
-		t.Errorf("pg_stat_database_xact_commit StatsReset = %s, want %s (R3.3's counter epoch)", s.StatsReset, epoch)
+	for _, s := range byMetric["pg_stat_database_xact_commit"] {
+		if !s.StatsReset.Equal(epoch) {
+			t.Errorf("pg_stat_database_xact_commit{%s} StatsReset = %s, want %s (R3.3's counter epoch)",
+				s.Labels["datname"], s.StatsReset, epoch)
+		}
 	}
-	if s := byMetric["pg_database_size"]; !s.StatsReset.IsZero() {
-		t.Errorf("pg_database_size StatsReset = %s, want zero (pg_database has no stats_reset)", s.StatsReset)
+	for _, s := range byMetric["pg_database_size"] {
+		if !s.StatsReset.IsZero() {
+			t.Errorf("pg_database_size{%s} StatsReset = %s, want zero (pg_database has no stats_reset)",
+				s.Labels["datname"], s.StatsReset)
+		}
 	}
 
 	// The identity labels are the scheduler's to add (clock.go's Sample doc), so a
@@ -352,6 +436,49 @@ func TestDatabaseCollectQueryErrorKeepsRoundTrips(t *testing.T) {
 	}
 }
 
+// TestDatabaseCollectNamelessRowProducesNoSamples is D20's S8 on its own: the
+// shared-objects row every real pg_stat_database result set has, whose datname is
+// NULL. The row is real data (shared buffers, shared block hits) and R9.3's closed
+// label set has no slot for datname="", so it yields no samples rather than a
+// series named pgsi_stat_database_xact_commit{datname=""}.
+//
+// The fixture here is deliberately the nameless row *alone*, where the shared
+// fixture mixes it with two named ones: the bug S8 describes was the nameless row
+// exporting a series beside the named ones, and a test that only ever had named
+// rows could not have seen it. A projection with no name column at all is the other
+// half of the rule (hasName false, not filtered) and belongs to the settings
+// collector's builders, which have no name column and correctly export everything.
+func TestDatabaseCollectNamelessRowProducesNoSamples(t *testing.T) {
+	tgt := tgtPG("pg", "pg-1", "primary")
+	projections, err := NewDatabaseCollector(nil, SQLConfig{}).projections(tgt)
+	if err != nil {
+		t.Fatalf("projections: %v", err)
+	}
+	tx := &fakeTx{rows: map[string][]Row{}}
+	for _, pv := range projections {
+		tx.rows[pv.Query] = []Row{rowFor(pv.Projection, map[string]string{"datname": ""})}
+	}
+	opener := &fakeOpener{tx: tx}
+	c := NewDatabaseCollector(opener, SQLConfig{Now: func() time.Time { return fixedClock }})
+
+	res, err := c.Collect(context.Background(), tgt)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(res.Samples) != 0 {
+		t.Errorf("len(Samples) = %d, want 0 (a row with no datname has no R9.3 series to join: skipped, not labelled \"\")\n%v",
+			len(res.Samples), res.Samples)
+	}
+	if res.RoundTrips != len(databaseViews) {
+		t.Errorf("RoundTrips = %d, want %d (the round still ran — skipping a row is not skipping a query)",
+			res.RoundTrips, len(databaseViews))
+	}
+}
+
+// TestDatabaseCollectCommitError is D20's S9 as well as the round-trip rule: the
+// fake's rollbacks counter is read here, because the version of this test that
+// checked commits and RoundTrips but never rollbacks is what let a commit-error path
+// return without the Rollback that sql.go's Tx doc requires on every error path.
 func TestDatabaseCollectCommitError(t *testing.T) {
 	tgt := tgtPG("pg", "pg-1", "primary")
 	c, _, tx := newTestDatabase(t, tgt, nil)
@@ -366,6 +493,10 @@ func TestDatabaseCollectCommitError(t *testing.T) {
 	}
 	if len(res.Samples) == 0 {
 		t.Error("Samples empty, want the read samples returned alongside the error")
+	}
+	if tx.commits != 1 || tx.rollbacks != 1 {
+		t.Errorf("commits/rollbacks = %d/%d, want 1/1 (a failed COMMIT may leave the transaction open on a pooled connection; the best-effort Rollback is what closes it)",
+			tx.commits, tx.rollbacks)
 	}
 }
 

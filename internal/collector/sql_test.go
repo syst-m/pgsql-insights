@@ -16,15 +16,16 @@ import (
 // hardcoded, because the hardcoded version would be a second copy of the table
 // and the failure it catches is "the builder stopped asking the matrix" — which
 // only a second, independent construction of the same answer can see. The
-// pg_database case carries extras so the alias form is covered too.
+// pg_database case carries extras and a WHERE clause, so the alias form and the
+// filter form (D20's S7) are both covered.
 func TestProjectQueryIsTheMatrixQuery(t *testing.T) {
 	cases := []struct {
-		view  pgversion.View
-		extra []Extra
+		view pgversion.View
+		spec QuerySpec
 	}{
 		{view: pgversion.ViewStatDatabase},
 		{view: pgversion.ViewStatDatabaseConflicts},
-		{view: pgversion.ViewDatabase, extra: databaseExtras[pgversion.ViewDatabase]},
+		{view: pgversion.ViewDatabase, spec: databaseSpecs[pgversion.ViewDatabase]},
 	}
 
 	for _, tc := range cases {
@@ -32,18 +33,21 @@ func TestProjectQueryIsTheMatrixQuery(t *testing.T) {
 			if !pgversion.Exists(tc.view, major) {
 				continue
 			}
-			p, ok := Project(tc.view, major, tc.extra...)
+			p, ok := Project(tc.view, major, tc.spec)
 			if !ok {
 				t.Fatalf("Project(%s, %d): not ok", tc.view, major)
 			}
 
 			cols, _ := pgversion.Columns(tc.view, major)
 			want := "SELECT " + strings.Join(cols, ", ")
-			for _, e := range tc.extra {
+			for _, e := range tc.spec.Extras {
 				want += ", " + e.Expr + " AS " + e.Alias
 			}
 			want += ", now() AS " + SourceNowColumn
 			want += " FROM " + pgversion.Schema(tc.view) + "." + string(tc.view)
+			if tc.spec.Where != "" {
+				want += " WHERE " + tc.spec.Where
+			}
 
 			if p.Query != want {
 				t.Errorf("Project(%s, %d).Query =\n%s\nwant\n%s", tc.view, major, p.Query, want)
@@ -59,7 +63,7 @@ func TestProjectQueryIsTheMatrixQuery(t *testing.T) {
 // extra aliases, then the now() alias. A collector iterates this list, so a
 // missing entry is a metric that silently stops being reported.
 func TestProjectColumns(t *testing.T) {
-	p, ok := Project(pgversion.ViewDatabase, pgversion.Major16, databaseExtras[pgversion.ViewDatabase]...)
+	p, ok := Project(pgversion.ViewDatabase, pgversion.Major16, databaseSpecs[pgversion.ViewDatabase])
 	if !ok {
 		t.Fatal("Project(pg_database, 16): not ok")
 	}
@@ -81,13 +85,13 @@ func TestProjectColumns(t *testing.T) {
 // "SELECT  FROM pg_catalog.x", which is a syntax error on the instance rather
 // than an error in Go.
 func TestProjectUnknownViewMajor(t *testing.T) {
-	if _, ok := Project(pgversion.ViewStatIO, pgversion.Major13); ok {
+	if _, ok := Project(pgversion.ViewStatIO, pgversion.Major13, QuerySpec{}); ok {
 		t.Error("Project(pg_stat_io, 13) = ok, want not ok (pg_stat_io exists from 16)")
 	}
-	if _, ok := Project(pgversion.View("pg_nope"), pgversion.Major16); ok {
+	if _, ok := Project(pgversion.View("pg_nope"), pgversion.Major16, QuerySpec{}); ok {
 		t.Error("Project(pg_nope, 16) = ok, want not ok (unknown view)")
 	}
-	if _, ok := Project(pgversion.ViewStatDatabase, 12); ok {
+	if _, ok := Project(pgversion.ViewStatDatabase, 12, QuerySpec{}); ok {
 		t.Error("Project(pg_stat_database, 12) = ok, want not ok (12 is outside the matrix)")
 	}
 }
@@ -227,9 +231,11 @@ func TestParseTimestamp(t *testing.T) {
 	}
 }
 
-// TestValidateProjection checks the two typos that would otherwise surface as a
-// Postgres syntax error: a column name that is not an identifier, and a FROM
-// clause with no schema (R2.5's whole point).
+// TestValidateProjection checks the three typos that would otherwise surface as a
+// Postgres syntax error: a column name that is not an identifier, a FROM clause
+// with no schema (R2.5's whole point), and an expression that calls a function
+// without one. The third is D20's S10 — the check covered the first two and not the
+// one field a collector author types by hand, so `age(datfrozenxid)` passed.
 func TestValidateProjection(t *testing.T) {
 	if err := validateProjection(Projection{
 		Query:   "SELECT a, b FROM pg_catalog.pg_database",
@@ -262,5 +268,69 @@ func TestValidateProjection(t *testing.T) {
 		Columns: []string{"a"},
 	}); err != nil {
 		t.Errorf("pg_stat_statements schema rejected: %v", err)
+	}
+
+	// D20's S10, the gap itself: Extra.Expr is the one field in the package a
+	// collector author types by hand, and it used to be the one field not checked,
+	// so an unqualified call there passed while the same text in a query string
+	// would not.
+	if err := validateProjection(Projection{
+		Query:   "SELECT a, age(datfrozenxid) AS x FROM pg_catalog.pg_database",
+		Columns: []string{"a", "x"},
+		Extras:  []Extra{{Expr: "age(datfrozenxid)", Alias: "x"}},
+	}); err == nil {
+		t.Error(`Extra{Expr: "age(datfrozenxid)"} accepted, want error (R2.5: schema-qualify every catalog reference)`)
+	}
+	// The Where clause is checked by the same rule, so a hand-written filter cannot
+	// smuggle an unqualified call past R2.5 either.
+	if err := validateProjection(Projection{
+		Query:   "SELECT a FROM pg_catalog.pg_database WHERE has_database_privilege(oid, 'CONNECT')",
+		Columns: []string{"a"},
+		Where:   "has_database_privilege(oid, 'CONNECT')",
+	}); err == nil {
+		t.Error("Where clause with an unqualified call accepted, want error (the same rule as an Extra)")
+	}
+	// A schema outside knownSchemas is not one Postgres has for our purposes. The
+	// check is a membership test now rather than two hardcoded strings, so the FROM
+	// clause and the expressions consult one answer.
+	if err := validateProjection(Projection{
+		Query:   "SELECT a FROM information_schema.pg_database",
+		Columns: []string{"a"},
+	}); err == nil {
+		t.Error("FROM a schema outside knownSchemas accepted, want error")
+	}
+}
+
+// TestUnqualifiedCall is the expression checker on its own, because
+// validateProjection's verdict on an Extra or a Where clause is entirely this
+// function's answer and the shapes it has to get right are not obvious: a call with
+// spaces before the paren, a parenthesised expression with no callee, a qualified
+// call whose schema is not one we know, and a call with a string-literal argument
+// (the second argument of has_database_privilege(oid, 'CONNECT') is not a call).
+func TestUnqualifiedCall(t *testing.T) {
+	cases := []struct {
+		expr string
+		want string
+	}{
+		{"pg_catalog.age(datfrozenxid)", ""},
+		{"pg_catalog.pg_database_size(oid)", ""},
+		{"pg_catalog.has_database_privilege(oid, 'CONNECT')", ""},
+		{"age(datfrozenxid)", "age"},
+		{"pg_database_size(oid)", "pg_database_size"},
+		{"f (x)", "f"}, // spaces between the callee and its "("
+		{"other_schema.f(x)", "other_schema.f"},
+		{"1 + 2", ""},
+		{"(a)", ""},              // a grouped expression, not a call
+		{"()", ""},               // no callee at all
+		{"", ""},                 // empty: no call, and validateProjection accepts an empty Where
+		{"a + b(1) * c(d)", "b"}, // the first bad one wins, left to right
+		{"pg_catalog.f(x) + g(y)", "g"},
+		{"pg_catalog.f(x) + other.g(y)", "other.g"},
+		{"7up(x)", "7up"}, // a name starting with a digit is not a valid identifier
+	}
+	for _, tc := range cases {
+		if got := unqualifiedCall(tc.expr); got != tc.want {
+			t.Errorf("unqualifiedCall(%q) = %q, want %q", tc.expr, got, tc.want)
+		}
 	}
 }

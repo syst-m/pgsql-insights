@@ -379,7 +379,10 @@ func Resolve(view View, col string, major int) (Resolution, bool) {
 		// A split's To set is the whole successor set, so the old name still gets
 		// everything the old name measured — faithful, even though the answer is
 		// three sources for a question about one.
-		return Resolution{Sources: s.To, Kind: s.Kind, Faithful: true, Note: s.Note}, true
+		//
+		// followChain is what makes this the spelling on `major` rather than the
+		// spelling on `s.Since` (D20's S5).
+		return Resolution{Sources: followChain(s.To, major), Kind: s.Kind, Faithful: true, Note: s.Note}, true
 	}
 
 	// Backward: the pair is somebody's successor on a later major, so on this
@@ -397,6 +400,52 @@ func Resolve(view View, col string, major int) (Resolution, bool) {
 	}
 
 	return Resolution{}, false
+}
+
+// followChain returns the set of sources `to` is spelled by on major, walking the
+// succession table forward for as long as the changes happened at or before major.
+//
+// D20's S5: Resolve's forward path used to return s.To verbatim. That is the right
+// answer only when no member of To changed again at or before major, and with a
+// chain — A renamed to B at 15, B renamed to C at 17 — it is not: Resolve(A, 18)
+// answered B, a column PG18 does not have, because the row said "B" and nothing
+// asked whether B had a history of its own. The backward path already walks chains
+// (predecessor picks the earliest Since); this is the forward half of the same rule.
+//
+// The table has no chains today — fifteen rows, and no pair is both a To and a From
+// — so this changes no current answer, which is why S5 is filed as latent and not
+// as a live bug. The test that pins it is succession_test.go's
+// TestResolveSourcesExistOnMajor: a future matrix update that adds a chain cannot
+// ship an answer that is not a column on the major it was asked about.
+//
+// The seen set bounds the walk. Validate's injectivity checks make a cycle the only
+// way the walk fails to terminate, and a cycle in the table is a data bug that
+// should not cost every caller an infinite loop.
+func followChain(to []Source, major int) []Source {
+	if len(to) == 0 {
+		return nil // a retire: the empty answer stays nil, not an empty slice
+	}
+
+	out := make([]Source, 0, len(to))
+	seen := make(map[Source]bool, len(to))
+	queue := append([]Source(nil), to...)
+	for len(queue) > 0 {
+		src := queue[0]
+		queue = queue[1:]
+		if seen[src] {
+			continue
+		}
+		seen[src] = true
+
+		if s, ok := successionsByFrom[src]; ok && s.Since <= major {
+			// This member changed again on or before major, so on major it is
+			// spelled by its own successors and not by itself.
+			queue = append(queue, s.To...)
+			continue
+		}
+		out = append(out, src)
+	}
+	return out
 }
 
 // predecessor returns the succession whose To contains src and whose change has

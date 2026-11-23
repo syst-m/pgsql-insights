@@ -171,10 +171,42 @@ func (c SQLConfig) withDefaults() SQLConfig {
 type Extra struct {
 	// Expr is the expression, schema-qualified per R2.5 —
 	// "pg_catalog.pg_database_size(oid)", not "pg_database_size(oid)".
+	//
+	// validateProjection checks it (D20's S10). This is the one field in the
+	// package a collector author types by hand, and an unqualified call here is
+	// shadowable by anything on search_path, which is the failure R2.5 names; the
+	// check existed for the column names and the FROM clause and not for this
+	// field, so `Extra{Expr: "age(datfrozenxid)"}` used to pass.
 	Expr string
 	// Alias is the name the value is returned under ("size"), and therefore the
 	// column name the collector reads back and the metric name's last component.
 	Alias string
+}
+
+// QuerySpec is the per-view SQL a collector adds to what the matrix supplies: the
+// derived expressions in Extras and, when the view needs one, a WHERE clause.
+//
+// It replaced Project's variadic `extra ...Extra` parameter (D20's S7). The
+// database collector needed a filter on pg_database — see database.go's
+// databaseSpecs — and a second parameter bolted onto the variadic one
+// (`Project(view, major, extras, where)`) reads as four constructors once the next
+// collector needs a fourth thing. One struct with two optional fields is what this
+// file's own SQLConfig doc argues for over "four constructors with three optional
+// fields each". Every caller now passes one struct, and the common case is the
+// empty one: `Project(v, major, QuerySpec{})`.
+type QuerySpec struct {
+	// Extras are the derived expressions to append after the matrix's columns.
+	// Empty for a view whose column set is the whole projection, which is every
+	// view so far except pg_database.
+	Extras []Extra
+	// Where is the query's WHERE clause without the keyword, and "" for no filter.
+	//
+	// It is part of the spec rather than baked into a query string because a
+	// collector never writes a query string: Project assembles it. Carrying the
+	// clause as a field is what lets validateProjection check it the same way it
+	// checks an Extra (unqualifiedCall) — a check that had to re-parse SQL to find
+	// its own inputs is a check that gets skipped, which is D20's S10.
+	Where string
 }
 
 // Projection is one view's query and the column names its rows carry, in SELECT
@@ -190,6 +222,11 @@ type Projection struct {
 	// Columns names every column Query returns, in SELECT order: the matrix's
 	// columns for this major, then any Extra aliases, then SourceNowColumn.
 	Columns []string
+	// Extras and Where echo the QuerySpec Query was built from. The query string
+	// already contains both; the fields exist so validateProjection can check the
+	// spec's own fields rather than re-derive them from SQL (D20's S10).
+	Extras []Extra
+	Where  string
 }
 
 // Project builds the query R2.4 and R2.5 prescribe for one view on one major.
@@ -199,30 +236,41 @@ type Projection struct {
 // collector never writes a table name, so it cannot write one unqualified or
 // misspell it, and it cannot select a column that this major does not have.
 //
+// The spec carries the two things the matrix cannot express — derived expressions
+// and a filter — and every caller passes one, the empty one being the common case;
+// see QuerySpec for why it is a struct and not a variadic parameter.
+//
 // now() is appended to every query as SourceNowColumn so R13.11's instance
 // timestamp comes back with the data rather than costing an extra round-trip;
 // see the constant for why the value is the transaction's start.
-func Project(view pgversion.View, major int, extra ...Extra) (Projection, bool) {
+func Project(view pgversion.View, major int, spec QuerySpec) (Projection, bool) {
 	cols, ok := pgversion.Columns(view, major)
 	if !ok {
 		return Projection{}, false
 	}
 
-	list := make([]string, 0, len(cols)+len(extra)+1)
+	list := make([]string, 0, len(cols)+len(spec.Extras)+1)
 	list = append(list, cols...)
-	names := make([]string, 0, len(cols)+len(extra)+1)
+	names := make([]string, 0, len(cols)+len(spec.Extras)+1)
 	names = append(names, cols...)
 
-	for _, e := range extra {
+	for _, e := range spec.Extras {
 		list = append(list, e.Expr+" AS "+e.Alias)
 		names = append(names, e.Alias)
 	}
 	list = append(list, "now() AS "+SourceNowColumn)
 	names = append(names, SourceNowColumn)
 
+	query := "SELECT " + strings.Join(list, ", ") + " FROM " + pgversion.Schema(view) + "." + string(view)
+	if spec.Where != "" {
+		query += " WHERE " + spec.Where
+	}
+
 	return Projection{
-		Query:   "SELECT " + strings.Join(list, ", ") + " FROM " + pgversion.Schema(view) + "." + string(view),
+		Query:   query,
 		Columns: names,
+		Extras:  spec.Extras,
+		Where:   spec.Where,
 	}, true
 }
 
@@ -316,31 +364,152 @@ func parseTimestamp(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// validateProjection checks the two things about a projection that a typo would
-// break at runtime on the instance rather than in a test: that every column name
-// is a valid Postgres identifier, and that the query names its source schema.
+// knownSchemas is the closed set of schemas a projection may reference, and the
+// set R2.5's qualification rule is checked against.
 //
-// It is used by the collectors' tests rather than by Project itself — Project
-// gets its identifiers from the matrix, which Validate already checked — so that
-// a hand-written Extra (the one place a collector author types a column name) is
-// still checked somewhere before it reaches a server.
-func validateProjection(p Projection) error {
-	for _, c := range p.Columns {
-		if c == "" {
-			return fmt.Errorf("collector: empty column name in projection %q", p.Query)
-		}
-		for i, r := range c {
-			ok := r == '_' ||
-				(r >= 'a' && r <= 'z') ||
-				(r >= 'A' && r <= 'Z') ||
-				(i > 0 && r >= '0' && r <= '9')
-			if !ok {
-				return fmt.Errorf("collector: column name %q in projection %q is not a valid identifier", c, p.Query)
-			}
+// It is the same pair the FROM-clause check used to spell inline (" FROM
+// pg_catalog." / " FROM pg_stat_statements."), pulled out so the FROM check and
+// the expression check (unqualifiedCall) consult one answer instead of two. The
+// set is closed because pgversion.Schema is the only other place a schema is
+// named in the package, and both members come from its view→schema mapping.
+var knownSchemas = []string{"pg_catalog", "pg_stat_statements"}
+
+// knownSchema reports whether schema is one of knownSchemas.
+func knownSchema(schema string) bool {
+	for _, s := range knownSchemas {
+		if s == schema {
+			return true
 		}
 	}
-	if !strings.Contains(p.Query, " FROM pg_catalog.") && !strings.Contains(p.Query, " FROM pg_stat_statements.") {
+	return false
+}
+
+// isIdentByte reports whether b can appear in a Postgres identifier.
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// validIdent reports whether s is a valid Postgres identifier: the first byte a
+// letter or underscore, the rest also allowing digits.
+//
+// This is the rule validateProjection has always applied to Projection.Columns,
+// factored out so the column check and unqualifiedCall consult one answer. The
+// byte loop and the rune loop it replaced agree on everything that matters: a
+// non-ASCII rune (a "é" is 0xC3 0xA9) fails both, because neither byte is in the
+// ASCII ranges — and an unquoted identifier containing one is folded away by
+// Postgres anyway.
+func validIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	first := s[0]
+	if !(first == '_' || (first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isIdentByte(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// identBefore returns the identifier that ends just before index p — the run of
+// identifier bytes immediately left of p — and the index it starts at. name is
+// empty when expr[p-1] is not an identifier byte or p <= 0.
+func identBefore(expr string, p int) (name string, start int) {
+	start = p
+	for start > 0 && isIdentByte(expr[start-1]) {
+		start--
+	}
+	return expr[start:p], start
+}
+
+// unqualifiedCall returns the first function call in expr that is not qualified
+// with a schema from knownSchemas, or "" when every call in it is qualified.
+//
+// It is a byte scan rather than a regexp because Go's RE2 has no lookbehind: the
+// question is what precedes each "(", and the only way to ask that with a regexp
+// is to match the whole prefix. For each "(", it takes the identifier immediately
+// before it (skipping spaces) and, if that identifier follows a dot, the
+// identifier before the dot too — then asks whether the schema half is one Postgres
+// has.
+//
+//   - "pg_catalog.age(datfrozenxid)" → "" (qualified with a known schema)
+//   - "age(datfrozenxid)" → "age" (no schema: shadowable by search_path, which is
+//     the failure R2.5 exists to prevent)
+//   - "other_schema.f(x)" → "other_schema.f" (a schema we do not know)
+//   - "1 + 2", "(a)" → "" (nothing before the "(" is an identifier: a grouped
+//     expression, not a call)
+//   - "pg_catalog.has_database_privilege(oid, 'CONNECT')" → "" (one call; the
+//     second argument is a string literal, not a call)
+func unqualifiedCall(expr string) string {
+	for i := 0; i < len(expr); i++ {
+		if expr[i] != '(' {
+			continue
+		}
+		// "f (x)" is still a call: skip the spaces between the callee and its "(".
+		p := i
+		for p > 0 && (expr[p-1] == ' ' || expr[p-1] == '\t') {
+			p--
+		}
+		name, start := identBefore(expr, p)
+		if name == "" {
+			continue
+		}
+		if start > 0 && expr[start-1] == '.' {
+			schema, _ := identBefore(expr, start-1)
+			if knownSchema(schema) {
+				continue
+			}
+			return schema + "." + name
+		}
+		return name
+	}
+	return ""
+}
+
+// validateProjection checks the three things about a projection that a typo would
+// break at runtime on the instance rather than in a test: that every column name
+// is a valid Postgres identifier, that the query names a schema Postgres has
+// (R2.5), and that every hand-written expression — each Extra.Expr and the Where
+// clause — qualifies every function it calls (D20's S10).
+//
+// Every collector's projections() calls it on the projections it just built, on
+// every round (database.go, settings.go). The doc used to justify it as something
+// "used by the collectors' tests rather than by Project itself", which was written
+// when Project was the only other caller; the collectors call it themselves now,
+// and the reason to run it per round is that the matrix and the QuerySpecs are
+// data that changes without the collectors changing (D20's S11: the rationale was
+// stale, not the call).
+func validateProjection(p Projection) error {
+	for _, c := range p.Columns {
+		if !validIdent(c) {
+			return fmt.Errorf("collector: column name %q in projection %q is not a valid identifier", c, p.Query)
+		}
+	}
+	from := ""
+	if i := strings.Index(p.Query, " FROM "); i >= 0 {
+		rest := p.Query[i+len(" FROM "):]
+		if j := strings.IndexByte(rest, '.'); j > 0 {
+			from = rest[:j]
+		}
+	}
+	if !knownSchema(from) {
 		return fmt.Errorf("collector: projection %q has no schema-qualified FROM (R2.5)", p.Query)
+	}
+	// The hand-written half. The column names come from the matrix and the FROM
+	// clause from pgversion.Schema, so between them they cover everything Project
+	// assembles *except* the extras and the filter — which is exactly where D20's
+	// S10 found the gap: an Extra of {Expr: "age(datfrozenxid)"} passed while the
+	// same expression written in a query string would not.
+	for _, e := range p.Extras {
+		if bad := unqualifiedCall(e.Expr); bad != "" {
+			return fmt.Errorf("collector: extra expression %q in projection %q calls %s without a schema (R2.5: schema-qualify every catalog reference)", e.Expr, p.Query, bad)
+		}
+	}
+	if bad := unqualifiedCall(p.Where); bad != "" {
+		return fmt.Errorf("collector: WHERE clause %q in projection %q calls %s without a schema (R2.5: schema-qualify every catalog reference)", p.Where, p.Query, bad)
 	}
 	return nil
 }

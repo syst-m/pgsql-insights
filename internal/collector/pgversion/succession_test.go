@@ -156,6 +156,53 @@ func hasColumn(src Source, major int) bool {
 	return ok && hasCol(cols, src.Column)
 }
 
+// TestResolveSourcesExistOnMajor is D20's S5's invariant stated as a test: every
+// source in every answer Resolve gives must be a column the matrix actually has on
+// the major it was asked about.
+//
+// The two generic tests above assert the *expected* answer per table row, so they
+// catch an answer that disagrees with the table; this catches the class of answer the
+// table can produce and still not check — a forward answer naming a column that
+// existed on the major the change happened on but not on the major asked about. With
+// a chain (A→B at 15, B→C at 17) the old forward path answered Resolve(A, 18) with
+// B, which PG18 does not have. followChain is the fix; this is the test that stops
+// the next chain from reintroducing it, and it is the one test here that inspects
+// Resolve's output rather than comparing it to a remembered expectation.
+//
+// It walks both halves of the table — every From pair and every To pair, on all six
+// majors — because the forward and backward paths build Sources from different
+// indexes and each has its own way of naming something that is not there.
+func TestResolveSourcesExistOnMajor(t *testing.T) {
+	var pairs []Source
+	for _, s := range Successions() {
+		pairs = append(pairs, s.From)
+		pairs = append(pairs, s.To...)
+	}
+	if len(pairs) == 0 {
+		t.Fatal("no pairs to check")
+	}
+
+	checked := 0
+	for _, src := range pairs {
+		for _, major := range Majors() {
+			got, ok := Resolve(src.View, src.Column, major)
+			if !ok {
+				continue // "never was a thing" has no sources to be wrong about
+			}
+			checked++
+			for _, s := range got.Sources {
+				if !hasColumn(s, major) {
+					t.Errorf("Resolve(%s, %d) = %+v: %s is not a column of %s on %d (Kind %q)",
+						src, major, got, s, s.View, major, got.Kind)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Error("no Resolve answers found, so nothing was checked")
+	}
+}
+
 // TestResolveNamedCases pins the answers worth naming. The two generic tests
 // cover every pair on every major; this one exists so the interesting shapes are
 // in a failure message as cases rather than reconstructed from a loop index — and

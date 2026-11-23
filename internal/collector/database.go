@@ -30,14 +30,23 @@ const DatabaseInterval = 60 * time.Second
 
 // databaseViewGroup is the collector's single R2.7 view group.
 //
-// One group for the three views, not three groups for three views, and the
-// arithmetic that decides it is R13.1's: a cluster's full 60 s round must issue
-// fewer than 40 SQL round-trips across all thirteen of §3.3's collectors, which
-// is roughly three queries per collector. Three groups here would be three
-// transactions and — counting each transaction's own BEGIN/COMMIT — six to nine
-// round-trips for one collector, 78+ for the phase. One group per collector is
-// the reading under which R13.1's number is achievable, and it is what
-// Descriptor.ViewGroups exists to express.
+// One group for the three views, not three groups for three views. The wording
+// here used to justify that with "six to nine round-trips for one collector, 78+
+// for the phase" (D20's S6), which counted *round-trips* in the statement sense
+// for a field that reports the query sense: R13.1 counts queries issued — thirteen
+// collectors at three queries each is 39, and a statement-counting reading puts
+// the same round at 39 + 78 = 117, unsatisfiable at any collector count above four
+// (requirements.md R13.1, D20's ruling on it). So say transactions and statements
+// where those are meant, and reserve "round-trips" for Result.RoundTrips.
+//
+// What three groups would actually cost: three transactions instead of one (three
+// BEGIN/COMMIT pairs, six control statements R13.1 does not count), three
+// connection checkouts from the pooler instead of one, and — the part that changes
+// the data rather than the budget — three separate snapshots instead of one, so a
+// pg_database row and a pg_stat_database row could disagree about whether a
+// database exists. One group per collector is what Descriptor.ViewGroups exists to
+// express, and R2.7's "one read-only transaction per view group" is the rule it
+// implements.
 const databaseViewGroup = "database"
 
 // databaseViews are §3.3's three sources for this collector, in the order their
@@ -48,22 +57,35 @@ var databaseViews = []pgversion.View{
 	pgversion.ViewStatDatabaseConflicts,
 }
 
-// databaseExtras are the R5.2 values pg_database's column list cannot express.
+// databaseSpecs is the per-view SQL the matrix cannot express: pg_database's
+// derived extras, and its CONNECT filter.
 //
-// R5.2's database card asks for "database sizes, TXID and MXID age", and none of
-// the three is a column: pg_database stores datfrozenxid and datminmxid, whose
-// *age* is age(datfrozenxid) — a function of the server's current transaction ID,
-// so it cannot be computed client-side — and a database's size is
-// pg_database_size(oid), not a column at all. They are declared as Extras so the
-// matrix stays the single source of the column set (R2.4) while R5.2's three named
-// values still exist. Both functions are schema-qualified per R2.5: age is a
-// pg_catalog function, and an unqualified call is shadowable by anything on
-// search_path, which is exactly the failure R2.5's CNPG-hardening clause names.
-var databaseExtras = map[pgversion.View][]Extra{
+// The extras are R5.2's "database sizes, TXID and MXID age", and none of the three
+// is a column: pg_database stores datfrozenxid and datminmxid, whose *age* is
+// age(datfrozenxid) — a function of the server's current transaction ID, so it
+// cannot be computed client-side — and a database's size is pg_database_size(oid),
+// not a column at all. They are declared as Extras so the matrix stays the single
+// source of the column set (R2.4) while R5.2's three named values still exist.
+// Both functions are schema-qualified per R2.5, and validateProjection now checks
+// the expression itself (D20's S10) instead of trusting this comment.
+//
+// The WHERE clause is D20's S7, and it is the reason QuerySpec exists:
+// pg_database_size(oid) requires CONNECT on that database (or pg_read_all_stats),
+// and R1.8's zero-config <cluster>-app login has CONNECT on the app database but
+// not on template0. Without the filter the whole SELECT throws — not just the size
+// column, the whole row set — so the round loses pg_database *and*
+// pg_stat_database_conflicts and reports an error where it should report the two
+// databases the role can see. With it, the query returns exactly the databases we
+// can measure, which is also the honest answer to "what databases are there": the
+// ones this credential is allowed to look at.
+var databaseSpecs = map[pgversion.View]QuerySpec{
 	pgversion.ViewDatabase: {
-		{Expr: "pg_catalog.pg_database_size(oid)", Alias: "size"},
-		{Expr: "pg_catalog.age(datfrozenxid)", Alias: "frozenxid_age"},
-		{Expr: "pg_catalog.age(datminmxid)", Alias: "minmxid_age"},
+		Extras: []Extra{
+			{Expr: "pg_catalog.pg_database_size(oid)", Alias: "size"},
+			{Expr: "pg_catalog.age(datfrozenxid)", Alias: "frozenxid_age"},
+			{Expr: "pg_catalog.age(datminmxid)", Alias: "minmxid_age"},
+		},
+		Where: "pg_catalog.has_database_privilege(oid, 'CONNECT')",
 	},
 }
 
@@ -169,6 +191,14 @@ func (c *DatabaseCollector) Collect(ctx context.Context, tgt Target) (Result, er
 		// failed round — a connection that cannot commit is a connection whose next
 		// query is suspect — so the samples come back with the error and the
 		// scheduler keeps serving the previous round.
+		//
+		// D20's S9: sql.go's Tx doc says "Rollback on every error path", and a
+		// failed Commit is an error path. A driver that failed the COMMIT may still
+		// hold the transaction open on a connection the pooler hands to the next
+		// round, and the rollback that closes it is best-effort — its error is the
+		// commit's, which is why the result is discarded here exactly as it is in
+		// the query path above.
+		_ = tx.Rollback()
 		return Result{Samples: samples, RoundTrips: trips},
 			fmt.Errorf("collector %s: commit: %w", CollectorDatabase, cerr)
 	}
@@ -203,7 +233,7 @@ func (c *DatabaseCollector) projections(tgt Target) ([]viewProjection, error) {
 
 	out := make([]viewProjection, 0, len(databaseViews))
 	for _, v := range databaseViews {
-		p, ok := Project(v, tgt.PGMajor, databaseExtras[v]...)
+		p, ok := Project(v, tgt.PGMajor, databaseSpecs[v])
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorDatabase, v, tgt.PGMajor)
 		}
@@ -344,6 +374,7 @@ func samplesFromRows(pv viewProjection, now time.Time, rows []Row) []Sample {
 			source  time.Time
 			epoch   time.Time
 			datname string
+			hasName bool
 		)
 		for _, col := range pv.Columns {
 			raw, ok := row.Get(col)
@@ -360,8 +391,20 @@ func samplesFromRows(pv viewProjection, now time.Time, rows []Row) []Sample {
 					epoch = t
 				}
 			case kindName:
-				datname = raw
+				datname, hasName = raw, true
 			}
+		}
+
+		// D20's S8: every pg_stat_database row set includes the shared-objects row,
+		// whose datname is NULL — and R9.3's closed label set has no slot for
+		// datname="", so the row used to export pgsi_stat_database_xact_commit{datname=""},
+		// a series the contract does not have. The row is real data (shared buffers,
+		// shared block hits) and the honest answer is that R9.3 cannot name it, so it
+		// is skipped rather than labelled with an empty string. Only a view that
+		// *should* have a name and has none is the case: a row whose projection has
+		// no name column at all (hasName false) is not filtered.
+		if hasName && datname == "" {
+			continue
 		}
 
 		// R9.3's label contract: database series add datname. The identity half
