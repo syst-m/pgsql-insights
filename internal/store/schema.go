@@ -326,7 +326,10 @@ CREATE TABLE IF NOT EXISTS plan_change (
 // R3.12's comment-grammar parser -- not this phase's statement store, which is
 // why the write path (PutDimensionRollups) takes the dimensions as data rather
 // than growing a tag-specific method the parser's owner has not asked for.
-// R3.13:317's --record-client-address gates kind='client_address' rows.
+// R3.13:317's --record-client-address gates kind='client_address' rows, and
+// client_address is the column those rows render: the first version of this table
+// had a column for three of R3.7's four dimensions and a kind for all four, so the
+// fourth kind's rows had a hash and no value.
 //
 // namespace and cluster are in the PK, and the read path is what proved they had
 // to be. The first version of this table keyed on (kind, dim_hash, bucket_kind,
@@ -351,6 +354,16 @@ CREATE TABLE IF NOT EXISTS dimension_rollup (
 	controller  TEXT NOT NULL DEFAULT '',
 	framework   TEXT NOT NULL DEFAULT '',
 	dbdriver    TEXT NOT NULL DEFAULT '',
+	-- client_address is R3.7's fourth named dimension ("which database, which
+	-- user, which application name, which client address accounts for the most
+	-- load") and R6.4's scoped one (attribution applies to the R4.1 active-session
+	-- list and to "the R3.7 by-client-address rollup, which Cloud SQL itself models
+	-- as a separate dimension"). The other three dimensions each have a column and
+	-- it did not, so a kind='client_address' row could only be identified by its
+	-- dim_hash -- an address the API cannot render. R3.13's --record-client-address
+	-- gates whether these rows exist at all, which is why the default is empty
+	-- rather than NOT NULL-with-a-value.
+	client_address TEXT NOT NULL DEFAULT '',
 	bucket_kind TEXT NOT NULL DEFAULT 'minute',
 	bucket      INTEGER NOT NULL,
 	calls            INTEGER NOT NULL DEFAULT 0,
