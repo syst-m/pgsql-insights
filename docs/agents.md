@@ -180,9 +180,22 @@ These apply to every slot.
    command, run before the SHA is announced:** `git show --stat <sha>`, plus a grep for a string
    only your edit contains. If the diff isn't what you wrote, amend rather than stacking a fix-up
    commit on top — safe while the commit is HEAD and nobody has built on it, and worth saying in the
-   message when the commit also carries someone else's hunk. Three instances of rule 1 now, three
-   different failure modes: index sweep (`4e10ed4`), recipe-line reference (`45a69a1`),
-   working-tree content from a silently failed writer (`3b5c774`, wording from A4's postmortem).
+   message when the commit also carries someone else's hunk.
+
+   The rule has a fourth mode, about **paths git has never seen**, and it is the only one that
+   **fails loudly**: the pathspec must name a path git already knows. `git commit -- new.go` on a
+   file that is not in the index exits 1 with `error: pathspec 'new.go' did not match any file(s)
+   known to git` and commits nothing — reproduced in a scratch repo: exit 1, HEAD unchanged, the
+   other slot's staged file left staged. So a new file needs `git add <path> && git commit --
+   <path>`, and that is why the first two halves compose instead of conflicting: the `git add` is
+   mandatory for new files, and the pathspec on the commit is what keeps that add from sweeping the
+   rest of the index. The other three modes all ship a wrong commit; this one refuses to ship
+   anything, so it needs no verify-before-announcing guard, only the add.
+
+   Four modes of rule 1 now, three of them instances in this repo: index sweep (`4e10ed4`),
+   recipe-line reference (`45a69a1`), working-tree content from a silently failed writer
+   (`3b5c774`, wording from A4's postmortem), and the untracked pathspec (no repo instance;
+   reproduced in a scratch repo, wording from A3).
 2. **One commit per phase**, containing that phase's code **and** its `IMPLEMENTATION.md` update
    (R14.1). Small in-phase commits are fine; the phase-closing commit carries both.
 3. **Attribution is the committing model's own**, not a fixed string:
