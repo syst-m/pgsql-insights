@@ -56,6 +56,17 @@ var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5
 // scrape error, no test failure, just one series per collector per cluster where
 // the spec wants one per collector. So each renderer builds its own set, and
 // labelString is the shared part: the escaping and brace form, not the contents.
+//
+// Every method on *Stats is nil-receiver safe, the way UpTracker's are: a nil
+// *Stats behaves exactly like a Stats built by NewStatsWithPrefix("") that has
+// observed nothing — Prefix reports DefaultPrefix, Age reports "never", the
+// three renderers return "", and the three recorders are no-ops. The API's
+// Config holds a *Stats that a caller with no collector leaves nil, and a
+// handler must be able to render the exposition without a nil check at every
+// call site. The zero value &Stats{} is NOT the same thing (its prefix is empty
+// and its maps are nil, so it panics on the first ObserveDuration), which is why
+// NewStats exists; the nil receiver is the third case, and it now has a defined
+// answer instead of a panic.
 type Stats struct {
 	mu     sync.Mutex
 	prefix string
@@ -102,6 +113,9 @@ func NewStatsWithPrefix(prefix string) *Stats {
 // Prefix reports the R9.2 prefix in use, so the API can render the family names
 // it advertises without re-deriving them.
 func (s *Stats) Prefix() string {
+	if s == nil {
+		return DefaultPrefix
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.prefix
@@ -113,6 +127,9 @@ func (s *Stats) Prefix() string {
 // interesting value the family can receive. Excluding failures would make the
 // histogram lie in exactly the case a dashboard is opened to look at.
 func (s *Stats) ObserveDuration(collector string, seconds float64) {
+	if s == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h := s.durations[collector]
@@ -128,6 +145,9 @@ func (s *Stats) ObserveDuration(collector string, seconds float64) {
 // counts its own internal errors and also returns one would double-count the
 // same failure, which is the R2.2 bug this shape prevents.
 func (s *Stats) IncError(collector, cluster, namespace string) {
+	if s == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.errors[errorKey{collector, cluster, namespace}]++
@@ -138,6 +158,9 @@ func (s *Stats) IncError(collector, cluster, namespace string) {
 // in the sink, but "how old is the data this cluster is being served" is a
 // property of the collector, and it is this map that answers it.
 func (s *Stats) MarkSuccess(collector, cluster, namespace string) {
+	if s == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastSuccess[errorKey{collector, cluster, namespace}] = time.Now()
@@ -155,6 +178,9 @@ func (s *Stats) MarkSuccess(collector, cluster, namespace string) {
 // what every Prometheus exporter has. Flagged for A3 as the second place R2.2's
 // prose implies a metric it does not name.
 func (s *Stats) Age(collector, cluster, namespace string) (time.Duration, bool) {
+	if s == nil {
+		return 0, false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.lastSuccess[errorKey{collector, cluster, namespace}]
@@ -169,6 +195,9 @@ func (s *Stats) Age(collector, cluster, namespace string) (time.Duration, bool) 
 // alongside api.BuildInfoMetric() (server.go:312, whose comment is what
 // scheduled the hub in the first place).
 func (s *Stats) Render() string {
+	if s == nil {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString(s.RenderDuration())
 	b.WriteString(s.RenderErrors())
@@ -184,6 +213,9 @@ func (s *Stats) Render() string {
 // reports it ("Duplicate HELP and TYPE lines"). The earlier shape wrote the pair
 // inside the loop, so thirteen collectors produced thirteen identical pairs.
 func (s *Stats) RenderDuration() string {
+	if s == nil {
+		return ""
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -207,6 +239,9 @@ func (s *Stats) RenderDuration() string {
 // the family, then one line per triple, so a fleet with 13 collectors over 50
 // clusters renders two header lines and 650 samples rather than 1300 headers.
 func (s *Stats) RenderErrors() string {
+	if s == nil {
+		return ""
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

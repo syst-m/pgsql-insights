@@ -351,3 +351,58 @@ func TestStatsConcurrent(t *testing.T) {
 		}
 	}
 }
+
+// TestNilStats pins the nil-receiver contract documented on Stats. It exists
+// because a nil *Stats used to panic: Render -> RenderDuration -> s.mu.Lock()
+// dereferences the receiver, so the API's Config holding a nil *Stats — the
+// state a server with no collector is in — crashed the /metrics handler instead
+// of answering with the families it does have. The assertion shape here is
+// "nil renders the same as a Stats that observed nothing", not just "nil returns
+// empty": that equality is the whole claim, and asserting only Render() == ""
+// would pass even if Prefix() returned "" (which would break R9.2 by exporting
+// an unprefixed family the moment someone did configure a collector).
+func TestNilStats(t *testing.T) {
+	var s *Stats
+
+	if got := s.Render(); got != "" {
+		t.Errorf("(*Stats)(nil).Render() = %q, want \"\"", got)
+	}
+	if got := s.RenderDuration(); got != "" {
+		t.Errorf("(*Stats)(nil).RenderDuration() = %q, want \"\"", got)
+	}
+	if got := s.RenderErrors(); got != "" {
+		t.Errorf("(*Stats)(nil).RenderErrors() = %q, want \"\"", got)
+	}
+
+	// DefaultPrefix, not "": an empty prefix is exactly what NewStatsWithPrefix's
+	// doc forbids, and Prefix() is what the API reads to name the families.
+	if got := s.Prefix(); got != DefaultPrefix {
+		t.Errorf("(*Stats)(nil).Prefix() = %q, want %q", got, DefaultPrefix)
+	}
+
+	// "Never succeeded" is the correct answer for a collector set that does not
+	// exist, and it must be the false case rather than a zero duration.
+	if d, ok := s.Age("wal", "pg", "db"); d != 0 || ok {
+		t.Errorf("(*Stats)(nil).Age() = (%s, %v), want (0s, false)", d, ok)
+	}
+
+	// The three recorders are no-ops. Without the guards these panic on the
+	// nil map / nil mutex, which is the failure mode that would come back first
+	// if someone added a nil check to Render but not to the recorders.
+	s.ObserveDuration("wal", 0.5)
+	s.IncError("wal", "pg", "db")
+	s.MarkSuccess("wal", "pg", "db")
+	if got := s.Render(); got != "" {
+		t.Errorf("Render() after recording on a nil *Stats = %q, want \"\" (a no-op recorder must not fabricate a series)", got)
+	}
+
+	// The equality the doc actually claims: nil and an unobserved NewStats are
+	// indistinguishable through every method.
+	fresh := NewStats()
+	if s.Render() != fresh.Render() || s.Prefix() != fresh.Prefix() {
+		t.Error("a nil *Stats and an unobserved NewStats() disagree; the doc says they are the same value")
+	}
+	if sd, sok := s.Age("wal", "pg", "db"); sd != 0 || sok {
+		t.Error("nil Age() disagrees with unobserved NewStats()")
+	}
+}
