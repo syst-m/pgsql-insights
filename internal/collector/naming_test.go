@@ -49,6 +49,16 @@ func TestMetricNameTable(t *testing.T) {
 		// R9.7's system family, one row per view the four collectors read.
 		{pgversion.ViewStatDatabase, "xact_commit", "db_xact_commit_total"},
 		{pgversion.ViewStatDatabase, "tup_returned", "db_tuples_returned_total"},
+		// The two pg_stat_activity families the catalogue publishes. These are in
+		// the list because the name is *not* derivable — the fallback formula gives
+		// pg_stat_activity_backends_by_state, and promql_catalogue.go:229 publishes
+		// pgsi_db_backends_by_state — and because pg_stat_database's numbackends row
+		// promises they "live with that view". A case here is the only thing that
+		// checks the promise against the function.
+		{pgversion.ViewStatActivity, "backends_by_state", "db_backends_by_state"},
+		{pgversion.ViewStatActivity, "backends_by_application_name", "db_backends_by_application_name"},
+		// R4.3's rollup family, which R9.7 does not name and this table does.
+		{pgversion.ViewStatActivity, "backends_by_wait_event", "db_backends_by_wait_event"},
 		{pgversion.ViewDatabase, "size", "db_size_bytes"},
 		{pgversion.ViewStatWAL, "wal_bytes", "wal_generated_bytes_total"},
 		{pgversion.ViewStatCheckpointer, "num_timed", "checkpoints_timed_total"},

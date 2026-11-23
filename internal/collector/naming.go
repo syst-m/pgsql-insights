@@ -156,6 +156,79 @@ var exportNames = map[pgversion.Source]exportEntry{
 	{View: pgversion.ViewStatStatements, Column: "blk_read_time"}:  {name: "query_shared_blk_read_time_seconds_total", typ: TypeCounter, src: "R2.4's second enumerated pair"},
 	{View: pgversion.ViewStatStatements, Column: "blk_write_time"}: {name: "query_shared_blk_write_time_seconds_total", typ: TypeCounter, src: "R2.4's second enumerated pair"},
 
+	// ---- R9.7's system family, pg_stat_activity half ----
+	//
+	// The only two exported families here are the two the catalogue already
+	// carries, and the row above this one is what obliges them to live here:
+	// pg_stat_database's numbackends comment says "the catalogue's
+	// backends_by_state and backends_by_application_name are pg_stat_activity
+	// derivations and live with that view" — a promise about a view that, until
+	// activity.go landed, had no rows at all. Without these two rows the name
+	// MetricName produces is `pg_stat_activity_backends_by_state`, which renders
+	// as pgsi_pg_stat_activity_backends_by_state and is not the name
+	// promql_catalogue.go:229 publishes. That is R16.8's producer/consumer
+	// disagreement in its purest form: the name existed in a comment and in the
+	// catalogue, and nothing connected it to the function that had to return it.
+	//
+	// The third family, backends_by_wait_event, is named here and not in the
+	// catalogue because R4.3, not R9.7, is the requirement that asks for the
+	// wait-event counts. R14.7's "no metric in code with no doc" is answered by
+	// this row plus R4.3, which is what `src` is for.
+	//
+	// All three carry a label R9.3's closed set does not enumerate (`state`,
+	// `application_name`, `wait_event_type`+`wait_event`), which activity.go's
+	// doc on ActivitySamples flags to A3 rather than resolving silently: R9.7
+	// names the families without saying what labels they take, and R9.3's
+	// per-family enumeration ("database series add `datname`; user series add
+	// `usename`") stops short of these. The alternative — one family per state
+	// value — mints seven families to express one grouped count.
+	{View: pgversion.ViewStatActivity, Column: "backends_by_state"}:            {name: "db_backends_by_state", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_state"},
+	{View: pgversion.ViewStatActivity, Column: "backends_by_application_name"}: {name: "db_backends_by_application_name", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_application_name"},
+	{View: pgversion.ViewStatActivity, Column: "backends_by_wait_event"}:       {name: "db_backends_by_wait_event", typ: TypeGauge, src: "R4.3 wait-event rollup; R9.7 names no family for it"},
+	// Every one of the view's own columns is TypeNotExported, and that is the
+	// requirement rather than an omission. R9.1 lists "active-session rows" among
+	// the things that are "API + store only" and says "Metrics carry the numbers;
+	// the API carries the text" — so the row is a struct and the numbers are the
+	// three families above. This table's own doc uses this exact view as its
+	// example of the mistake ("exporting them as numbers is how an exporter ends
+	// up with pgsi_pg_stat_activity_pid"), and the table's completeness rule
+	// ("listed so the table is the complete enumeration R14.7 checks rather than a
+	// list of the interesting subset") means the 22 columns get rows anyway.
+	//
+	// The classification splits four ways, all of them this table's existing
+	// vocabulary: identifiers (datid, pid, leader_pid, usesysid, backend_xid,
+	// backend_xmin) are join keys; names (datname, usename, application_name,
+	// client_addr, client_hostname) are R9.3 labels; state-ish text (state,
+	// wait_event_type, wait_event, backend_type, query) is R9.1's text half; and
+	// the four start timestamps (backend_start, xact_start, query_start,
+	// state_change) are per-session start times, which is not what
+	// Sample.StatsReset means — pg_stat_activity has no epoch, so a row here
+	// marked as one would claim an epoch the view does not have.
+	{View: pgversion.ViewStatActivity, Column: "datid"}:            {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
+	{View: pgversion.ViewStatActivity, Column: "datname"}:          {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
+	{View: pgversion.ViewStatActivity, Column: "pid"}:              {name: "", typ: TypeNotExported, src: "R9.1: the identifier naming.go names as the anti-pattern"},
+	{View: pgversion.ViewStatActivity, Column: "leader_pid"}:       {name: "", typ: TypeNotExported, src: "R9.1: identifier (parallel worker's leader)"},
+	{View: pgversion.ViewStatActivity, Column: "usesysid"}:         {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
+	{View: pgversion.ViewStatActivity, Column: "usename"}:          {name: "", typ: TypeNotExported, src: "R9.3: the usename label, not a value"},
+	{View: pgversion.ViewStatActivity, Column: "application_name"}: {name: "", typ: TypeNotExported, src: "R9.3 label; the by_application_name family above is its metric form"},
+	{View: pgversion.ViewStatActivity, Column: "client_addr"}:      {name: "", typ: TypeNotExported, src: "R9.1 text half (inet)"},
+	{View: pgversion.ViewStatActivity, Column: "client_hostname"}:  {name: "", typ: TypeNotExported, src: "R9.1 text half"},
+	{View: pgversion.ViewStatActivity, Column: "client_port"}:      {name: "", typ: TypeNotExported, src: "R9.1: part of the connection identity"},
+	{View: pgversion.ViewStatActivity, Column: "backend_start"}:    {name: "", typ: TypeNotExported, src: "R4.1 Session duration operand, not a metric"},
+	{View: pgversion.ViewStatActivity, Column: "xact_start"}:       {name: "", typ: TypeNotExported, src: "R4.1 Transaction duration operand, not a metric"},
+	{View: pgversion.ViewStatActivity, Column: "query_start"}:      {name: "", typ: TypeNotExported, src: "R4.1 Query duration operand, not a metric"},
+	{View: pgversion.ViewStatActivity, Column: "state_change"}:     {name: "", typ: TypeNotExported, src: "R9.1: a timestamp, and not this view's epoch (it has none)"},
+	{View: pgversion.ViewStatActivity, Column: "wait_event_type"}:  {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_wait_event family above is its metric form"},
+	{View: pgversion.ViewStatActivity, Column: "wait_event"}:       {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_wait_event family above is its metric form"},
+	{View: pgversion.ViewStatActivity, Column: "state"}:            {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_state family above is its metric form"},
+	{View: pgversion.ViewStatActivity, Column: "backend_xid"}:      {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xid)"},
+	{View: pgversion.ViewStatActivity, Column: "backend_xmin"}:     {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xmin)"},
+	{View: pgversion.ViewStatActivity, Column: "query_id"}:         {name: "", typ: TypeNotExported, src: "R4.7's link to the R3 detail; R9.5's id, not a value"},
+	{View: pgversion.ViewStatActivity, Column: "query"}:            {name: "", typ: TypeNotExported, src: "R9.1: query text is API-plane"},
+	// blocking_pids is activity.go's Extra, not a matrix column — the same
+	// category as database.go's three pg_database Extras, which are also listed.
+	{View: pgversion.ViewStatActivity, Column: "blocking_pids"}: {name: "", typ: TypeNotExported, src: "R4.4's edge list; an array of identifiers, not a value"},
+
 	// ---- R9.7's system family, pg_stat_database half ----
 	//
 	// R5.2 names the families in prose (transactions, tuples, blocks, temp,
