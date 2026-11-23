@@ -27,6 +27,8 @@ import {
   type FleetRow,
   type FleetResponse,
   type Meta,
+  type QueryResponse,
+  type QueryView,
 } from "./types";
 
 /** Thrown when a payload is not shaped like the contract. Distinct from
@@ -49,6 +51,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** How a row of type `T` is validated: the parser each endpoint's rows get
+ *  checked with. Its own type so `parseEnvelope` can take it as a parameter
+ *  with a default, which is what keeps one generic function serving every
+ *  list endpoint instead of a union that has to be widened by hand each time a
+ *  page lands (`FleetResponse | QueriesResponse | DatabasesResponse …` — a
+ *  growing union is a per-phase edit to a shared file, and shared files are
+ *  where the `docs/agents.md` §5 rule-1 commits happen). */
+export type RowParser<T> = (raw: unknown) => T;
+
 /** Check the R8.4 envelope shell and return it typed.
  *
  * This validates the envelope's own shape (`data` is an array; `meta` has the
@@ -57,8 +68,27 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * side owns the shape, and this exists to catch the one failure that a cast
  * hides, which is the top-level key being wrong. Deep field validation would
  * turn every future server bug into a blank page; a shell check catches the
- * class that actually bit. */
-export function parseEnvelope(json: unknown): Envelope<ClusterView> {
+ * class that actually bit.
+ *
+ *  Two overloads rather than one generic signature with a default. The obvious
+ *  form — `parseEnvelope<T>(json, parseRow: RowParser<T> = parseClusterView)` —
+ *  does not compile: TS will not infer a type parameter from a parameter's
+ *  *default value*, so `T` resolves to `unknown` and the default is then
+ *  rejected (`ClusterView is not assignable to T`). The first overload is what
+ *  keeps every existing `parseEnvelope(json)` call site returning
+ *  `Envelope<ClusterView>`; the second is the generic form a new endpoint uses.
+ *  The implementation signature is the non-generic `RowParser<unknown>` form
+ *  with the default on it — a generic implementation signature is not accepted
+ *  either (the same complaint, from the other side), because an overload's
+ *  implementation must be assignable to *both* signatures and a
+ *  `<T>(…, parseRow: RowParser<T> = parseClusterView)` cannot be: for the
+ *  generic one, `T` is every type at once, and `ClusterView` is not. */
+export function parseEnvelope(json: unknown): Envelope<ClusterView>;
+export function parseEnvelope<T>(json: unknown, parseRow: RowParser<T>): Envelope<T>;
+export function parseEnvelope(
+  json: unknown,
+  parseRow: RowParser<unknown> = parseClusterView,
+): Envelope<unknown> {
   if (!isRecord(json)) {
     throw new ContractError(`expected an Envelope object from the API, got ${typeName(json)}`);
   }
@@ -72,7 +102,7 @@ export function parseEnvelope(json: unknown): Envelope<ClusterView> {
       })`,
     );
   }
-  return { data: data.map(parseClusterView), meta: parseMeta(meta) };
+  return { data: data.map(parseRow), meta: parseMeta(meta) };
 }
 
 /** Check `meta`'s required fields. `nextCursor`, `failed` and `loading` are
@@ -100,7 +130,7 @@ function parseMeta(meta: unknown): Meta {
  * `name`/`namespace` are checked first because `clusterId()` would otherwise
  * render the row as "undefined/undefined" — a table full of blank links is the
  * same silent failure the envelope check exists to prevent. */
-function parseClusterView(raw: unknown): ClusterView {
+export function parseClusterView(raw: unknown): ClusterView {
   if (!isRecord(raw)) {
     throw new ContractError(`cluster entry is ${typeName(raw)}, expected object`);
   }
@@ -154,6 +184,58 @@ function parseClusterView(raw: unknown): ClusterView {
   return raw as unknown as ClusterView;
 }
 
+/** Check one query row's required fields and name it in the error.
+ *
+ *  Same rule as `parseClusterView`: check the fields the Go declares
+ *  non-`omitempty` and stop. `pgMajor` has no two-step here — queries.go:203
+ *  types it a plain `int`, not the `*int` R1.3's cluster field is, because a
+ *  query row only exists once a collector resolved the major — so a plain
+ *  `require(…, "number")` is the correct check and a null would be a contract
+ *  break rather than the documented unknown.
+ *
+ *  The eight `LoadColumns` members are listed rather than spread, because
+ *  `extends` on the TS side mirrors Go's embedded struct but a runtime object
+ *  carries them as flat keys; the list is the mirror of queries.go:90–132. */
+export function parseQueryView(raw: unknown): QueryView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`query entry is ${typeName(raw)}, expected object`);
+  }
+  // Name the row the same way clusters do: a bad fingerprint in a 7-row payload
+  // should say which one.
+  const where = typeof raw.fingerprint === "string" ? raw.fingerprint.slice(0, 12) : typeName(raw);
+  const require = (field: string, type: "string" | "number" | "boolean" | "object" | "array") => {
+    const v = raw[field];
+    if (v === undefined) throw new ContractError(`query ${where}: missing required field "${field}"`);
+    if (type === "object" ? !isRecord(v) : type === "array" ? !Array.isArray(v) : typeof v !== type) {
+      throw new ContractError(`query ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+
+  require("fingerprint", "string");
+  require("query", "string");
+  require("truncated", "boolean");
+  require("database", "string");
+  require("namespace", "string");
+  require("cluster", "string");
+  require("pgMajor", "number");
+  require("recommendations", "array");
+  // LoadColumns, embedded in Go (queries.go:215) and flat on the wire.
+  for (const col of [
+    "loadByTotalTime",
+    "pctLoadByQueries",
+    "avgExecTimeMs",
+    "totalExecTimeMs",
+    "avgRowsReturned",
+    "timesCalled",
+    "loadByCPUMs",
+    "loadByIOWaitMs",
+  ] as const) {
+    require(col, "number");
+  }
+
+  return raw as unknown as QueryView;
+}
+
 /** Parse an R8.5 error body. Returns null when the body is not one, so the
  *  caller can fall back to the HTTP status line rather than throwing a second
  *  error on top of the first. */
@@ -196,8 +278,21 @@ export function toFleetResponse(env: Envelope<ClusterView>, extras: Record<strin
   };
 }
 
+/** The Queries page's payload from a validated query envelope.
+ *
+ *  The mirror of `toFleetResponse` with the presentation half subtracted: no
+ *  `health` to compute (health.ts is R1.2's rule about clusters) and no
+ *  `observedAt` to denormalise (R10.21's stamp stays on `meta`, because the
+ *  Queries table sorts by `totalExecTimeMs`, not by freshness). What is left is
+ *  the pair A6 asked for — the same 3 lines with `queries` in place of
+ *  `clusters` — and that is the point: the envelope is generic, so a new
+ *  endpoint costs a row parser and a builder, not a new shape family. */
+export function toQueriesResponse(env: Envelope<QueryView>): QueryResponse {
+  return { meta: env.meta, queries: env.data };
+}
+
 /** An envelope with no rows, for the R10.12 empty fixture. */
-export function emptyEnvelope(generatedAt: string): Envelope<ClusterView> {
+export function emptyEnvelope<T = ClusterView>(generatedAt: string): Envelope<T> {
   return { data: [], meta: { total: 0, truncated: false, generatedAt } };
 }
 
@@ -213,11 +308,11 @@ export function emptyEnvelope(generatedAt: string): Envelope<ClusterView> {
  *  served" above a table rendering 50. R10.22 now names the rule directly:
  *  "The banner's served-cluster count comes from `data.length`, never
  *  `meta.total`." */
-export type BannerSource = Envelope<ClusterView> | FleetResponse;
+export type BannerSource<T = unknown> = { meta: Meta } & ({ data: readonly T[] } | { clusters: readonly T[] });
 
 /** `data.length` on the wire type, `clusters.length` on the presentation type —
  *  the same number, because `toFleetResponse` maps `data` 1:1. */
-function rowsServed(source: BannerSource): number {
+function rowsServed<T>(source: BannerSource<T>): number {
   return "data" in source ? source.data.length : source.clusters.length;
 }
 
@@ -229,7 +324,7 @@ function rowsServed(source: BannerSource): number {
  *  when a namespace failed or is still loading, which is what R10.22's
  *  "3 of 4 clusters shown, and it says so" is about. `meta.generatedAt` is
  *  R10.21's page-header stamp and is deliberately not a banner input either. */
-export function partialBanner(source: BannerSource): string | null {
+export function partialBanner<T>(source: BannerSource<T>): string | null {
   const meta = source.meta;
   const failed = meta.failed ?? [];
   const loading = meta.loading ?? [];

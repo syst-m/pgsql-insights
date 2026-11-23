@@ -86,15 +86,36 @@ export type Scope = "fleet" | "cluster";
  *  `fixtureOverride` are unused there. A per-page props shape is what forced the
  *  if-chain in App.tsx — a lookup needs one type for every entry.
  */
-export interface PageProps {
+export interface PageProps<T = FleetResponse> {
   state: UrlState;
   onPatch: (patch: Partial<UrlState>) => void;
   cfg: ClientConfig;
-  /** The visual suite renders a named fixture directly instead of fetching. */
-  fixtureOverride?: FleetResponse;
+  /** The visual suite renders a named fixture directly instead of fetching.
+   *
+   *  Generic over the page's own payload rather than a union of every payload
+   *  (`FleetResponse | QueryResponse | …`): a union has to be widened by hand
+   *  every phase, in a file its owner does not own, which is the shared-file
+   *  edit `docs/agents.md` §5 rule 1 exists to catch. Defaulted to
+   *  `FleetResponse` so every existing `PageProps` annotation — `App.tsx:105`,
+   *  `pages/ClusterDetail.tsx:48` and `:56` — means exactly what it means now. */
+  fixtureOverride?: T;
 }
 
-export type PageComponent = ComponentType<PageProps>;
+/** A page that takes `PageProps<T>`; `T` defaults to the fleet payload. */
+export type PageComponent<T = FleetResponse> = ComponentType<PageProps<T>>;
+
+/** What the table stores in `Route.component`: *some* page, whatever it
+ *  fetches.
+ *
+ *  `any` for the payload, deliberately. Props are contravariant, so a
+ *  `PageComponent<QueryResponse>` is assignable to `PageComponent<FleetResponse>`
+ *  only if `FleetResponse` is assignable to `QueryResponse` — it is not, and
+ *  neither is any pair of payloads. `PageProps<never>` would accept every page
+ *  but would then forbid `App.tsx` from passing the fleet fixture it already
+ *  passes. `any` scopes the looseness to the table's view of one field: each
+ *  page file still declares its exact props, and the page's own test renders it
+ *  with the right payload. */
+export type AnyPageComponent = ComponentType<PageProps<any>>;
 
 export interface Route {
   page: Page;
@@ -118,7 +139,7 @@ export interface Route {
    *  truth for one fact, and the fact belongs to the page file (A6's), not to
    *  this table (A4's). That duplication is the whole reason A6 had to edit a
    *  file they don't own in order to ship a page they do. */
-  component: PageComponent | null;
+  component: AnyPageComponent | null;
   scope: Scope;
   /** Path pattern: `/`, `/c/:ns/:name`, `/c/:ns/:name/queries`, or
    *  `/c/:ns/:name/queries/:fingerprint`. Parsed once into `PATTERNS` and used
