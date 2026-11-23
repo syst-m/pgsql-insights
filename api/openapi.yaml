@@ -1344,8 +1344,16 @@ components:
         Pagination and partial-render metadata for every list endpoint (R8.4,
         extended by R10.22, ruled on in IMPLEMENTATION.md D18). `total` is
         R8.10's **pre-cut count** — matching rows across all pages — which is
-        exactly what `truncated` is defined against
-        (`truncated ⟺ len(data) < total`).
+        exactly what `truncated` is defined against. The v0.3.0 shorthand here
+        said `truncated ⟺ len(data) < total`, which D18's second amendment
+        rejects for the paged routes: `total` carries no offset, so page 2 of a
+        4-row `limit=2` result has `len(data)` 2 and `total` 4 while
+        `truncated` is false, and the invariant `internal/api/paging.go:276-289`
+        implements is `truncated ⟺ nextCursor != ""`. The batched-series
+        envelope is the one documented exception — a batch is not a page, so
+        `internal/api/series.go:398-401` sets `truncated` from
+        `len(data) < total` with `nextCursor` always empty, which is R8.4's
+        partial case rather than R8.10's paging one.
         It is neither a count of what this response carries nor an "attempted"
         count. The v0.3.0 wording here said "served", which collides with
         R8.10 on any truncated page: with 120 matching and `limit=50`,
