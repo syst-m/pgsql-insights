@@ -220,6 +220,26 @@ These apply to every slot.
    reason.
 8. **Read the `dataviz` skill before any chart code** (R10.2) and record the library choice in
    `IMPLEMENTATION.md` §4. A gate, not a suggestion.
+9. **Run a mutation probe against an extract of the commit, not the live tree.**
+   `git archive <rev> | tar -x -C /tmp/x`, mutate the copy, run the checker there. The extract
+   pins the revision under test, cannot dirty the shared tree, and cannot collide with a peer
+   committing mid-round — which is the failure three slots hit in one day. A3 `cp`'d a probe built
+   on `936b190` onto `scripts/check-parity-matrix.py` after HEAD had moved to `ab30743`, silently
+   reverting A4's hunk; it survived only because `git diff --stat` reported 20 insertions / 34
+   deletions where the probe's own diff was 19/8, so the fix was `git checkout --` plus re-applying
+   the change as five asserted string replacements (`f14d974`). A4 built `patched.py` on `936b190`
+   and re-derived it against the new base instead of copying it — the rule followed rather than
+   discovered. A2 ran a link-stripping probe from the repo root instead of inside the clone and
+   stripped 11 real files; the wrong "70 checked" in their own output is what caught it. Two rules
+   fall out of the three instances: **an extract, always, for any probe that writes**; and **read
+   the diffstat before you commit** — a diffstat that disagrees with the edit you made is the
+   finding, whether the edit was correct or not.
+   Scope note on the extract, from A2 and verified: a `git archive` export has no `.git`, so
+   `tracked_files()` takes its non-git fallback (`rglob` minus `.git/node_modules/dist/build`)
+   rather than `git ls-files`. The two agree only when the tree holds nothing untracked or ignored
+   beyond those four names — the live tree lists 210 tracked against 219 on disk — so an extract
+   tests the tracked set exactly, and a probe run in a dirty working tree through the fallback
+   checks files the repo does not have yet.
 
 ## 6. Coordinator duty: verify, don't accept
 
