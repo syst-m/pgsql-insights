@@ -367,30 +367,47 @@ def code_free_lines(lines):
     return out
 
 def check_links(root, tracked):
-    """(checked, broken) for every relative [text](path) link in tracked markdown."""
-    checked, broken = 0, []
+    """(checked, broken, label_bad) for every relative [text](path) link in markdown.
+
+    The broken half resolves the target. The label half checks the bracket text, but only
+    when that text *names* a file: the text is prose ("see the chart README"), so comparing
+    it whole to the target false-positives on the repo's own fixed form —
+    .claude/agents/a4-frontend.md:52 reads [`docs/agents.md` §5.1](../../docs/agents.md),
+    whose text is "docs/agents.md` §5.1" and whose target is "docs/agents.md". Measured on
+    the current tree: whole-text comparison flags 18 of the 70 links, token extraction flags
+    0. When the text does contain a path-shaped token it is naming a file, and a filename
+    that disagrees with the target's is a stale label — the target moved, the prose didn't.
+    """
+    checked, broken, label_bad = 0, [], []
     for rel in tracked:
         if not rel.endswith(".md") or rel.startswith(PATH_SKIP_DIRS): continue
         d = (root / rel).parent
         for n, line in code_free_lines(lines_of(root, rel)):
             for m in LINK_RE.finditer(line):
-                tgt = m.group(2)
+                tgt, text = m.group(2), m.group(1)
                 if tgt.startswith(("http://", "https://", "mailto:")): continue
                 path = tgt.split("#")[0]
                 if not path: continue              # pure #anchor: no file to resolve
                 checked += 1
                 if not (d / path).resolve().exists():
                     broken.append((rel, n, tgt))
-    return checked, broken
+                named = re.search(P, text)
+                if named and named.group(0).rsplit("/", 1)[-1] != path.rsplit("/", 1)[-1]:
+                    label_bad.append((rel, n, text, path))
+    return checked, broken, label_bad
 
-checked_links, links_bad = check_links(root, files_all)
+checked_links, links_bad, labels_bad = check_links(root, files_all)
 if not scanned_md:
     print("GUARD: link check scanned 0 markdown files — file discovery broke, not a pass")
     sys.exit(2)
-print(f"markdown links: {checked_links} checked \u00b7 {len(links_bad)} broken")
+print(f"markdown links: {checked_links} checked \u00b7 {len(links_bad)} broken \u00b7 "
+      f"{len(labels_bad)} label mismatches")
 for f, n, tgt in links_bad[:20]:
     print(f"  {f}:{n} -> {tgt}")
+for f, n, text, path in labels_bad[:20]:
+    print(f"  {f}:{n} label {text!r} names {path.rsplit('/', 1)[-1]}, target is "
+          f"{path!r}")
 
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
-              or id_orphans or path_orphans) else 0)
+              or id_orphans or path_orphans or labels_bad) else 0)
 
