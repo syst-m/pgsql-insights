@@ -501,3 +501,45 @@ func TestRunDispatchesAndReturnsOnCancel(t *testing.T) {
 		t.Error("Run never dispatched the first round (the collector was never called)")
 	}
 }
+
+// TestSchedulerStats is the accessor-side half of the single-source rule
+// api.Config.Metrics states: the value the handler renders and the value the
+// loop records into must be one *Stats, and the only way a caller can prove it
+// is if the accessor returns the identical pointer the constructor was given.
+// Asserting identity (pointer equality) rather than Render() equality is the
+// point — two Stats with the same contents are still two Stats, and one of them
+// is about to stop being written to.
+func TestSchedulerStats(t *testing.T) {
+	var s *Scheduler
+	if s.Stats() != nil {
+		t.Error("(*Scheduler)(nil).Stats() != nil")
+	}
+	// The zero-value Scheduler's stats is nil, and that is safe downstream only
+	// because b4e4b56 made (*Stats)(nil).Render defined.
+	z := &Scheduler{}
+	if z.Stats() != nil {
+		t.Error("(&Scheduler{}).Stats() != nil, want nil (no stats, and every method tolerates it)")
+	}
+	if got := z.Stats().Render(); got != "" {
+		t.Errorf("(&Scheduler{}).Stats().Render() = %q, want \"\"", got)
+	}
+
+	// Identity: the constructor's argument is what the accessor returns.
+	given := NewStatsWithPrefix("acme_")
+	sched := NewScheduler(Config{}, mustRegistry(t), nil, NewMemSink(0), given)
+	if sched.Stats() != given {
+		t.Error("NewScheduler(...).Stats() is not the *Stats passed to NewScheduler; " +
+			"api.Config.Metrics would be defaulted to a different one and /metrics " +
+			"would render an empty family while the loop records elsewhere")
+	}
+	if got := sched.Stats().Prefix(); got != "acme_" {
+		t.Errorf("Stats().Prefix() = %q, want %q (the same value, so the same prefix)", got, "acme_")
+	}
+
+	// NewScheduler's own nil-default (stats = NewStats()) is reachable through
+	// the accessor, so a caller that passed nil still gets a usable value rather
+	// than the api.New default being chosen for it.
+	if NewScheduler(Config{}, mustRegistry(t), nil, NewMemSink(0), nil).Stats() == nil {
+		t.Error("NewScheduler(..., nil).Stats() = nil, want the NewStats() the constructor substituted")
+	}
+}

@@ -133,6 +133,27 @@ func (s *Scheduler) Up() *UpTracker {
 	return s.up
 }
 
+// Stats returns the scheduler's R2.2 stats, so the /metrics handler renders the
+// same value the collection loop records into rather than a second one.
+//
+// It exists because the field is unexported and api.Config.Metrics is not. A
+// caller that builds a Scheduler and passes it as Config.Scheduler has no way to
+// name the *Stats that scheduler writes into, so api.New — which defaults
+// Config.Metrics to collector.NewStats() when the field is nil — ends up
+// rendering an empty family while the loop records into an unreachable one: two
+// values where Config.Metrics' own comment requires one ("assigns that
+// scheduler's own *Stats here, so /metrics and the collection loop read one
+// value"). Without this accessor that rule is unsatisfiable from cmd/pgsi.
+//
+// A nil receiver is tolerated the way Up()'s is, and the result is safe to hand
+// to api.New for the reason b4e4b56 added: (*Stats)(nil).Render is defined.
+func (s *Scheduler) Stats() *Stats {
+	if s == nil {
+		return nil
+	}
+	return s.stats
+}
+
 // targetSet is one target paired with the entries that may run against it.
 type targetSet struct {
 	tgt     Target
