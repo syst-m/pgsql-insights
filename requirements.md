@@ -236,7 +236,8 @@ pgsi/
 │   │   ├── pgversion/        # PG 13–18 view/column matrix                      (R2.4)
 │   │   ├── statements/       # pg_stat_statements + normalization               (R3)
 │   │   ├── activity/         # pg_stat_activity, blocking chain                 (R4)
-│   │   ├── database/  wal/  io/  replication/  locks/  settings/  progress/
+│   │   ├── database.go  wal.go  replication.go  settings.go   # shipped as flat files (R2)
+│   │   ├── io.go  locks.go  progress.go                       # specified, not yet built
 │   │   ├── cnpgmetrics/      # S3 parser: cnpg_* + cnpg_collector_*             (R2.6)
 │   │   ├── pgbouncer/        # S5 + S6                                          (R6)
 │   │   └── podlogs/          # S10 parser                                       (R5.10)
