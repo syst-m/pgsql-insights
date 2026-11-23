@@ -1484,3 +1484,106 @@ table.data[data-density="comfortable"] th.sortable button {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
+
+/* --- R10.5(a) query-load area -------------------------------------------- */
+
+/* The stacked area of total execution time and IO time. Every class here is
+   specific to this one chart, so it is scoped by the `qla-` prefix rather than
+   added to the shared `.chart-*` family — the same fold candidate already noted
+   for `.kv-grid` (:883) and `.rl-scope` (:1453): three pages have now written
+   their own name for "a small line of prose under a card title", and the
+   dedupe belongs to whoever owns `base.css`, not to the fourth page that copies it. */
+
+/* R10.19's legend. Always rendered for a ≥2-series chart, and rendered even
+   when the plot is empty, because the legend is the requirement's own inventory:
+   it names both measures R10.5(a) asks for, so the absent one is accounted for
+   rather than silently dropped (R10.23's non-colour encoding). */
+.qla-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.qla-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* The legend's key is the same 10×2 stroke the tooltip uses (:393), so a series
+   is keyed identically in both places. Text wears `--text-secondary`, never the
+   series colour — the coloured mark beside it carries the identity. */
+.qla-key {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* Fixed categorical order, never cycled: execution time is `--series-1`, IO
+   time is `--series-2`. Colour follows the measure, not its rank, so the IO key
+   keeps `--series-2` whether or not the band draws. */
+.qla-key--exec {
+  background: var(--series-1);
+}
+
+.qla-key--io {
+  background: var(--series-2);
+}
+
+/* The absent measure, marked without relying on colour alone: the shape and the
+   `n/a` label carry the fact, so the dimming is a redundancy, not the message. */
+.qla-key--absent {
+  opacity: 0.45;
+}
+
+/* Area fill is the hue at 10% with a 2px stroke of the full hue — the house area
+   spec, and the reason the two bands read as fills rather than as two outlined
+   shapes stacked on each other. The 2px surface gap between them is drawn in the
+   path (`areaPath` insets each shared edge by 1px), not here. */
+.qla-band--exec {
+  fill: color-mix(in srgb, var(--series-1) 10%, transparent);
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+
+.qla-band--io {
+  fill: color-mix(in srgb, var(--series-2) 10%, transparent);
+  stroke: var(--series-2);
+  stroke-width: 2;
+}
+
+/* Direct labels on the bands. `.mark-label` (:1012) hard-codes
+   `text-anchor: middle`, and a CSS declaration beats a `text-anchor` attribute,
+   so reusing that class here would centre a label the component asks to
+   end-anchor — this rule is the anchor and the ink, and nothing else. */
+.qla-label {
+  fill: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-anchor: end;
+  pointer-events: none;
+}
+
+/* What the plot is a sum of, and over what window. The second use of the rule
+   `.rl-scope` (:1453) starts — see the note at the top of this block. */
+.qla-scope {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+/* R10.23's table twin. `table.data` (:213) styles the table; this rule only
+   separates it from the plot above it — the same one-property rule
+   `.latency-table` (:1076) is for the histogram. */
+.qla-table {
+  margin-top: 12px;
+}

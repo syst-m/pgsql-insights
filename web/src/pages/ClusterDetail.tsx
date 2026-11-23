@@ -18,7 +18,11 @@
  * The Overview tab also carries R10.5(b)'s Resource load panel — 6b's frame
  * around a chart Phase 7 builds — because the ruling that split R10.5 assigns
  * the panel and the graph to different phases, and this tab is where the frame
- * lives.
+ * lives. The same tab carries R10.5(a)'s Query load chart
+ * (`components/QueryLoadArea.tsx`), which is the other half of that ruling:
+ * "10.5 *(Query load)* → **6b** · 10.5 *(Resource load, R5.1 cards, topology)*
+ * → **7**". Both halves are mounted here because this tab is R10.5's surface;
+ * the split is by part of the cell, not by which page renders it.
  */
 
 import type { FleetRow, PoolerView, ServiceView } from "../api/types";
@@ -29,6 +33,7 @@ import { StatusChip } from "../components/StatusGlyph";
 import { daysUntil, formatNumber, formatSize, formatTimestamp, NULL_VALUE } from "../lib/format";
 import { StatePanel } from "../components/StatePanel";
 import { ResourceLoadPanel } from "../components/ResourceLoadPanel";
+import { QueryLoadArea } from "../components/QueryLoadArea";
 
 const TABS: readonly { key: ClusterTab; label: string }[] = [
   { key: "overview", label: "Overview" },
@@ -174,6 +179,19 @@ function Overview({ cluster }: { cluster: FleetRow }) {
           ))}
         </dl>
       </section>
+      {/* R10.5(a)'s slot: the chart is 6b's (components/QueryLoadArea.tsx) and
+          the data is R9.4's. `points={[]}` is the honest value for the same
+          reason `source={null}` below is one — this page renders a `FleetRow`,
+          and the route that carries per-minute query load is R8.11's
+          `/insights/queries/series`. `client.ts` has that fetcher
+          (`fetchQuerySeries`, and its `QuerySeriesParams.cluster` is singular,
+          so a page showing one cluster needs one call for that cluster) but no
+          page-level hook calls it, so there is no batch here to plot yet. The
+          input it wants is
+          `stackSeries(fetchQuerySeries(cfg, { cluster, fingerprints: topN }).data)`;
+          until then the chart renders its own R10.13 sentence rather than a
+          series invented at the call site. */}
+      <QueryLoadArea points={[]} />
       {/* R10.5(b)'s slot: the panel is 6b's, the graph is Phase 7's (see
           components/ResourceLoadPanel.tsx). `source={null}` is the honest
           value, not a placeholder — client.ts has no OS-metrics fetcher yet,
