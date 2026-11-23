@@ -21,8 +21,16 @@ import {
   FIXTURE_GENERATED_AT,
 } from "./fixtures";
 import { FIXTURES, fetchFleet, resolveConfig, type FixtureName } from "./client";
-import { ContractError, emptyEnvelope, parseEnvelope, parseErrorBody, partialBanner, toFleetResponse } from "./envelope";
-import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta } from "./types";
+import {
+  ContractError,
+  emptyEnvelope,
+  parseEnvelope,
+  parseErrorBody,
+  parseQuerySeries,
+  partialBanner,
+  toFleetResponse,
+} from "./envelope";
+import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta, QuerySeries } from "./types";
 
 describe("resolveConfig", () => {
   it("defaults to the fixture", () => {
@@ -217,6 +225,149 @@ describe("parseEnvelope", () => {
         meta,
       }),
     ).toThrow(/certificates.expirations is not an object/);
+  });
+});
+
+describe("parseQuerySeries", () => {
+  /** The published example from `api/openapi.yaml`'s 200 response for
+   *  `/api/v1/insights/queries/series` (:609-636), inlined.
+   *
+   *  Inlined because there is no fixture to import. R16.8 wants one JSON file per
+   *  endpoint under `testdata/api/`, and `4cef345` shipped this route with
+   *  `series.go`, its Go test, the openapi entry and the handler — and no
+   *  `query-series.json`. The fixture import *is* types.ts's pin mechanism, so
+   *  until A2 adds the file this test reads the document's own example. When the
+   *  fixture lands, this literal becomes `FIXTURE_QUERY_SERIES` from
+   *  `./fixtures` and `fixtures.ts` gains its sixth file; the assertions below
+   *  do not change, only where the object comes from. */
+  const EXAMPLE = {
+    fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    queryid: "8123456789012345678",
+    namespace: "postgres",
+    cluster: "onepg",
+    pod: "onepg-1",
+    instanceRole: "primary",
+    datname: "appdb",
+    usename: "app",
+    points: [
+      {
+        timestamp: "2026-11-21T09:11:00Z",
+        executionTimeSeconds: 0.4182,
+        rows: 1200,
+        sharedBlocksHit: 48200,
+        sharedBlocksRead: 12,
+        lockTimeSeconds: 0.0031,
+      },
+      {
+        timestamp: "2026-11-21T09:12:00Z",
+        executionTimeSeconds: 0.3907,
+        rows: 1180,
+        sharedBlocksHit: 47910,
+        sharedBlocksRead: 8,
+        lockTimeSeconds: 0.0028,
+      },
+    ],
+  };
+
+  it("parses the published example", () => {
+    const parsed = parseQuerySeries(EXAMPLE);
+    // The parser validates and returns; it does not normalise, so the row that
+    // comes back is the row that went in (the same property
+    // parseClusterView/parseQueryView have).
+    expect(parsed).toEqual(EXAMPLE);
+    expect(parsed.points).toHaveLength(2);
+  });
+
+  it("parses through parseEnvelope's generic overload", () => {
+    // The call form the overload pair exists to allow: `parseEnvelope(json)`
+    // alone would type this payload's rows as ClusterView and the Detail chart
+    // would not compile against its own data. The annotation is the assertion —
+    // a regression in the pair shows up as TS2322 here, not as a runtime pass.
+    const env: Envelope<QuerySeries> = parseEnvelope(
+      { data: [EXAMPLE], meta: { total: 1, truncated: false, generatedAt: "2026-11-21T09:12:03Z" } },
+      parseQuerySeries,
+    );
+    expect(env.data[0]?.fingerprint).toBe(EXAMPLE.fingerprint);
+    expect(env.meta.total).toBe(1);
+  });
+
+  it("rejects a missing fingerprint, naming the row by its type", () => {
+    const { fingerprint, ...rest } = EXAMPLE;
+    expect(fingerprint).toBeDefined();
+    // `where` is built *from* the fingerprint, so a row missing that field is
+    // named by the typeName fallback — the same behaviour parseClusterView has
+    // for a cluster with no name. Asserted rather than assumed, because the
+    // alternative reading of this case is "the parser can't identify the row".
+    expect(() => parseQuerySeries(rest)).toThrow(
+      /query-series object: missing required field "fingerprint"/,
+    );
+  });
+
+  it("names the fingerprint in the message for every other missing field", () => {
+    // The row-identification rule that matters in a multi-entry payload: with
+    // seven entries in `data`, "missing required field" alone does not say which.
+    const { namespace, ...rest } = EXAMPLE;
+    expect(namespace).toBeDefined();
+    expect(() => parseQuerySeries(rest)).toThrow(
+      /query-series 9f86d081884c: missing required field "namespace"/,
+    );
+  });
+
+  it("rejects points:null, which Go never emits", () => {
+    // `points` has no `omitempty` (series.go:152), so a fingerprint with no
+    // samples serialises as `"points": []`. A null is not that: it is the
+    // `?? []`-style lie this module exists to refuse.
+    expect(() => parseQuerySeries({ ...EXAMPLE, points: null })).toThrow(
+      /field "points" is null, expected array/,
+    );
+  });
+
+  it("rejects a missing points array", () => {
+    const { points, ...rest } = EXAMPLE;
+    expect(points).toBeDefined();
+    expect(() => parseQuerySeries(rest)).toThrow(/missing required field "points"/);
+  });
+
+  it("checks inside the array, and names the owning fingerprint in the message", () => {
+    // The case the sibling parsers skip on purpose and this one does not: the
+    // array *is* the payload here, so a short point is a hole in the chart.
+    const { lockTimeSeconds, ...short } = EXAMPLE.points[0]!;
+    expect(lockTimeSeconds).toBeDefined();
+    expect(() => parseQuerySeries({ ...EXAMPLE, points: [short] })).toThrow(
+      /query 9f86d081884c: points\[0\] missing required field "lockTimeSeconds"/,
+    );
+  });
+
+  it("rejects a numeric field served as a string", () => {
+    // The openapi example writes `rows: 1200`; a server that stringifies it —
+    // as JSON-from-Prometheus does for sample values — is a contract break, not
+    // something to `Number()` into plausibility.
+    expect(() =>
+      parseQuerySeries({ ...EXAMPLE, points: [{ ...EXAMPLE.points[0]!, rows: "1200" }] }),
+    ).toThrow(/points\[0\]\.rows is string, expected number/);
+  });
+
+  it("accepts the cluster-aggregated answer, with all five omitempty labels absent", () => {
+    // The non-obvious legal shape, and the one the Detail chart actually asks
+    // for: QueryDetailView's chart has no pod (dto/queries.go:11-34 points it at
+    // this route for the fingerprint's series across the cluster), so the answer
+    // carries no `pod`, no `instanceRole`, and — for a multi-database cluster —
+    // no `datname`/`usename` either. A parser that demanded the label fields
+    // would throw on the response the chart is documented to receive.
+    expect(() =>
+      parseQuerySeries({ fingerprint: EXAMPLE.fingerprint, namespace: "postgres", cluster: "onepg", points: [] }),
+    ).not.toThrow();
+  });
+
+  it("rejects an instanceRole outside the published enum", () => {
+    // `unhealthy` is a member of the *clusters* union (InstanceRole, R1.2's word
+    // for a pod up with postgres not running) and not of this one
+    // (`enum: [primary, replica]`): a sample belongs to an instance that was
+    // primary or replica at sample time. Accepting it in TS would let a value
+    // the document forbids through a green build.
+    expect(() => parseQuerySeries({ ...EXAMPLE, instanceRole: "unhealthy" })).toThrow(
+      /field "instanceRole" is "unhealthy", expected "primary" or "replica"/,
+    );
   });
 });
 

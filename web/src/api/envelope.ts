@@ -28,6 +28,7 @@ import {
   type FleetResponse,
   type Meta,
   type QueryResponse,
+  type QuerySeries,
   type QueryView,
 } from "./types";
 
@@ -234,6 +235,109 @@ export function parseQueryView(raw: unknown): QueryView {
   }
 
   return raw as unknown as QueryView;
+}
+
+/** Check one `QuerySeriesPoint`'s six fields, naming the owning fingerprint.
+ *
+ *  A checker, not a constructor — same shape as the `require` closures in the
+ *  other two parsers: it throws or returns, and the caller casts.
+ *
+ *  All six are required. `series.go:112` gives every field a plain json tag with
+ *  no `omitempty`, and the openapi schema lists all six under `required`, so an
+ *  absent key is a contract break rather than an omitted optional. The five
+ *  metric fields are `number` because Go types them all `float64` — including
+ *  `rows`, which is a per-minute delta off a cumulative counter (R3.3) and so is
+ *  not narrowable to an int even though rows are countable. */
+function checkQuerySeriesPoint(raw: unknown, where: string, index: number): void {
+  if (!isRecord(raw)) {
+    throw new ContractError(`query ${where}: points[${index}] is ${typeName(raw)}, expected object`);
+  }
+  const require = (field: string, type: "string" | "number") => {
+    const v = raw[field];
+    if (v === undefined) {
+      throw new ContractError(`query ${where}: points[${index}] missing required field "${field}"`);
+    }
+    if (typeof v !== type) {
+      throw new ContractError(
+        `query ${where}: points[${index}].${field} is ${typeName(v)}, expected ${type}`,
+      );
+    }
+  };
+  require("timestamp", "string");
+  require("executionTimeSeconds", "number");
+  require("rows", "number");
+  require("sharedBlocksHit", "number");
+  require("sharedBlocksRead", "number");
+  require("lockTimeSeconds", "number");
+}
+
+/** Check one `/insights/queries/series` row and name it in the error.
+ *
+ *  The third row parser, for the third published payload family (R8.11; the
+ *  types live in `internal/api/series.go`, not `dto` — see the header note).
+ *  `parseEnvelope(json, parseQuerySeries)` is how the Detail chart's client
+ *  call gets a typed envelope, and it is the reason the overload pair exists.
+ *
+ *  **This one checks its nested array, where the other two do not.**
+ *  `parseClusterView` validates `instanceList` as an array and stops; the
+ *  `InstanceView` entries inside are never inspected. Same for
+ *  `parseQueryView`'s `recommendations`. The reason those two can stop is that
+ *  the array is one of seven sibling collections on the row — a malformed entry
+ *  there costs one sub-table on a detail page. Here `points` *is* the row's
+ *  payload: the endpoint exists to serve it, the chart renders nothing else, and
+ *  a point missing `executionTimeSeconds` plots a hole the UI has no way to
+ *  distinguish from a real zero. That is the class this module exists to catch,
+ *  so the check goes one level deep. */
+export function parseQuerySeries(raw: unknown): QuerySeries {
+  if (!isRecord(raw)) {
+    throw new ContractError(`query-series entry is ${typeName(raw)}, expected object`);
+  }
+  // Same naming rule as the other two: a bad entry in a multi-entry payload says
+  // which one. Truncated to 12 chars because a fingerprint is 64.
+  const where = typeof raw.fingerprint === "string" ? raw.fingerprint.slice(0, 12) : typeName(raw);
+  const require = (field: string, type: "string" | "array") => {
+    const v = raw[field];
+    if (v === undefined) throw new ContractError(`query-series ${where}: missing required field "${field}"`);
+    if (type === "array" ? !Array.isArray(v) : typeof v !== type) {
+      throw new ContractError(`query-series ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+
+  // The four fields series.go:142 declares without `omitempty`.
+  require("fingerprint", "string");
+  require("namespace", "string");
+  require("cluster", "string");
+  require("points", "array");
+
+  // The five it declares *with* `omitempty` — `queryid`, `pod`, `instanceRole`,
+  // `datname`, `usename`. Their absence is legal and means something specific:
+  // a cluster-aggregated answer (what R10.6's table row asks for) has no pod and
+  // no role, and `QueryDetailView`'s own chart asks for exactly that shape. So
+  // these are type-checked only when present; a check that demanded them would
+  // throw on the most common legal response.
+  const optional = (field: string, type: "string") => {
+    const v = raw[field];
+    if (v !== undefined && typeof v !== type) {
+      throw new ContractError(`query-series ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+  optional("queryid", "string");
+  optional("pod", "string");
+  optional("datname", "string");
+  optional("usename", "string");
+  // The enum, not the wider `InstanceRole` union: the published schema admits
+  // exactly two values (openapi QuerySeries.instanceRole `enum: [primary,
+  // replica]`), so a third — including clusters.go's `unhealthy`, which is not a
+  // role a sample can belong to — is a contract break, not a type to accept.
+  if (raw.instanceRole !== undefined && raw.instanceRole !== "primary" && raw.instanceRole !== "replica") {
+    throw new ContractError(
+      `query-series ${where}: field "instanceRole" is ${JSON.stringify(raw.instanceRole)}, expected "primary" or "replica"`,
+    );
+  }
+
+  (raw.points as unknown[]).forEach((point, i) => checkQuerySeriesPoint(point, where, i));
+
+  return raw as unknown as QuerySeries;
 }
 
 /** Parse an R8.5 error body. Returns null when the body is not one, so the

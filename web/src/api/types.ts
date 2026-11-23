@@ -19,6 +19,24 @@
  *                   imported — lands with that fixture's commit, because a type
  *                   importing an uncommitted file compiles in a working tree and
  *                   fails at the tip (the `45a69a1` class, one level down).
+ *                   The third block — `QuerySeriesPoint`, `QuerySeries`,
+ *                   `QuerySeriesEnvelope` — mirrors `internal/api/series.go`,
+ *                   which is package `api` and not `dto`, so it is the one block
+ *                   here not sourced from the dto package. It is here because the
+ *                   contract is published and has no other TS home:
+ *                   `api/openapi.yaml` ships all three as schemas with
+ *                   `x-status: implemented` (`4cef345`), and `QueryDetailView`
+ *                   below points at that route for its own chart — "Ask the
+ *                   series endpoint for the chart instead of expecting it on this
+ *                   object" — so the pointer currently names a payload with no
+ *                   type. Its pin is the published example, inlined in
+ *                   client.test.ts, not a fixture: `4cef345` shipped the route
+ *                   without its R16.8 `testdata/api/query-series.json`, and when
+ *                   A2 add one the test should read the file instead of the
+ *                   literal. The PromQL response types (`internal/api/promql.go`)
+ *                   are the other package-`api` payloads with no TS side; they
+ *                   are not added here because nothing in `web/` consumes the
+ *                   PromQL routes yet, whereas the Detail chart does need this one.
  *
  *   presentation  — `FleetRow`, what the Fleet table actually draws: a
  *                   ClusterView plus the fields the UI computes or owns and
@@ -600,6 +618,93 @@ export interface TagView extends LoadColumns {
    *  `LoadColumns`), the rollup does, and that asymmetry is the spec's. */
   lockWaitMs: number;
 }
+
+/* ── wire: internal/api/series.go (package api, not dto) ────────────────── */
+
+/** One minute of one fingerprint's series (R8.11).
+ *
+ *  Mirrors `internal/api/series.go:112` tag-for-tag. All five metric fields are
+ *  `number` because Go types them all `float64`, and that is the contract's
+ *  reason rather than a default: a per-minute delta derived from a cumulative
+ *  counter (R3.3) is not necessarily integral even when the underlying count is,
+ *  and a Prometheus sample value is a float. So `rows` here is a `number` and
+ *  must not be narrowed to an int on the theory that rows are countable — the
+ *  same reason `LoadColumns.avgRowsReturned` is a number and not an int. */
+export interface QuerySeriesPoint {
+  /** Start of the minute, RFC 3339 UTC (R10.21: every timestamp the API emits is
+   *  RFC 3339 UTC). Go types this `time.Time`; the wire type is the string, as
+   *  it is for `meta.generatedAt`. */
+  timestamp: string;
+  /** R9.4 `execution_time` for the minute, in seconds. */
+  executionTimeSeconds: number;
+  /** R9.4 `rows`. */
+  rows: number;
+  /** R9.4 `shared_blocks_hit`. */
+  sharedBlocksHit: number;
+  /** R9.4 `shared_blocks_read`. */
+  sharedBlocksRead: number;
+  /** R9.4 `lock_time`. */
+  lockTimeSeconds: number;
+}
+
+/** `primary` or `replica` — the role half of R5.7's (namespace, cluster, pod)
+ *  triple, on the answers that are a single instance's.
+ *
+ *  **Not** `InstanceRole`. That union carries a third member, `unhealthy`,
+ *  because R1.2 needs a word for a pod that is up with postgres not running; the
+ *  series contract's enum is the narrower two (openapi `QuerySeries.instanceRole`
+ *  `enum: [primary, replica]`), since a sample is attributed to an instance that
+ *  was primary or replica at sample time and "unhealthy" is not a role a series
+ *  can belong to. Reusing the wider union would let a TS-only bug through: a
+ *  value the document forbids but the type accepts. */
+export type QuerySeriesInstanceRole = "primary" | "replica";
+
+/** One requested fingerprint's answer from `GET /api/v1/insights/queries/series`
+ *  (R8.11). Mirrors `internal/api/series.go:142` tag-for-tag.
+ *
+ *  The vocabulary is R9.3's, not R3.2's: `datname`/`usename` here where
+ *  `QueryView` above says `database`/`user`. That is not drift to be fixed.
+ *  dto/queries.go:28-34 rules that "the requirement that defines a column set
+ *  names its fields", so QueryView's fields are R3.2's words because R3.2 defines
+ *  the Queries table and `api.QuerySeries`' are R9.3's because R9.3 defines the
+ *  label family — "two vocabularies for two contracts, each traceable to the
+ *  requirement that chose it". Renaming one to match the other breaks a published
+ *  contract in whichever direction it goes. */
+export interface QuerySeries {
+  /** R3.4's normalized fingerprint — the canonical key of the query store and of
+   *  this route's request (R9.5b). */
+  fingerprint: string;
+  /** PostgreSQL's `queryid`, informational (R9.5b). A string, not a number —
+   *  see `QueryView.queryid` for the 2^53 rounding argument. */
+  queryid?: string;
+  namespace: string;
+  cluster: string;
+  /** Present only when the answer is a single instance's (R5.7's
+   *  compare-up-to-5); absent when the points aggregate across the cluster's
+   *  instances, which is what R10.6's table row asks for and what makes one
+   *  entry per fingerprint possible at all. */
+  pod?: string;
+  instanceRole?: QuerySeriesInstanceRole;
+  /** R9.3's database label, the other half of R9.4's row identity. */
+  datname?: string;
+  /** R9.3's role-that-executed label. */
+  usename?: string;
+  /** The per-minute series, in time order. `[]`, never null, for a fingerprint
+   *  the store has never seen — an absent array and an empty one mean the same
+   *  thing to the UI, and the house rule `Envelope<ClusterView>` applies by is
+   *  `[]` on the wire rather than omitting the key. */
+  points: QuerySeriesPoint[];
+}
+
+/** `dto.Envelope[QuerySeries]`, named the way Go names it.
+ *
+ *  A type **alias**, not an interface restating the fields — mirroring Go's
+ *  `type QuerySeriesEnvelope = dto.Envelope[QuerySeries]` (series.go:96). The
+ *  reason carries across with the shape: R8.4's envelope has exactly one
+ *  definition in this codebase and `Envelope<T>` above is it, so a name that
+ *  exists so the OpenAPI document has something to `$ref` must not become a
+ *  second hand-written copy of it in TS any more than it did in Go. */
+export type QuerySeriesEnvelope = Envelope<QuerySeries>;
 
 /* ── presentation ────────────────────────────────────────────────────────── */
 
