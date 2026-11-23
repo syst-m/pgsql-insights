@@ -265,7 +265,7 @@ func TestSettingsCollectOneTransactionPerRound(t *testing.T) {
 		}
 	}
 	if tx.commits != 1 || tx.rollbacks != 0 {
-		t.Errorf("commits/rollbacks = %d/%d, want 1/0 on the success path", tx.commits, tx.commits)
+		t.Errorf("commits/rollbacks = %d/%d, want 1/0 on the success path", tx.commits, tx.rollbacks)
 	}
 	if res.RoundTrips != len(settingsViews) {
 		t.Errorf("RoundTrips = %d, want %d (R13.1 measures a round from this count)", res.RoundTrips, len(settingsViews))

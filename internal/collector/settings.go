@@ -54,7 +54,8 @@ var settingsViews = []pgversion.View{
 // key in a label. The consequence is that this collector names its families after
 // the *row* — one per GUC, one per extension — rather than after the column, which
 // is what sql.go's MetricName does for the other SQL collectors: `pg_settings` has
-// eighteen columns and only one of them (`setting`) is a value, so `MetricName`
+// seventeen columns (matrix_data.go:159) and only one of them (`setting`) is a
+// value, so `MetricName`
 // per column would give one `pg_settings_setting` family that every GUC's row
 // overwrites.
 //
