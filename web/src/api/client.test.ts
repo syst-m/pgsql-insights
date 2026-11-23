@@ -14,13 +14,24 @@ import {
   FIXTURE_EMPTY,
   FIXTURE_ENVELOPE,
   FIXTURE_FLEET,
+  FIXTURE_QUERY_DETAIL,
+  FIXTURE_QUERY_SERIES,
+  FIXTURE_QUERIES,
   FIXTURE_PARTIAL,
   FIXTURE_TRUNCATED_PARTIAL,
   FIXTURE_UNAVAILABLE,
   FIXTURE_CLUSTERS,
   FIXTURE_GENERATED_AT,
 } from "./fixtures";
-import { FIXTURES, fetchFleet, resolveConfig, type FixtureName } from "./client";
+import {
+  FIXTURES,
+  fetchFleet,
+  fetchQueries,
+  fetchQueryDetail,
+  fetchQuerySeries,
+  resolveConfig,
+  type FixtureName,
+} from "./client";
 import {
   ContractError,
   emptyEnvelope,
@@ -29,6 +40,7 @@ import {
   parseQuerySeries,
   partialBanner,
   toFleetResponse,
+  toQueriesResponse,
 } from "./envelope";
 import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta, QuerySeries } from "./types";
 
@@ -229,45 +241,36 @@ describe("parseEnvelope", () => {
 });
 
 describe("parseQuerySeries", () => {
-  /** The published example from `api/openapi.yaml`'s 200 response for
-   *  `/api/v1/insights/queries/series` (:609-636), inlined.
+  /** `testdata/api/query-series.json`'s first entry, via `FIXTURE_QUERY_SERIES`.
    *
-   *  Inlined because there is no fixture to import. R16.8 wants one JSON file per
-   *  endpoint under `testdata/api/`, and `4cef345` shipped this route with
-   *  `series.go`, its Go test, the openapi entry and the handler — and no
-   *  `query-series.json`. The fixture import *is* types.ts's pin mechanism, so
-   *  until A2 adds the file this test reads the document's own example. When the
-   *  fixture lands, this literal becomes `FIXTURE_QUERY_SERIES` from
-   *  `./fixtures` and `fixtures.ts` gains its sixth file; the assertions below
-   *  do not change, only where the object comes from. */
-  const EXAMPLE = {
-    fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    queryid: "8123456789012345678",
-    namespace: "postgres",
-    cluster: "onepg",
-    pod: "onepg-1",
-    instanceRole: "primary",
-    datname: "appdb",
-    usename: "app",
-    points: [
-      {
-        timestamp: "2026-11-21T09:11:00Z",
-        executionTimeSeconds: 0.4182,
-        rows: 1200,
-        sharedBlocksHit: 48200,
-        sharedBlocksRead: 12,
-        lockTimeSeconds: 0.0031,
-      },
-      {
-        timestamp: "2026-11-21T09:12:00Z",
-        executionTimeSeconds: 0.3907,
-        rows: 1180,
-        sharedBlocksHit: 47910,
-        sharedBlocksRead: 8,
-        lockTimeSeconds: 0.0028,
-      },
-    ],
-  };
+   *  This block used to carry its own copy of the object. The inlining was a known
+   *  gap rather than a choice — `4cef345` shipped the route with `series.go`, its
+   *  Go test, the openapi entry and the handler, and left `query-series.json` out,
+   *  so the test read the document's example because there was no fixture to read
+   *  — and the literal's own comment named this file as the fix and promised that
+   *  when the fixture landed the assertions below would not change, only where the
+   *  object came from. They did not change, with one exception worth naming: two of
+   *  them hardcoded the old fingerprint (see `PREFIX`). A1's `8b046ef` added the
+   *  JSON and the Go test that guards it, `fixtures.ts:109` is the TS half, and
+   *  `18ae97d` made the openapi example that file's bytes — so the example, the
+   *  fixture and this test are one object now, which is the whole point of R16.8.
+   *
+   *  Entry 0 is the entry with every `omitempty` label present and two points,
+   *  which is the shape the variant cases below mutate. The fixture's other two
+   *  entries are the no-labels and `points: []` shapes, so importing the file
+   *  covers all three where the inlined example covered one. */
+  const EXAMPLE = FIXTURE_QUERY_SERIES.data[0]!;
+
+  /** The row-identifying prefix, derived rather than spelled out.
+   *
+   *  `envelope.ts:357` builds it as `raw.fingerprint.slice(0, 12)`. Two of the
+   *  cases below hardcoded `9f86d081884c` — the openapi example's fingerprint —
+   *  so the moment the object came from the fixture instead, those two went red
+   *  while every other assertion in the block stayed green. Deriving it from
+   *  `EXAMPLE` deletes the second copy instead of re-syncing it (docs/agents.md §5
+   *  rule 10), so the pair cannot drift again; a fingerprint is hex, so
+   *  interpolating one into a `RegExp` needs no escaping. */
+  const PREFIX = EXAMPLE.fingerprint.slice(0, 12);
 
   it("parses the published example", () => {
     const parsed = parseQuerySeries(EXAMPLE);
@@ -309,7 +312,7 @@ describe("parseQuerySeries", () => {
     const { namespace, ...rest } = EXAMPLE;
     expect(namespace).toBeDefined();
     expect(() => parseQuerySeries(rest)).toThrow(
-      /query-series 9f86d081884c: missing required field "namespace"/,
+      new RegExp(`query-series ${PREFIX}: missing required field "namespace"`),
     );
   });
 
@@ -334,7 +337,7 @@ describe("parseQuerySeries", () => {
     const { lockTimeSeconds, ...short } = EXAMPLE.points[0]!;
     expect(lockTimeSeconds).toBeDefined();
     expect(() => parseQuerySeries({ ...EXAMPLE, points: [short] })).toThrow(
-      /query 9f86d081884c: points\[0\] missing required field "lockTimeSeconds"/,
+      new RegExp(`query ${PREFIX}: points\\[0\\] missing required field "lockTimeSeconds"`),
     );
   });
 
@@ -355,7 +358,12 @@ describe("parseQuerySeries", () => {
     // no `datname`/`usename` either. A parser that demanded the label fields
     // would throw on the response the chart is documented to receive.
     expect(() =>
-      parseQuerySeries({ fingerprint: EXAMPLE.fingerprint, namespace: "postgres", cluster: "onepg", points: [] }),
+      parseQuerySeries({
+        fingerprint: EXAMPLE.fingerprint,
+        namespace: EXAMPLE.namespace,
+        cluster: EXAMPLE.cluster,
+        points: [],
+      }),
     ).not.toThrow();
   });
 
@@ -523,25 +531,36 @@ describe("partialBanner", () => {
   });
 });
 
+/* The network stand-in and the two ClientConfigs, shared by every fetcher block.
+ *
+ * These lived inside `describe("fetchFleet over http")` while that was the only
+ * block with an http arm. `fetchQueries`/`fetchQueryDetail`/`fetchQuerySeries`
+ * need the same two things, and a `stub` per describe is four copies of the one
+ * line every http assertion in this file depends on — the same
+ * two-copies-of-a-fact problem the fixture import exists to remove on the data
+ * side. The cast is on the Response, not on the payload: `fetch`'s return type
+ * demands the whole `Response` interface (headers, url, clone, …) and the client
+ * reads only `ok`, `status`, `statusText` and `json()`. The bug this file exists
+ * for was casting *data* — see the ContractError cases.
+ *
+ * `delayMs: 0` on both configs: the fixture arm's latency is `resolveConfig`'s
+ * business (it parses `?delay=`), and a suite that awaited 60ms per fetch would
+ * be 60ms of waiting for nothing. */
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  vi.restoreAllMocks();
+});
+
+function stub(json: unknown, ok = true, status = 200, statusText = "OK") {
+  const res = { ok, status, statusText, json: async () => json } as unknown as Response;
+  globalThis.fetch = vi.fn(async () => res);
+}
+
+const http = { source: "http", apiBase: "", fixture: "fleet", delayMs: 0 } as const;
+const fixture = { source: "fixture", apiBase: "", fixture: "fleet", delayMs: 0 } as const;
+
 describe("fetchFleet over http", () => {
-  const realFetch = globalThis.fetch;
-  afterEach(() => {
-    globalThis.fetch = realFetch;
-    vi.restoreAllMocks();
-  });
-
-  /** Stand in for the network with a body the client will see. The cast is on
-   *  the Response, not on the payload: `fetch`'s return type demands the whole
-   *  `Response` interface (headers, url, clone, …) and the client reads only
-   *  `ok`, `status`, `statusText` and `json()`. The thing the last commit got
-   *  wrong was casting *data* — see the ContractError case below. */
-  function stub(json: unknown, ok = true, status = 200, statusText = "OK") {
-    const res = { ok, status, statusText, json: async () => json } as unknown as Response;
-    globalThis.fetch = vi.fn(async () => res);
-  }
-
-  const http = { source: "http", apiBase: "", fixture: "fleet", delayMs: 0 } as const;
-
   it("GETs the contract path on the same origin", async () => {
     stub({ data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } });
     await fetchFleet(http);
@@ -580,6 +599,187 @@ describe("fetchFleet over http", () => {
     const err = await fetchFleet(http).catch((e: unknown) => e);
     expect((err as Error).message).toBe("GET → 502 Bad Gateway");
     expect((err as { code?: string }).code).toBeUndefined();
+  });
+});
+
+describe("fetchQueries", () => {
+  const empty = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
+
+  it("GETs the contract path with the params it was given", async () => {
+    stub(empty);
+    await fetchQueries(http, { namespace: "open-webui", cluster: "open-webui-pg", limit: 50 });
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      "/api/v1/insights/queries?namespace=open-webui&cluster=open-webui-pg&limit=50",
+    );
+  });
+
+  it("leaves an unset param out of the query string instead of sending it empty", async () => {
+    // `?db=` asks the server about the empty-string database; a URL with no `db`
+    // asks about no database at all. Every R8.4 param is optional, so an unset
+    // one has to be absent — the case `fetchFleet` never had to get right because
+    // it takes no params, and the reason `search()` filters undefined rather
+    // than handing it to URLSearchParams.
+    stub(empty);
+    await fetchQueries(http, { namespace: "open-webui" });
+    const url = String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]);
+    expect(url).toBe("/api/v1/insights/queries?namespace=open-webui");
+    expect(url).not.toContain("db=");
+    expect(url).not.toContain("cursor=");
+  });
+
+  it("sends no query string at all when every param is unset", async () => {
+    stub(empty);
+    await fetchQueries(http);
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe("/api/v1/insights/queries");
+  });
+
+  it("passes a limit above the maximum through instead of clamping it (R8.10)", async () => {
+    // R8.10 fixes the max at 500 and rules that above it the answer is
+    // InvalidRequest, not a silent clamp — "a client that asks for 5000 learns
+    // about it instead of getting 500". A client that clamped would never see
+    // that error and would silently disagree with the server about the page it
+    // asked for, which is the same lie as defaulting a missing key to `[]`.
+    stub(empty);
+    await fetchQueries(http, { limit: 5000 });
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain("limit=5000");
+  });
+
+  it("returns the parsed envelope for a valid 200", async () => {
+    stub(FIXTURE_QUERIES);
+    const out = await fetchQueries(http);
+    // The same builder the fixture arm returns, so the two arms cannot disagree
+    // about the shape the page receives.
+    expect(out).toEqual(toQueriesResponse(FIXTURE_QUERIES));
+  });
+
+  it("throws ContractError on a 200 whose body is not an envelope", async () => {
+    stub({ generatedAt: FIXTURE_GENERATED_AT, queries: [] });
+    await expect(fetchQueries(http)).rejects.toThrow(ContractError);
+  });
+
+  it("serves the queries fixture on the fixture arm", async () => {
+    await expect(fetchQueries(fixture)).resolves.toEqual(toQueriesResponse(FIXTURE_QUERIES));
+  });
+});
+
+describe("fetchQueryDetail", () => {
+  const params = {
+    fingerprint: FIXTURE_QUERY_DETAIL.fingerprint,
+    namespace: FIXTURE_QUERY_DETAIL.namespace,
+    cluster: FIXTURE_QUERY_DETAIL.cluster,
+  };
+
+  it("puts the fingerprint in the path and the scope in the query string", async () => {
+    stub(FIXTURE_QUERY_DETAIL);
+    await fetchQueryDetail(http, params);
+    // All three fields are required here and only two of them are query params:
+    // R3.4 makes a fingerprint canonical *within* a cluster, so namespace+cluster
+    // are half of the key and the route makes them required, while the list route
+    // — where they filter rather than identify — leaves them optional.
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      `/api/v1/insights/queries/${FIXTURE_QUERY_DETAIL.fingerprint}` +
+        `?namespace=${FIXTURE_QUERY_DETAIL.namespace}&cluster=${FIXTURE_QUERY_DETAIL.cluster}`,
+    );
+  });
+
+  it("percent-encodes a fingerprint that needs it", async () => {
+    // `{fingerprint}` is a path segment, so a value with a space or a `%` has to
+    // be encoded — the same encoding routes.ts applies when it builds the URL
+    // the page is at, so both sides address the same row.
+    stub(FIXTURE_QUERY_DETAIL);
+    await fetchQueryDetail(http, { fingerprint: "0x84f2 a", namespace: "n", cluster: "c" });
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toBe(
+      "/api/v1/insights/queries/0x84f2%20a?namespace=n&cluster=c",
+    );
+  });
+
+  it("returns the bare object the route serves, not an envelope", async () => {
+    // The fourth payload's 200 is `QueryDetailView` itself — openapi's 200
+    // schema is the object, not `Envelope[…]` — so this is the one fetcher with
+    // no parseEnvelope call, and the reason `parseQueryDetailView` exists is
+    // that the alternative here was `json as QueryDetailView`: the cast this
+    // module was extracted to remove.
+    stub(FIXTURE_QUERY_DETAIL);
+    await expect(fetchQueryDetail(http, params)).resolves.toEqual(FIXTURE_QUERY_DETAIL);
+  });
+
+  it("rejects an envelope body, which is the shape the other three routes serve", async () => {
+    // The assertion that pins the shape rather than the parse: hand this fetcher a
+    // valid envelope — what `/clusters` and `/insights/queries` return — and it
+    // has to fail. A fetcher that reached for `parseEnvelope` by mistake passes
+    // the test above and fails this one.
+    stub({ data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } });
+    await expect(fetchQueryDetail(http, params)).rejects.toThrow(ContractError);
+  });
+
+  it("raises ApiError carrying the R8.5 code on a 404", async () => {
+    // Until Phase 3's store is assigned to Config.QueryDetail this route answers
+    // 404 NotFound for every fingerprint, so it is the response the page actually
+    // gets today — and the code is what separates "no such query" from the
+    // NotReady a page recovers from by waiting.
+    stub({ error: { code: "NotFound", message: "no such query", details: [] } }, false, 404, "Not Found");
+    const err = await fetchQueryDetail(http, params).catch((e: unknown) => e);
+    expect((err as Error).message).toBe("GET → 404 NotFound: no such query");
+    expect((err as { code?: string }).code).toBe("NotFound");
+  });
+
+  it("serves the detail fixture on the fixture arm", async () => {
+    await expect(fetchQueryDetail(fixture, params)).resolves.toEqual(FIXTURE_QUERY_DETAIL);
+  });
+});
+
+describe("fetchQuerySeries", () => {
+  const all = FIXTURE_QUERY_SERIES.data.map((s) => s.fingerprint);
+  const empty = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
+
+  it("joins the batch into one fingerprints param", async () => {
+    stub(FIXTURE_QUERY_SERIES);
+    await fetchQuerySeries(http, { fingerprints: all, range: "1h" });
+    // R8.11's wire form is one comma-separated `fingerprints=`, not repeated
+    // keys — the form `series.go`'s parser documents. URLSearchParams percent-
+    // encodes the commas to %2C, which the server decodes back; asserting the
+    // encoded form is what pins the joining rather than re-deriving it.
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      `/api/v1/insights/queries/series?fingerprints=${all.map((f) => encodeURIComponent(f)).join("%2C")}&range=1h`,
+    );
+  });
+
+  it("omits range when the caller leaves it unset, so the server's 1h default applies", async () => {
+    // An empty `range=` is not the same as no `range=`: the server's default is
+    // `1h` (series.go's DefaultRange) and its parser rejects a value it cannot
+    // name, which an empty string is.
+    stub(FIXTURE_QUERY_SERIES);
+    await fetchQuerySeries(http, { fingerprints: all });
+    const url = String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]);
+    expect(url.startsWith("/api/v1/insights/queries/series?fingerprints=")).toBe(true);
+    expect(url).not.toContain("range=");
+  });
+
+  it("sends a batch above the cap without truncating it", async () => {
+    // `series.go` caps the batch at MaxBatchFingerprints (50) and answers
+    // InvalidRequest above it rather than serving a shorter list. Slicing here
+    // would turn that error into a silent partial answer — the caller could not
+    // tell "one of these has no data" from "you were cut off", which is R8.10's
+    // argument against the clamp applied to a second parameter.
+    const many = Array.from({ length: 51 }, (_, i) => `fp-${i}`);
+    stub(empty);
+    await fetchQuerySeries(http, { fingerprints: many });
+    const url = String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]);
+    expect(url.split("fingerprints=")[1]!.split("%2C")).toHaveLength(51);
+  });
+
+  it("returns the parsed envelope for a valid 200", async () => {
+    stub(FIXTURE_QUERY_SERIES);
+    await expect(fetchQuerySeries(http, { fingerprints: all })).resolves.toEqual(FIXTURE_QUERY_SERIES);
+  });
+
+  it("throws ContractError on a 200 whose body is not an envelope", async () => {
+    stub({ series: [] });
+    await expect(fetchQuerySeries(http, { fingerprints: all })).rejects.toThrow(ContractError);
+  });
+
+  it("serves the series fixture on the fixture arm", async () => {
+    await expect(fetchQuerySeries(fixture, { fingerprints: all })).resolves.toEqual(FIXTURE_QUERY_SERIES);
   });
 });
 

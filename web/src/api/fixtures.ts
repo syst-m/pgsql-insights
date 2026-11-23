@@ -29,6 +29,7 @@
 import apiClustersJson from "../../../testdata/api/clusters.json";
 import apiQueryDetailJson from "../../../testdata/api/query-detail.json";
 import apiQueryPlansJson from "../../../testdata/api/query-plans.json";
+import apiQuerySeriesJson from "../../../testdata/api/query-series.json";
 import apiQueriesJson from "../../../testdata/api/queries.json";
 import apiTagsJson from "../../../testdata/api/tags.json";
 
@@ -42,6 +43,7 @@ import type {
   FleetRow,
   PlanSampleView,
   QueryDetailView,
+  QuerySeriesEnvelope,
   QueryView,
   TagView,
 } from "./types";
@@ -74,6 +76,37 @@ export const FIXTURE_QUERY_DETAIL: QueryDetailView = apiQueryDetailJson;
  *  `available` sample with its plan JSON, one
  *  `unavailable (insufficient table privileges)` with a message and no plan. */
 export const FIXTURE_QUERY_PLANS: Envelope<PlanSampleView> = apiQueryPlansJson;
+
+/* R8.11's series fixture, from dto/series.go rather than dto/queries.go, so it
+ * sits outside the four-file group above — and it is the one `4cef345` shipped
+ * the route without. That commit landed `series.go`, its Go test, the openapi
+ * entry and the handler, and left `testdata/api/query-series.json` out, which
+ * left `client.test.ts` holding an inlined copy of the openapi example instead
+ * of importing the fixture (its own comment said so, and named this file as the
+ * fix). A1's `8b046ef` added the JSON and the Go test that guards it; this is
+ * the TS half of that.
+ *
+ * Three entries, and the three shapes R8.11 allows are all here: one with every
+ * `omitempty` label and two minutes of points, one with no `pod`/`instanceRole`
+ * (the cluster-aggregated answer, one point), and one whose `points` is `[]` —
+ * the empty-not-null case that `parseQuerySeries` exists to police.
+ *
+ * The one fixture here written with `as` instead of the annotation the other five
+ * use, and the reason is `instanceRole`. `resolveJsonModule` types every string
+ * in a JSON file as `string`, so a bare annotation can only carry the drift check
+ * while the payload has no union-typed field — which is why `types.ts` types
+ * `PlanSampleView.availability` as `string` and keeps `PlanAvailability` as a
+ * separate type. `QuerySeries.instanceRole` is the exception, and its own doc
+ * explains why the union is the narrow two rather than `InstanceRole`; widening
+ * it to `string` to satisfy the annotation would delete that decision to fix a
+ * typing artefact. The cast keeps the check that matters: it is still an
+ * assignability test, so a json tag renamed in `series.go` without regenerating
+ * the fixture fails with TS2352 (verified — `fingerprint`→`fp` and
+ * `executionTimeSeconds: number`→`string` both error), and what it stops
+ * re-checking is only that `"primary"` is a member of a union the JSON import
+ * already erased. The runtime half is `parseQuerySeries`, which does police the
+ * enum, and `client.test.ts` runs this object through it. */
+export const FIXTURE_QUERY_SERIES = apiQuerySeriesJson as QuerySeriesEnvelope;
 
 /** GET /api/v1/insights/tags — R3.12's dimensions with R3.7's rollup. Three
  *  tags: a full comment, no comment at all, and a partial one. */

@@ -27,6 +27,7 @@ import {
   type FleetRow,
   type FleetResponse,
   type Meta,
+  type QueryDetailView,
   type QueryResponse,
   type QuerySeries,
   type QueryView,
@@ -235,6 +236,65 @@ export function parseQueryView(raw: unknown): QueryView {
   }
 
   return raw as unknown as QueryView;
+}
+
+/** Check the `/insights/queries/{fingerprint}` body and return it typed.
+ *
+ *  The fourth published payload, and the only one that is not an envelope: the
+ *  detail route's 200 is a bare `QueryDetailView` (openapi's 200 schema is the
+ *  object itself, not `Envelope[…]`), so there is no `parseEnvelope` call to
+ *  hang the check on. Without this function, `fetchQueryDetail`'s http path is
+ *  the one place in the client that would have to cast a body — the exact
+ *  `res.json() as FleetResponse` this module was extracted to remove, and the
+ *  reason `client.ts`'s header says the http path parses rather than casts.
+ *
+ *  The inherited half is checked by `parseQueryView`, not restated. The dto
+ *  embeds `QueryView` in `QueryDetailView` (queries.go:241) and the TS mirror
+ *  extends it (types.ts:582), so the six identity fields and the eight
+ *  `LoadColumns` get exactly the checks the list route applies to them — one
+ *  copy of the field list, which is R16.8's whole point.
+ *
+ *  `plans[]` entries are not inspected here, for the same reason
+ *  `parseClusterView` stops at `instanceList` and `parseQueryView` stops at
+ *  `recommendations`: a malformed entry costs one sub-table on a page, not the
+ *  page. `parseQuerySeries` is the exception because there `points` *is* the
+ *  payload. The plans route's own row parser is what will validate these when
+ *  `fetchQueryPlans` lands; writing a `PlanSampleView` check here would be a
+ *  second copy of a list that file is about to own. */
+export function parseQueryDetailView(raw: unknown): QueryDetailView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`query-detail payload is ${typeName(raw)}, expected object`);
+  }
+  // The embedded half first, so its errors name the row the way the list
+  // parser's do (`query 84f2a91c…: …`) and so `fingerprint` is known to be a
+  // string before the detail-only checks use it as the address.
+  const view = parseQueryView(raw);
+  const where = view.fingerprint.slice(0, 12);
+  const require = (field: string, type: "string" | "object" | "array") => {
+    const v = raw[field];
+    if (v === undefined) throw new ContractError(`query-detail ${where}: missing required field "${field}"`);
+    if (type === "object" ? !isRecord(v) : type === "array" ? !Array.isArray(v) : typeof v !== type) {
+      throw new ContractError(`query-detail ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+
+  // The four fields queries.go:250-276 adds to the embedded QueryView. All four
+  // are tagged without `omitempty`, so all four are always present — and for the
+  // two slices that includes the empty case: a nil Go slice with no omitempty
+  // marshals as `null`, which this rejects for the same reason `parseEnvelope`
+  // rejects `"data": null` (the house rule is `[]` on the wire).
+  require("firstSeen", "string");
+  require("latency", "object");
+  require("plans", "array");
+  require("planChanges", "array");
+  // `user` is the one field on this shape that is omitempty (queries.go:250):
+  // R3.2's table has no user column, and a fingerprint the store knows the
+  // cluster for but not the role for has nothing to show.
+  if (raw.user !== undefined && typeof raw.user !== "string") {
+    throw new ContractError(`query-detail ${where}: field "user" is ${typeName(raw.user)}, expected string`);
+  }
+
+  return raw as unknown as QueryDetailView;
 }
 
 /** Check one `QuerySeriesPoint`'s six fields, naming the owning fingerprint.
