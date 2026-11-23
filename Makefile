@@ -41,7 +41,7 @@ REPO     ?= frankellis/pgsql-insights
 TAG      ?= dev
 
 .PHONY: all build test cover vet lint lint-go openapi openapi-check tidy-check web test-web typecheck-web \
-       helm-lint render render-check image image-size push-local licenses licenses-check \
+       helm-lint render render-check image image-size push-local licenses licenses-check licenses-selftest \
        deploy verify clean help
 
 all: build
@@ -231,6 +231,17 @@ licenses:
 # Folding it in would have made `make lint` require go-licenses on every machine.
 licenses-check:
 	python3 scripts/gen-licenses.py --check
+
+## licenses-selftest: the negative tests for licenses-check's README assertion.
+# scripts/gen-licenses-selftest.py mutates each of the ten counts the README
+# restates, one at a time, and requires the failure to name the one it broke —
+# the evidence that check_readme_counts grades instead of always returning 0.
+# It imports the script and reads the committed manifests, so it needs no
+# toolchain and runs on a machine where licenses-check cannot go green because
+# go-licenses is not on PATH; there, it is the only way to exercise the README
+# half at all. docs/agents.md §5 rule 11 is the rule this target exists to allow.
+licenses-selftest:
+	python3 scripts/gen-licenses-selftest.py
 
 ## deploy: install/upgrade the chart into the reference cluster (R11.14)
 deploy:

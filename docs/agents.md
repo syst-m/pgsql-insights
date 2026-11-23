@@ -302,6 +302,18 @@ These apply to every slot.
    validates the source has to assert the copy: `check-parity-matrix.py` already asserts that a
    `file:line` citation points at what it claims, and a status line duplicated across files is
    the same class of claim one step short of a stale citation.
+11. **A test that exists only in a transcript is not a test.** Where the gating code is a script
+   in `scripts/`, its test is a sibling file plus the make target that runs it — `gen-licenses.py`
+   with `make licenses-check`, `gen-licenses-selftest.py` with `make licenses-selftest`. The
+   precedent is A2's `6d6438d`, which kept a deleted scratch emit harness as a `-emitdump` flag
+   for the same reason: the throwaway that produced the evidence is committed as a callable thing,
+   not left as a transcript. Two corollaries. **Write the negative cases**: mutate each value the
+   check claims to read, one at a time, and require the failure to name that one — a check that
+   fails for the wrong reason gets ignored, which is the class R10.22 names (a banner test with
+   one fixture of each kind passed while `meta.total` was read wrong). And **the test has to run
+   where the check can't**: `licenses-check` needs `go-licenses` on PATH, so on a machine without
+   it the generator short-circuits on the first half and the README assertion never executes — the
+   selftest imports the script directly and is the only way to run that assertion there.
 
 ## 6. Coordinator duty: verify, don't accept
 
