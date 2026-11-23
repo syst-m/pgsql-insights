@@ -341,6 +341,30 @@ for k in path_orphans[:20]:
 # people use to find things. http(s)/mailto and pure-`#anchor` targets are skipped; a
 # `#fragment` is stripped before the path is resolved.
 LINK_RE = re.compile(r"\[([^\]]*)\]\(([^()\s]+)\)")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+def code_free_lines(lines):
+    r"""[(lineno, text)] with fenced code blocks dropped (A3's L2).
+
+    A `[x](y)` written inside a ``` block is illustrative markdown, not a link the doc
+    asserts exists, so resolving it can report a break the doc never made. The strict
+    LINK_RE hides this today only because its `[^()\s]+` rejects the spaced code targets
+    that the permissive form would match — a luck, not a guard. A closing fence must be
+    the same character and at least as long as the opening run, which is what lets a
+    4-backtick block print a 3-backtick block inside it.
+    """
+    fence, out = "", []
+    for n, line in enumerate(lines, 1):
+        m = FENCE_RE.match(line)
+        if fence:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                fence = ""
+            continue
+        if m:
+            fence = m.group(1)
+            continue
+        out.append((n, line))
+    return out
 
 def check_links(root, tracked):
     """(checked, broken) for every relative [text](path) link in tracked markdown."""
@@ -348,7 +372,7 @@ def check_links(root, tracked):
     for rel in tracked:
         if not rel.endswith(".md") or rel.startswith(PATH_SKIP_DIRS): continue
         d = (root / rel).parent
-        for n, line in enumerate(lines_of(root, rel), 1):
+        for n, line in code_free_lines(lines_of(root, rel)):
             for m in LINK_RE.finditer(line):
                 tgt = m.group(2)
                 if tgt.startswith(("http://", "https://", "mailto:")): continue
@@ -360,8 +384,8 @@ def check_links(root, tracked):
     return checked, broken
 
 checked_links, links_bad = check_links(root, files_all)
-if not checked_links:
-    print("GUARD: link check found 0 links — file discovery broke, not a pass")
+if not scanned_md:
+    print("GUARD: link check scanned 0 markdown files — file discovery broke, not a pass")
     sys.exit(2)
 print(f"markdown links: {checked_links} checked \u00b7 {len(links_bad)} broken")
 for f, n, tgt in links_bad[:20]:
