@@ -159,15 +159,6 @@ type queryListRow struct {
 // then refuses to marshal — the one value that turns a 200 into a 500 at the
 // encoding step, after the headers are already sent.
 func (r queryListRow) view(clusterTotal float64) dto.QueryView {
-	pct := 0.0
-	if clusterTotal > 0 {
-		pct = 100 * r.totalExecMs / clusterTotal
-	}
-	var avgMs, avgRows float64
-	if r.calls > 0 {
-		avgMs = r.totalExecMs / float64(r.calls)
-		avgRows = r.rowsReturned / float64(r.calls)
-	}
 	return dto.QueryView{
 		Fingerprint: r.fingerprint,
 		QueryID:     r.queryid,
@@ -182,16 +173,46 @@ func (r queryListRow) view(clusterTotal float64) dto.QueryView {
 		// the field has no omitempty, and `"recommendations": null` is what a nil
 		// slice marshals to — the UI's `.length` reads undefined instead of 0.
 		Recommendations: []dto.RecommendationView{},
-		LoadColumns: dto.LoadColumns{
-			LoadByTotalTime:  pct,
-			PctLoadByQueries: pct,
-			AvgExecTimeMs:    avgMs,
-			TotalExecTimeMs:  r.totalExecMs,
-			AvgRowsReturned:  avgRows,
-			TimesCalled:      r.calls,
-			LoadByCPUMs:      r.cpuMs,
-			LoadByIOWaitMs:   r.ioWaitMs,
-		},
+		LoadColumns:     r.loadColumns(clusterTotal),
+	}
+}
+
+// loadColumns is R3.2's load-column set for this row against its cluster's total.
+//
+// The three derived columns are the three the DTO documents as derived:
+// LoadByTotalTime is the share of clusterTotal, PctLoadByQueries carries the same
+// value (dto's own doc: "the wording that distinguishes them is the spec's to
+// supply, not ours to invent. Until it does, both carry the R3.2 value"), and the
+// two averages divide by calls. Every division guards its denominator, because a
+// zero calls with a non-zero total is a row the collector can produce (a stats
+// reset mid-interval, R3.3) and 0/0 in Go is NaN, which encoding/json then refuses
+// to marshal — the one value that turns a 200 into a 500 at the encoding step,
+// after the headers are already sent.
+//
+// It is a method rather than inline in view because R3.7 requires "the same load
+// columns as R3.2" of every rollup it defines, and the tags read (rollups.go) is
+// the second place that owes them. Two functions that compute a percentage are how
+// a table and a tags page start disagreeing about one number, which is the failure
+// this package has been avoiding by construction since the row type existed.
+func (r queryListRow) loadColumns(clusterTotal float64) dto.LoadColumns {
+	pct := 0.0
+	if clusterTotal > 0 {
+		pct = 100 * r.totalExecMs / clusterTotal
+	}
+	var avgMs, avgRows float64
+	if r.calls > 0 {
+		avgMs = r.totalExecMs / float64(r.calls)
+		avgRows = r.rowsReturned / float64(r.calls)
+	}
+	return dto.LoadColumns{
+		LoadByTotalTime:  pct,
+		PctLoadByQueries: pct,
+		AvgExecTimeMs:    avgMs,
+		TotalExecTimeMs:  r.totalExecMs,
+		AvgRowsReturned:  avgRows,
+		TimesCalled:      r.calls,
+		LoadByCPUMs:      r.cpuMs,
+		LoadByIOWaitMs:   r.ioWaitMs,
 	}
 }
 
