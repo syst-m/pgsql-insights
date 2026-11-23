@@ -40,7 +40,7 @@ REGISTRY ?= 10.10.111.134:5000
 REPO     ?= frankellis/pgsql-insights
 TAG      ?= dev
 
-.PHONY: all build test cover vet lint lint-go openapi-check tidy-check web test-web typecheck-web \
+.PHONY: all build test cover vet lint lint-go openapi openapi-check tidy-check web test-web typecheck-web \
        helm-lint render render-check image image-size push-local licenses licenses-check \
        deploy verify clean help
 
@@ -96,6 +96,21 @@ lint-go:
 	else \
 		echo "golangci-lint not installed locally; go vet ran instead (CI runs golangci-lint with .golangci.yml)"; \
 	fi
+
+## openapi: regenerate api/openapi.yaml from its inputs (R8.1b).
+# The document is generated output now: internal/api/openapi_gen.go's
+# GenerateOpenAPI() assembles it from the route table (a go/ast walk over
+# internal/api), the annotation table (internal/api/openapi_annotations.go) and the
+# planned-route manifest (api/x-planned-paths.yaml). So editing api/openapi.yaml by
+# hand is not how the document changes — the edit survives until the next run of this
+# target, which is the argument for the annotation table being the editable file.
+# Deliberately NOT a dependency of openapi-check below: the byte-compare's value is
+# that a committed file nobody regenerated fails, and chaining the rebuild into the
+# check would regenerate the evidence before grading it. CI gets the comparison from
+# `go test ./internal/api` and the structure from openapi-check; this target is the
+# developer's half.
+openapi:
+	go test ./internal/api -run TestGeneratedOpenAPI -update
 
 ## openapi-check: validate api/openapi.yaml (R8.1's "checked in CI" half).
 # The document is the one api/embed.go ships and GET /api/v1/openapi serves, so a

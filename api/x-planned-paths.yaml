@@ -1,0 +1,60 @@
+
+# ---------------------------------------------------------------------------
+# Planned routes (R8.2, R8.11) — deliberately NOT under `paths` yet.
+#
+# R14.7 requires every route *in code* to be documented; these are not in code,
+# and putting them in `paths` would make the document claim routes that 404.
+# They are listed here so Phase 3/5 extend this file by promoting entries into
+# `paths` — one edit per route — instead of restructuring it. The shape of the
+# catalogue is fixed by R8.2, so this is a list of names, not a design.
+# ---------------------------------------------------------------------------
+x-planned-paths:
+  # /api/v1/clusters/{namespace}/{name} was the first route in this list. It
+  # moved up to `paths` when Phase 5 registered it (internal/api/cluster_detail.go),
+  # and — per the rule the r8.3-promql-pair note below states — it was deleted
+  # rather than marked: a planned path that is implemented is a second name for
+  # a route that exists, and R14.7 counts one. `paths` and `x-planned-paths`
+  # being disjoint is what makes that checkable, and it is the invariant
+  # scripts/check-openapi.py owns.
+  r8.2-catalogue:
+    - /api/v1/insights/queries              # R8.2, R10.4
+    - /api/v1/insights/queries/{fingerprint}
+    - /api/v1/insights/queries/{fingerprint}/plans
+    - /api/v1/insights/wait-events          # R4, R10.7
+    - /api/v1/insights/databases            # R10.8
+    - /api/v1/insights/users                # R10.9
+    - /api/v1/insights/tags                 # R7, R10.11
+    - /api/v1/insights/client-addresses     # R6, R10.12
+    - /api/v1/insights/system               # R5, R10.13
+    - /api/v1/insights/system/{metric}      # R8.2, R10.13
+    - /api/v1/active-queries                # R3.11
+    - /api/v1/insights/recommendations      # R8.2
+    - /api/v1/poolers                       # R6; PoolerView is already defined (R8.2 reuses it)
+    - /api/v1/poolers/{namespace}/{name}
+    - /api/v1/events                        # R8.2
+    - /api/v1/explain                       # R8.2
+    - /api/v1/search                        # R8.2 (?q=)
+  # r8.3-promql-pair was the second entry here: /api/v1/metrics/query and
+  # /api/v1/metrics/system, GET|POST each. Both moved up to `paths` when R8.3
+  # landed, so the entry is gone rather than marked — a planned-path that is
+  # implemented is a second name for a route that exists, and R14.7 counts one.
+  # The old note ended "it is enumerated here once Phase 2 names them", which
+  # misread the requirement: R8.3 asks for the catalogue to be enumerated *in
+  # this document*, now, and the enumeration is what makes "we answer from our
+  # own store" a contract instead of a cache dump. It now lives on each path as
+  # `x-promql-catalogue`, and TestCatalogueMatchesOpenAPIDocument (plus
+  # scripts/check-openapi.py) enforces the two lists against the table in
+  # internal/api/promql_catalogue.go.
+  # r8.11-batched-series was the third entry here: GET
+  # /api/v1/insights/queries/series?fingerprints=a,b,c&range=…, the one response
+  # that answers the per-minute series for up to 50 fingerprints so R10.6's
+  # per-row sparklines do not cost one request per row inside R10.14's 1.5 s
+  # page-load budget. It moved up to `paths` in the commit that added the
+  # handler (internal/api/series.go), so the entry is gone rather than marked —
+  # the rule r8.3-promql-pairs states above: a planned-path that is implemented
+  # is a second name for a route that exists, and R14.7 counts one.
+  # r8.7-debug was the fourth entry here: /debug/pprof/ and its four sub-paths.
+  # server.go registered them in Phase 1a and they moved up to `paths` in the
+  # same commit, so R8.7's surface is now entirely in code and nothing under
+  # that heading is planned. (The old note also had the auth story backwards —
+  # pprof is in auth.go's GroupAPI and follows --auth, per R8.9.)

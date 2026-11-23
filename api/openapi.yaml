@@ -1,51 +1,56 @@
 # pgsql-insights REST API (R8.1)
 #
-# R8.1 asks for "a committed OpenAPI document (api/openapi.yaml) generated from
-# the handlers and checked in CI". Two words in that sentence are in tension,
-# and the resolution is recorded here rather than left to the next reader:
+# GENERATED — do not edit by hand. internal/api/openapi_gen.go's GenerateOpenAPI()
+# writes this file and internal/api/openapi_gen_test.go byte-compares the
+# committed copy against its output, so an edit here that the generator does not
+# reproduce fails `go test ./internal/api` and `make openapi-check` (R8.1b).
+# To change the document, change the generator's inputs: the routes in
+# internal/api/server.go and internal/api/promql.go, the types in
+# internal/api/dto, the prose in internal/api/openapi_annotations.go, or the
+# planned-route list in api/x-planned-paths.yaml.
 #
-#   * "generated from the handlers" — the handlers were Phase 1a's. This file
-#     predates them (it was authored from the frozen dto so Phase 1b had a
-#     contract to build against), and it is still hand-written: the stdlib has
-#     no OpenAPI generator, and the routes are registered as http.ServeMux
-#     patterns over plain handlers, which a generator would have to infer from.
-#     Every route `internal/api/server.go`'s `Handler()` registers now appears
-#     in `paths` — that is R14.7's requirement, and it is the property a
-#     generator would check rather than the source of it.
-#   * "the contract is frozen" — internal/api/dto/clusters.go (commit 9214534)
-#     is the normative source for /api/v1/clusters, mirrored tag-for-tag in
-#     web/src/api/types.ts and byte-checked by testdata/api/clusters.json via
-#     TestGoldenFixtureIsCanonical (R16.8). The handler is now a third consumer
-#     of that fixture: TestClustersServesTheFrozenFixture byte-compares this
-#     route's response body to the same file, so the document, the struct and
-#     the served JSON cannot drift apart quietly.
+# R8.1's "generated from the handlers" clause was recorded false while this file
+# was hand-written, and the sentence that used to sit here as the reason -- "the
+# stdlib has no OpenAPI generator" -- was true of the toolchain and not a
+# reason: the generator is a go/ast walk over the route registrations and the
+# dto structs plus string assembly, all stdlib. R8.1b names its three inputs and
+# the generator reads all three:
 #
-# The schemas stay per-resource (components.schemas.*, referenced by $ref) so
-# that generating, extending or splitting the document never requires rewriting
-# it. x-status on each path says whether it is in code; x-planned-paths at the
-# bottom lists the routes R8.2 still names that are not in code yet (R8.3's
-# pair and R8.11's batched series moved up to `paths` and both entries are
-# retired below), so promoting one into `paths` is a one-entry edit rather than
-# a restructure.
+#   1. the route table -- every mux.HandleFunc("METHOD /path", h) in server.go
+#      and promql.go, parsed with go/ast with package-level string constants
+#      resolved, so `"GET "+ClusterDetailPath` expands to the string the router
+#      and the tests use. A route in code with no entry here, or an entry here
+#      with no route, is a generator error (R14.7) -- the check the per-route
+#      Test*RouteIsDocumented tests used to do one route at a time.
+#   2. the dto structs -- internal/api/dto/*.go, whose json tags are the property
+#      schemas, plus the response types declared beside the handlers that encode
+#      them (server.go's VersionResponse, promql.go's PromQL pair, series.go's
+#      QuerySeries). An authored schema's property list is checked against the
+#      struct's json tags, so a renamed tag without a document edit fails the
+#      build: R16.8's one-copy rule applied to the document, not only to
+#      web/src/api/types.ts.
+#   3. the planned-route manifest -- api/x-planned-paths.yaml, embedded and
+#      re-emitted verbatim. "Planned" is the one set code cannot enumerate, so
+#      the generator copies it instead of regenerating it, and `paths` and
+#      `x-planned-paths` are disjoint by construction: a route that lands moves
+#      out of the manifest automatically, which is R8.1c's invariant.
 #
-# YAML note: every scalar whose text contains ": " (or starts with a backtick)
-# is double-quoted here. Seven were not at HEAD — two because their text
-# contains a colon-space (`servers[0].description`, whose "No host: the binary
-# serves both." reads as a nested mapping, and
-# `ClusterView.properties.currentPrimary.description`), five because a leading
-# backtick is a reserved YAML indicator. All seven made the whole document
-# unparseable by a YAML loader, so any validator run over this file failed on
-# syntax before it could check the contract.
+# x-status is derived from the route table; /metrics's "implemented
+# (pgsi_build_info only; the R9.2 catalogue is Phase 2)" is the one string the
+# route table cannot say and is an authored override (R8.1b).
 #
-# R8.1's "checked in CI" half is now `scripts/check-openapi.py`, run by
+# YAML note: every scalar whose text contains ": " (or starts with a backtick) is
+# double-quoted in the annotation table. Seven were not at the first commit -- two
+# because their text contains a colon-space, five because a leading backtick is a
+# reserved YAML indicator -- and all seven made the document unparseable, so any
+# validator run over it failed on syntax before it could check the contract.
+#
+# R8.1's "checked in CI" half (R8.1c) is scripts/check-openapi.py, run by
 # `make openapi-check` and by a step in ci.yml's lint job next to the spec-parity
-# matrix. It is not a `yaml.safe_load` one-liner: the parse is the cheap half,
-# and the seven bugs above were all *syntax*, which a load finds and a review
-# does not, but a load says nothing about whether a documented path has an
-# operationId, whether a $ref points at something, or whether a `required` field
-# exists in `properties`. The script checks those, plus the house rules this file
-# sets for itself (every path declares x-status; every x-planned-paths entry is
-# a route; the two x-promql-catalogue lists are disjoint and well-formed).
+# matrix. The parse is the cheap half: the seven bugs above were all syntax, which
+# a load finds and a review does not. The script also checks that every path
+# declares an operationId, that every $ref points at something, and that a
+# `required` field exists in `properties`.
 
 openapi: 3.0.3
 
