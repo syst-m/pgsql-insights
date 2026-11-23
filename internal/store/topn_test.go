@@ -146,10 +146,14 @@ func TestWindow(t *testing.T) {
 			wantTo:   now,
 		},
 		{
-			name:     "a reversed pair clips from to to rather than swapping",
+			// A3's S49: this case asserted the clip (from == to). The pair now
+			// comes back as asked, and the query's own
+			// `bucket >= from AND bucket <= to` matches nothing — the empty
+			// answer, without window() rewriting the request.
+			name:     "a reversed pair passes through, neither swapped nor clipped",
 			from:     now.Add(time.Hour),
 			to:       now.Add(-time.Hour),
-			wantFrom: now.Add(-time.Hour),
+			wantFrom: now.Add(time.Hour),
 			wantTo:   now.Add(-time.Hour),
 		},
 		{

@@ -43,7 +43,7 @@
 // size is not the sum of its rows — WAL bytes, the freelist and page overhead all
 // count toward the file and none of them appear in a row — so a byte count taken
 // at publish time enforces a number that is not the thing R13.5 caps. The cap
-// lives in retention.go's Purge, which measures the file with os.Stat (S33).
+// lives in retention.go's Purge, which measures the file with os.Stat (A3's S33).
 package store
 
 import (
@@ -104,10 +104,15 @@ func (s *Store) Publish(tgt collector.Target, name string, samples []collector.S
 	switch {
 	case name == "":
 		return fmt.Errorf("store: publish: empty collector name for %s", tgt.Key())
-	case tgt.Namespace == "" && tgt.Cluster == "":
-		// The PK's two required parts. collector.Target allows an empty Pod (a
-		// cluster-scoped source), and Role/Address/PGMajor are not validated here
-		// because they are not columns of this table — see the note below.
+	case tgt.Namespace == "" || tgt.Cluster == "":
+		// The PK's two required parts, each on its own (A3's S47). The message names
+		// both fields, so it has to fire when either one is missing; with `&&` a
+		// target that had a namespace and no cluster — exactly the half the message
+		// describes — fell through and wrote a row with an empty cluster column.
+		// collector.Target.Valid() requires both, and this matches it. The same
+		// switch allows an empty Pod (a cluster-scoped source), and Role/Address/
+		// PGMajor are not validated here because they are not columns of this table —
+		// see the note below.
 		return fmt.Errorf("store: publish %s: target has no namespace or cluster", name)
 	}
 

@@ -146,6 +146,16 @@ func (d Dimensions) tagView() dto.TagView {
 // `/* pgsi:route=/x,action=y */` and `/* pgsi:action=y,route=/x */` different
 // hashes and silently split every series R9.6 exports.
 //
+// What goes into the hash is the kind's own field set, not the whole struct
+// (A3's S45). A KindDatabase row is a rollup of one database, so its tag is
+// `database=db1`; hashing the struct's other fields in as well made one database
+// rollup hash two different ways depending on whether the caller happened to also
+// fill in a usename — which is the same series-splitting the paragraph above spends
+// itself on, arrived at from the other direction. The pairing with validate is what
+// makes the change safe to land: validate now rejects the fields a kind does not
+// own, so no row that used to be accepted changes hash. The rows whose digest moves
+// are exactly the rows that can no longer be written.
+//
 // KindClientAddress is the exception, and it is not a second copy of tag_hash:
 // R3.12's key set has no client address in it (Cloud SQL's pertag list has none, and
 // R3.12's (a) adds only application/usename/datname), so TagDigest of a
@@ -153,21 +163,80 @@ func (d Dimensions) tagView() dto.TagView {
 // the same hash. The address's own SHA-256 is its identity, in the same 64-hex shape
 // so the column holds one kind of string for every kind of row.
 func (d Dimensions) digest() string {
-	if d.Kind == KindClientAddress {
+	switch d.Kind {
+	case KindDatabase:
+		return dto.TagDigest(dto.TagView{Database: d.Datname})
+	case KindUser:
+		return dto.TagDigest(dto.TagView{User: d.Usename})
+	case KindApplication:
+		return dto.TagDigest(dto.TagView{Application: d.Application})
+	case KindClientAddress:
 		sum := sha256.Sum256([]byte(d.ClientAddress))
 		return hex.EncodeToString(sum[:])
+	default: // KindTag, the only kind left once validKind has run.
+		return dto.TagDigest(d.tagView())
 	}
-	return dto.TagDigest(d.tagView())
 }
 
-// validate is the gate on the write path: the kind has to be one of the five, and
-// the kind's own dimension has to be present.
+// namedField is one dimension field paired with the key dto's TagDigest gives it,
+// so the exclusivity check below and the digest above name fields the same way the
+// hash does rather than inventing a third spelling.
+type namedField struct{ name, value string }
+
+// allFields is every dimension field the struct has: the eight tag keys plus the
+// client address R3.7 adds.
+func (d Dimensions) allFields() []namedField {
+	return []namedField{
+		{"application", d.Application},
+		{"database", d.Datname},
+		{"user", d.Usename},
+		{"action", d.Action},
+		{"route", d.Route},
+		{"controller", d.Controller},
+		{"framework", d.Framework},
+		{"dbdriver", d.DBDriver},
+		{"client_address", d.ClientAddress},
+	}
+}
+
+// allowsField is the exclusivity table: which fields each kind may populate. A
+// function with an exhaustive switch rather than a map, so a sixth kind added to
+// validKind without a case here answers false to everything and fails loud on its
+// first row instead of quietly inheriting "everything allowed".
+func allowsField(kind, name string) bool {
+	switch kind {
+	case KindDatabase:
+		return name == "database"
+	case KindUser:
+		return name == "user"
+	case KindApplication:
+		return name == "application"
+	case KindClientAddress:
+		return name == "client_address"
+	case KindTag:
+		// All eight tag keys and only them: the client address is R3.7's fourth
+		// dimension, not one of R3.12's.
+		return name != "client_address"
+	}
+	return false
+}
+
+// validate is the gate on the write path: the kind has to be one of the five, the
+// kind's own dimension has to be present, and no field outside the kind's set may be
+// populated.
 //
 // The second half is not pedantry. An empty tag-shaped set digests to the SHA-256
 // of the empty string (dto.TagDigest drops empty values and sorts nothing), which is
 // a real hash meaning "no tag at all" — a row of nothing, filed under a hash no
 // caller will ever ask for. A KindDatabase row with no Datname is worse than empty:
 // it is a database rollup for no database, and it will be summed with the real ones.
+//
+// The third half (A3's S45) and the second are one contract, and digest() is why:
+// the fields it hashes are exactly the fields the kind owns, so a populated field
+// outside that set is a value that moves the hash without being part of the dimension
+// the row claims to be. Checking presence alone left the struct's other fields
+// writable, and the switch below answers "is the required field there" while the loop
+// after it answers "is anything else there".
 func (d Dimensions) validate() error {
 	if !validKind(d.Kind) {
 		return fmt.Errorf("store: unknown dimension kind %q", d.Kind)
@@ -195,6 +264,11 @@ func (d Dimensions) validate() error {
 	case KindTag:
 		if d.tagView() == (dto.TagView{}) {
 			return empty("at least one tag dimension")
+		}
+	}
+	for _, f := range d.allFields() {
+		if f.value != "" && !allowsField(d.Kind, f.name) {
+			return fmt.Errorf("store: dimension kind %q cannot carry %s", d.Kind, f.name)
 		}
 	}
 	return nil

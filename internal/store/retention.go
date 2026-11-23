@@ -21,7 +21,8 @@
 //	                  age with the store's own window, the way MemSink's buckets
 //	                  age with its ring
 //	query               expires only when orphaned (see below)
-//	query_source        never expires
+//	query_source        never expires — no DELETE of its own, and the orphan pass
+//	                  reads it as a reference (windowed, A3's S46), not a candidate
 //
 // query_source is the exception worth arguing, because "delete old rows from every
 // table" is the obvious implementation and it is wrong. The table is not history:
@@ -183,7 +184,18 @@ func (s *Store) Purge(ctx context.Context) (PurgeReport, error) {
 	// 4. Orphaned fingerprints. See the file doc for why this is the reverse of
 	//    what ON DELETE CASCADE does, and why query_source is not purged.
 	//
-	// The last_seen guard is not redundant with the three NOT EXISTS clauses: a
+	// The query_source reference is windowed (A3's S46). Unwindowed it was a
+	// tautology: PutSnapshot writes a query_source row for every fingerprint in the
+	// same transaction that registers it and nothing ever deletes those rows, so
+	// every fingerprint in query had a source row, the NOT IN was false for all of
+	// them, and QueriesDeleted was 0 on every run — the pass this file spends a
+	// paragraph justifying never ran. Scoping the subquery to the window keeps the
+	// file doc's rule intact (the table still has no DELETE of its own; a source row
+	// leaves by the ON DELETE CASCADE on query.fingerprint when its query row goes)
+	// and asks the question worth asking: not "does this fingerprint have a
+	// baseline" but "does it have one the store still considers current".
+	//
+	// The last_seen guard is not redundant with the four NOT EXISTS clauses: a
 	// fingerprint inserted this round has a query_source row in the same
 	// transaction, so it is already excluded, but a store whose write path changes
 	// (a fingerprint registered before its first snapshot lands) would otherwise
@@ -193,10 +205,12 @@ func (s *Store) Purge(ctx context.Context) (PurgeReport, error) {
 	n, err = s.db.ExecContext(ctx, `
 		DELETE FROM query
 		WHERE last_seen < ?
-		  AND fingerprint NOT IN (SELECT fingerprint FROM query_source)
+		  AND fingerprint NOT IN (
+			SELECT fingerprint FROM query_source WHERE captured_at >= ?
+		  )
 		  AND fingerprint NOT IN (SELECT fingerprint FROM query_rollup)
 		  AND fingerprint NOT IN (SELECT fingerprint FROM plan_sample)
-		  AND fingerprint NOT IN (SELECT fingerprint FROM plan_change)`, cutoff)
+		  AND fingerprint NOT IN (SELECT fingerprint FROM plan_change)`, cutoff, cutoff)
 	if err != nil {
 		return report, fmt.Errorf("store: purge orphan queries: %w", err)
 	}

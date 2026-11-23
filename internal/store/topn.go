@@ -358,11 +358,12 @@ func (s *Store) window(from, to time.Time) (time.Time, time.Time) {
 	if from.IsZero() {
 		from = to.Add(-s.RetentionWindow())
 	}
-	// A reversed window is a client bug worth keeping rather than swapping:
-	// swapping turns "to is before from" into a silent rewrite of the request,
-	// and the empty answer it produces is the honest one.
-	if from.After(to) {
-		from = to
-	}
+	// A reversed pair is left exactly as asked (A3's S49). Both rewrites — swapping
+	// the two, or clipping from down to to — silently change a request the caller
+	// wrote, and the clip was the worse of the pair: it turned "to is before from"
+	// into a one-instant window that answers with whatever rows sit in that minute,
+	// a non-empty answer to a question that has none. Passing the pair through lets
+	// the query's own `bucket >= from AND bucket <= to` produce the empty answer,
+	// which is the honest one and needs no code here at all.
 	return from.UTC(), to.UTC()
 }
