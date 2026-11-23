@@ -107,7 +107,7 @@ architecture boxes; the authoritative version lives in
 | Version injection | R11.3 | `internal/version/` | **implemented** — ldflags, `pgsi version` |
 | HTTP server, `/healthz`, `/readyz`, `/api/v1/version` | R8.7 | `internal/api/server.go` | **implemented** |
 | `/api/v1/clusters` contract | R8.1, R16.8 | `internal/api/dto/clusters.go`, `testdata/api/clusters.json` | **implemented** — the response shape is frozen (R16.8's single-copy rule); the fixture is consumed by both the Go golden test and the SPA's Vitest suite |
-| SPA served from the binary at `/` | R8.12, R10.x | `internal/api/spa.go`, `web/embed.go` (`go:embed all:dist`) | **implemented** — Phase 1b |
+| SPA served from the binary at `/` | R8.6, R10.x | `internal/api/spa.go`, `web/embed.go` (`go:embed all:dist`) | **implemented** — Phase 1b |
 | Kubernetes client | R12.1–R12.3 | `internal/kube/` (`client.go`, `transport.go`) | **in flight** (Phase 1a) — uncommitted on `phase-1a-backend` |
 | CNPG discovery | R2.1, R2.4, R8.1 | `internal/discovery/` (`discovery.go`, `build.go`, `fields.go`, `poolers.go`) | **in flight** (Phase 1a) |
 | API token auth | R8.8 | `internal/api/auth.go` | **in flight** (Phase 1a) |

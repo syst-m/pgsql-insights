@@ -1,4 +1,4 @@
-import re, sys, pathlib
+import re, sys, pathlib, subprocess
 src = pathlib.Path(sys.argv[1]).read_text().splitlines()
 
 def split_row(line):
@@ -38,15 +38,17 @@ def expand(cell):
             for i in range(int(m.group(2)), int(m.group(4)) + 1): out.append(f"{m.group(1)}.{i}")
     return out
 
-# §4 defined ids
-in4, def4 = False, set()
+# §4 defined ids (def4: "8.6"-style) and the bare group ids they imply (groups: "R8")
+in4, def4, groups = False, set(), set()
 for line in src:
     if line.startswith("## 4."): in4 = True; continue
     if in4 and line.startswith("## ") and not line.startswith("## 4."): break
     if not in4: continue
     c = split_row(line)
     if c and re.match(r"^R\d+\.\d+[a-z]?$", c[0].replace("*", "")):
-        def4.add(c[0].replace("*", "")[1:])
+        tok = c[0].replace("*", "")
+        def4.add(tok[1:])
+        groups.add(tok.split(".")[0])   # "R8.6" -> "R8" (tok keeps the R; def4 strips it)
 
 # §7.3 index  id -> set(phase-token)
 def phase_tokens(phase):
@@ -132,4 +134,162 @@ if not rows:
 if not def4:
     print("GUARD: §4 parsed 0 ids — the table shape changed, not a pass")
     sys.exit(2)
-sys.exit(1 if (bad or missing) else 0)
+
+# --- citation check (A2's suggestion, accepted) --------------------------------------
+# §5.1 rule 4 says requirement ids are the contract and that this script enforces it, but
+# the enforcement only covered §4 vs §7.3 vs §6: an id cited anywhere *else* in the repo
+# could be invented and nothing would notice. Two phantoms in one week — "R15.4"/"R15.5"
+# in docs/licenses/README.md, and `coverage gate (R14.5)` in ci.yml (the gate is R11.11) —
+# were both caught by reading, and reading is not a gate. So every R-id in the repo's
+# tracked docs and config must be an id §4 defines, or a bare group id that §4 implies.
+CITE_EXTS = {".md", ".yml", ".yaml", ".go"}
+CITE_NAMES = {"Makefile", "makefile"}
+# Ids that are not §4 ids but are not inventions either, each with the reason it is exempt.
+EXEMPT = {
+    "R17": "§11 rule 4's ceiling — 'R17+' is the ban on minting past R16, not an id",
+    "R18": "round-1 review numbering, folded into R1–R16",
+    "R19": "round-1 review numbering, folded into R1–R16",
+    "R20": "round-1 review numbering, folded into R1–R16",
+    "R21": "round-1 review numbering, folded into R1–R16",
+    "R22": "round-1 review numbering, folded into R1–R16",
+    "R23": "A3's pre-taxonomy numbering; shipped as R11.16 (requirements.md:459)",
+    "R24": "A3's pre-taxonomy numbering; shipped as R16.8",
+    "R25": "A3's pre-taxonomy numbering; shipped as R14.9",
+    "R9.9b": "retired letter-suffix alias of R9.11 (A3-N2); the spec's alias table at :902 lists it",
+    "R10.4a": "v0.3.0 review's proposed split of R10.4; shipped unsplit",
+    "R10.4b": "v0.3.0 review's proposed split of R10.4; shipped unsplit",
+    "R15.4": "cited in docs/licenses/README.md only to record that it never existed",
+    "R15.5": "cited in docs/licenses/README.md only to record that it never existed",
+}
+# \d{1,2} on both halves, not \d+: without the bound, the Cloud SQL research note's
+# POSTGRES_$version.R20250727.00_14 reads as an id (the prototype's one false positive).
+CITE_RE = re.compile(r"\bR(\d{1,2})(?:\.(\d{1,2})([a-z])?)?\b")
+
+def tracked_files(root):
+    """Every tracked path, with a non-git fallback so the script still runs in an export."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True,
+                             check=True).stdout.decode("utf-8", "replace").split("\0")
+        return [p for p in out if p]
+    except Exception:
+        return [str(p.relative_to(root)) for p in root.rglob("*")
+                if p.is_file() and not {".git", "node_modules", "dist", "build"} & set(p.parts)]
+
+def cited_tokens(files):
+    """(file, lineno, token) for every R-id-shaped string in the tracked files in scope."""
+    out = []
+    for rel in files:
+        p = root / rel
+        if not p.is_file(): continue
+        if p.suffix not in CITE_EXTS and p.name not in CITE_NAMES: continue
+        for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
+            for m in CITE_RE.finditer(line):
+                out.append((rel, n, f"R{m.group(1)}"
+                            + (f".{m.group(2)}{m.group(3) or ''}" if m.group(2) else "")))
+    return out
+
+root = pathlib.Path(sys.argv[1]).resolve().parent
+files_all = tracked_files(root)
+defined = {"R" + x for x in def4} | groups
+cited = cited_tokens(files_all)
+if not cited:
+    print("GUARD: citation check found 0 ids — file discovery broke, not a pass")
+    sys.exit(2)
+cite_bad = sorted({(f, n, t) for f, n, t in cited if t not in defined and t not in EXEMPT})
+print(f"citations: {len({t for _, _, t in cited})} distinct ids across "
+      f"{len({f for f, _, _ in cited})} files · {len(cite_bad)} not defined by §4")
+for f, n, t in cite_bad[:40]:
+    print(f"  {f}:{n}: {t}")
+if len(cite_bad) > 40:
+    print(f"  … {len(cite_bad) - 40} more")
+
+# --- path citations (A4's chart/README.md find, generalised) -------------------------
+# A `path:N` citation is only as durable as the file's line count. `ed58452` inserted 65
+# lines at chart/README.md:93 and silently invalidated every number below the insertion;
+# three of them survived two rounds of reading before A4's audit caught them, because a
+# wrong number is still a plausible number. Three citation forms exist in the repo's prose
+# and all three are checked:
+#   A  `path:123` / `path:123-456`    — the number is attached to the path
+#   B  `path` § "Heading" (:158-253)  — the durable form: the number must point at that heading
+#   C  `:197`                         — bare, inherits the file from the line's first citation
+# What fails the build: a resolvable path whose number is past the file's end (A, C), and a
+# durable-form citation whose quoted heading is not the text at that line (B). An
+# unresolvable or ambiguous path is reported but not failed — external file, deleted file
+# and typo are not separable without a human. docs/research/ is excluded from this half
+# entirely: those notes cite the upstream projects' own files (postgres_exporter's
+# README.md:310-321), which this repo's file list cannot resolve.
+PATH_SKIP_DIRS = ("docs/research/",)
+P = r"[A-Za-z0-9_./-]+\.(?:md|go|ya?ml|tsx?|json|sh|py|js|css)"
+CITE_A = re.compile(r"`(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?`")
+# The colon inside the parens is part of the form (`… (:254)`), and it is load-bearing: the
+# first version of this regex allowed only `(254)` and so matched none of the five citations
+# that exist — a tier that could not fail, which is the defect this script exists to catch.
+CITE_B = re.compile(r"`(" + P + r")`\s*§\s*\"([^\"]+)\"\s*\(\s*:(\d+)(?:\s*[-–]\s*(\d+))?")
+CITE_C = re.compile(r"`:(\d+)(?:\s*[-–]\s*(\d+))?`")
+
+_lines = {}
+def lines_of(root, rel):
+    if rel not in _lines:
+        _lines[rel] = (root / rel).read_text(errors="replace").splitlines()
+    return _lines[rel]
+
+def resolve_path(tracked, tracked_set, citing, path):
+    """Exact, then same-directory, then unique suffix. [] = unresolvable, 2+ = ambiguous."""
+    if path in tracked_set: return [path]
+    d = str(pathlib.PurePosixPath(citing).parent)
+    cand = path if d == "." else f"{d}/{path}"
+    if cand in tracked_set: return [cand]
+    return [p for p in tracked if p.endswith("/" + path)]
+
+def path_citations(root, tracked):
+    """(file, lineno, kind, cited_path, start, end, heading) for every citation in scope."""
+    out = []
+    for rel in tracked:
+        if not rel.endswith(".md") or rel.startswith(PATH_SKIP_DIRS): continue
+        for n, line in enumerate(lines_of(root, rel), 1):
+            anchored = [(m.start(), "B", m.group(1), int(m.group(3)),
+                         int(m.group(4) or m.group(3)), m.group(2))
+                        for m in CITE_B.finditer(line)]
+            anchored += [(m.start(), "A", m.group(1), int(m.group(2)),
+                          int(m.group(3) or m.group(2)), None)
+                         for m in CITE_A.finditer(line)]
+            anchored.sort()
+            for _, k, p, s, e, h in anchored:
+                out.append((rel, n, k, p, s, e, h))
+            if anchored:                       # C: bare `:N` inherits the line's first path
+                first = anchored[0][2]
+                out += [(rel, n, "C", first, int(m.group(1)), int(m.group(2) or m.group(1)), None)
+                        for m in CITE_C.finditer(line)]
+    return out
+
+def check_paths(root, tracked):
+    checked, bad, unresolved = 0, [], []
+    tset = set(tracked)
+    for rel, n, kind, path, s, e, head in path_citations(root, tracked):
+        r = resolve_path(tracked, tset, rel, path)
+        if len(r) != 1:
+            unresolved.append((rel, n, kind, path, len(r))); continue
+        checked += 1
+        L = lines_of(root, r[0])
+        if e > len(L):
+            bad.append((rel, n, kind, f"{path}:{s}-{e} — {r[0]} has {len(L)} lines")); continue
+        if kind == "B":                        # the durable form asserts the heading
+            actual = re.sub(r"^#+\s*", "", L[s - 1]).strip()
+            if not L[s - 1].startswith("#"):
+                bad.append((rel, n, kind, f"{path}:{s} is not a heading ({actual[:48]!r})"))
+            elif actual != head.strip():
+                bad.append((rel, n, kind, f"quotes {head!r}, {path}:{s} reads {actual!r}"))
+    return checked, bad, unresolved
+
+checked_path, path_bad, unresolved = check_paths(root, files_all)
+if not checked_path:
+    print("GUARD: path-citation check resolved 0 citations — file discovery broke, not a pass")
+    sys.exit(2)
+print(f"path citations: {checked_path} resolved · {len(path_bad)} wrong · "
+      f"{len(unresolved)} unresolvable (reported, not failed)")
+for f, n, kind, msg in path_bad[:20]:
+    print(f"  {f}:{n} [{kind}] {msg}")
+for f, n, kind, path, n_alt in unresolved[:10]:
+    print(f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})")
+
+sys.exit(1 if (bad or missing or cite_bad or path_bad) else 0)
