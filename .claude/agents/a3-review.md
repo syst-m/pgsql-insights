@@ -69,6 +69,17 @@ numbered its auth findings `A1`–`A5` and its CORS findings `C1`–`C4`, so "A1
 returns 403" reads on first pass as *slot A1*, and every citation of it costs a disambiguation
 round. Prefix the file instead (`AU1`/`AU2`, `CO1`), or just continue the S-series across files.
 
+A second collision the same sentence missed, and the one that actually bites: requirements.md
+§3.2's *data sources* are also numbered `S1`–`S10` (`internal/collector/collector.go:72`
+encodes it as `SourceClusterStatus SourceID = "S1"`), and D20's findings are cited
+`D20's S5`…`S12`. So `S1` names `Cluster.status` and the R8.4 `meta.total` ruling in the same
+commit, and `S3` names a source and a finding of mine in the same file. `docs/reviews/finding-index.md`
+is now the machine-checked definition of the finding ids — the parity checker parses its id
+column and fails any `A3's S<NN>` cite with no row — so the format is enforceable rather than
+advisory. Two rules follow from it: write the **qualified form** (`A3's S26`) in prose, and
+**start a new round above S10**. The source ids stop at S10, so S11 and up cannot collide and
+S1–S10 always can; the Phase 1a round started at S1 and has been ambiguous ever since.
+
 Keep the numbering stable within a review — the coordinator cites the IDs, and a re-review that
 renumbers the same findings makes "S1 is fixed" uncheckable. Separate **blocking** / **major** /
 **minor**, and **count from the list, not from memory**: one review reported "7 confirmed" and then
