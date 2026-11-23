@@ -292,6 +292,16 @@ These apply to every slot.
    beyond those four names — the live tree lists 210 tracked against 219 on disk — so an extract
    tests the tracked set exactly, and a probe run in a dirty working tree through the fallback
    checks files the repo does not have yet.
+10. **A fact written in two files needs a third thing asserting they agree.** The phase-status
+   claim lives in three places — `README.md`'s status line, `IMPLEMENTATION.md` §1's milestone
+   table, and §3's per-phase table — and all three are hand-maintained, so each one moves only
+   when someone remembers. `0b440df` moved README's line and not §3's Phase 9 row (`fe61929`
+   closed that); §1 still reads `Phases 2–9 · ⬜ not started` while §3 carries four 🔄 rows, a
+   contradiction that predates both commits and sits with no single owner because the row names
+   eight phases at once. Where a copy cannot be generated from its source, the checker that
+   validates the source has to assert the copy: `check-parity-matrix.py` already asserts that a
+   `file:line` citation points at what it claims, and a status line duplicated across files is
+   the same class of claim one step short of a stale citation.
 
 ## 6. Coordinator duty: verify, don't accept
 
