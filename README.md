@@ -8,11 +8,23 @@ there is one thing to install and one thing to authenticate. It is **read-only**
 runs no SQL that changes anything, and the single exception the spec allows
 (`pg_terminate_backend()`, R4.5) is a Phase 6a button, not a background job.
 
-**Status.** Phase 0 ✅, Phase 1a 🔄 (backend, in review), Phase 1b ✅ (the SPA),
-Phase 4 🔄 (chart half), Phase 5 🔄 (API half), Phase 9 🔄 (docs). The per-phase table with owners and validation
-entries is [`IMPLEMENTATION.md`](IMPLEMENTATION.md); the requirements themselves are
+**Status.** The per-phase table with owners and validation entries is
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md); the requirements themselves are
 [`requirements.md`](requirements.md) (v0.3.0) — that file is the contract, this
-README is the shop window.
+README is the shop window. Its legend (⬜ not started · 🔄 in progress · ✅ done ·
+⚠️ done with deviations) applies here too:
+
+> **0** ⚠️ done with deviations (§5) · **1a** 🔄 A1 · **1b** ✅ the SPA · **2** 🔄 A1 ·
+> **3** ⬜ A1 · **4** 🔄 A2 (chart half is A4's) · **5** 🔄 A2 · **6a** ⬜ A1 ·
+> **6b** ⬜ A2 · **7** ⬜ A2 · **8** ⬜ A1 · **9** 🔄 A4 docs — this README's refresh
+> is R14.3.
+
+Two of those rows lag commits that already exist, and the shop-window version says so
+rather than repeating the table: §3 has **Phase 3 ⬜** while `f7b197e` shipped its query
+DTOs and the four `testdata/api` fixtures R16.8 requires with them, and **6b ⬜** while
+`67a299d` shipped the Queries table (R10.6). Both are A1's and A2's rows to move, and
+R14.9 says one entry per owner, so this README reports the gap instead of editing their
+rows.
 
 ![The Fleet page, as rendered by the R16.7 visual suite](web/e2e/__snapshots__/fleet-fleet.png)
 
@@ -207,19 +219,36 @@ vs §5's table, which sums to 24 280) rather than quietly picking one.
 | `GET /` | The SPA, from `go:embed` in this same binary | R10.1, R8.6 — **1b ✅** |
 | `GET /healthz`, `GET /readyz` | Liveness and readiness; never auth-gated under any `--auth` (R8.9's ruling — a gated readiness probe is a pod that never goes Ready) | R8.7 — **1a ✅** |
 | `GET /api/v1/version` | Version + commit | R8.7 — **1a ✅** |
-| `GET /api/v1/clusters` | The fleet list; `{data, meta}` envelope, `meta.total` is the pre-cut count | R8.2, R8.4 — **1a 🔄** |
+| `GET /api/v1/clusters` | The fleet list; `{data, meta}` envelope, `meta.total` is the pre-cut count | R8.2, R8.4 — **1a ✅** |
+| `GET /api/v1/clusters/{namespace}/{name}` | One cluster's detail — the payload `ClusterDetailPage` renders | R8.2 — **5 ✅** |
+| `GET /api/v1/insights/queries/series` | Batched per-minute series for up to 50 fingerprints. This is what the Query Detail chart reads: `QueryDetailView` has no `points` field, because the dto package cannot import `api.QuerySeries` without closing an import cycle (`internal/api/dto/queries.go:11-34`) | R8.11 — **5 ✅** |
+| `GET`/`POST /api/v1/metrics/query` · `GET`/`POST /api/v1/metrics/system` | R8.3's PromQL pair — four patterns, mounted by `internal/api/promql.go` | R8.3 — **5 ✅** |
 | `GET /metrics` | `pgsi_build_info` today; the R9.4/R9.5 families from Phase 2 | R11.3 — **1a ✅** |
-| `GET /debug/pprof/*` | Follows `--auth` (R8.9) | R8.7 — **1a 🔄** |
-| The other 12 routes of R8.2's catalogue | Each one is named, with its phase, in [`web/src/routes.ts`](web/src/routes.ts) — the route table the UI renders from, so the endpoint list and the page list cannot drift apart | 3–8 |
+| `GET /debug/pprof/*` | Five patterns (`/`, cmdline, profile, symbol, trace); follows `--auth` (R8.9) | R8.7 — **1a ✅** |
+| The 17 routes still planned | Named in [`api/x-planned-paths.yaml`](api/x-planned-paths.yaml)'s `r8.2-catalogue`. An entry is *promoted* into `paths` when its phase registers it and deleted here — the two sets are disjoint by rule, which is what makes "documented but not built" checkable instead of a claim | 3–8 |
 
-✅ and 🔄 in the Phase column are the commit's own claim, not a phase's: ✅ is a
-route registered in `internal/api/server.go` as committed, 🔄 is one that exists in
-the Phase 1a work in flight but is not yet committed — `GET /api/v1/clusters` and
-`/debug/pprof/*` are both A1's, and this README describes the branch it lives on.
+Every ✅ above means the same thing: the route is registered in
+`internal/api/server.go` as committed. That is also exactly what the generator walks —
+`internal/api/openapi_gen.go`'s `RouteTable()` is a go/ast pass over the package's
+route registrations — and its `checkRouteTable` is what enforces R14.7's two directions
+in one pass: a route in code with no entry in the document, and an entry in the document
+claiming a route that is not registered. So a route may be documented and not built (it
+lives in `x-planned-paths`, which `paths` excludes by construction), but it cannot be
+built and undocumented. `scripts/check-openapi.py` is the other half — it validates the
+document itself (duplicate keys, dangling `$ref`s, missing operationIds, non-`/api/v1`
+paths) rather than the route table. The Phase column
+names the phase that *owns* the route, which is not the same as that phase being
+closed: `GET /api/v1/clusters` is registered and serving while Phase 1a itself is
+still 🔄 in §3.
 
-The full contract — schemas, the ten-member error-code enum, pagination, the
-`x-planned-paths` extension that documents routes before they exist — is
-[`api/openapi.yaml`](api/openapi.yaml).
+The full contract — schemas, the ten-member error-code enum, pagination — is
+[`api/openapi.yaml`](api/openapi.yaml), and since `9794560` that file is **generated**
+(R8.1b): `internal/api/openapi_gen.go` writes it and `openapi_gen_test.go`
+byte-compares the committed copy against its output, so an edit the generator does not
+reproduce fails `go test ./internal/api` and `make openapi-check`. Change the
+generator's inputs — the routes, the dto types, the prose in
+`internal/api/openapi_annotations.go`, or `api/x-planned-paths.yaml` — not the
+document.
 
 ---
 

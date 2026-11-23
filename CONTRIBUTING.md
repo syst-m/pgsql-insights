@@ -18,8 +18,15 @@ them.
 make build          # the pgsi binary, ldflags-injected version + commit (R11.3)
 make test           # go test ./... -count=1 — the command CI's test job runs verbatim
 make cover          # coverage; the awk parse is R11.11's, not a go tool one-liner
-make lint           # vet + golangci-lint + openapi-check (CI's lint job adds gofmt and the parity matrix)
+make lint           # vet + golangci-lint + openapi-check + cardinality-check; CI's lint
+                    # job adds gofmt, the parity matrix and the license manifest (R15.3)
 make tidy-check     # go.mod/go.sum are in sync with the sources
+make openapi        # regenerate api/openapi.yaml from the handlers (R8.1b). The document
+                    # is generated output since `9794560`, so this belongs in the same
+                    # commit as the handler or annotation that changed it — the same rule
+                    # web/dist follows with the TS that built it, and for the same reason:
+                    # a committed artifact built from uncommitted source is a claim nobody
+                    # can rebuild
 
 make web            # build web/ -> web/dist, which is go:embed'd (R10.1)
 make typecheck-web  # tsc -p tsconfig.json --noEmit (CI runs it via `npm run build` in the web job)
@@ -83,8 +90,9 @@ acceptance, not something the current loop proves.
 | `Dockerfile` | multi-stage build → `distroless/static:nonroot`, pinned base digest (R11.2, R11.5) |
 | `.github/workflows/ci.yml` | the six CI jobs — build, lint, test, web, helm, image — that the Makefile mirrors (R11.11) |
 | `cmd/pgsi/` | single binary, subcommand dispatch (`serve \| collect \| api \| version`, R3.1) |
-| `internal/api/` | HTTP handlers: `/healthz`, `/readyz`, `/api/v1/{clusters,version}`, `/metrics`, `/` (SPA), auth (R8.8), CORS (R8.9) |
-| `internal/api/dto/` | the response contracts — R8.5's `ErrorBody`/`NewError`, R1.5's `ClusterView` |
+| `internal/api/` | HTTP handlers: `/healthz`, `/readyz`, `/api/v1/{clusters,version}`, `/api/v1/clusters/{ns}/{name}`, `/api/v1/insights/queries/series`, the PromQL pair, `/metrics`, `/` (SPA), auth (R8.8), CORS (R8.9) — plus `openapi_gen.go`, the go/ast generator that writes `api/openapi.yaml` (R8.1b) |
+| `internal/api/dto/` | the response contracts — R8.5's `ErrorBody`/`NewError`, R1.5's `ClusterView`, R3.2's `QueryView` |
+| `internal/collector/` | the collector framework and the per-subsystem collectors (R2.1–R2.9), the scheduler budget (R2.8) and `pgsi_up` (R9.12) |
 | `internal/kube/` | the per-port transport table (R1.10) |
 | `internal/discovery/` | cluster, instance and pooler discovery (R1.1–R1.9) |
 | `internal/version/` | ldflags-injected `Version`/`Commit` (R11.3) |
@@ -96,7 +104,7 @@ acceptance, not something the current loop proves.
 | `deploy/kustomize/` | kustomization pointing at the generated default profile |
 | `testdata/api/` | the API contract fixtures the Go and TS tests share (R16.8) |
 | `docs/` | architecture, runbooks, research, reviews, licenses, ENVIRONMENT, agents, compatibility-matrix |
-| `scripts/` | `check-openapi.py`, `check-parity-matrix.py` (+ the `.sh` wrapper CI's lint job runs), `build-push-dev.sh`, `image-size.py`, `push-oci.py` |
+| `scripts/` | `check-openapi.py`, `check-parity-matrix.py` (+ the `.sh` wrapper CI's lint job runs), `cardinality-check.py`, `build-push-dev.sh`, `image-size.py`, `push-oci.py`, `gen-licenses.py`, `gen-pgmatrix.py`, and `validate_palette.js` — the chart palette gate the A4 charter names, vendored from the `dataviz` skill bundle and recorded with its sha256 in IMPLEMENTATION.md §4 |
 
 `testdata/api/` is the one path with a hard rule attached. The Go and TypeScript
 sides read the **same** fixture files, which is what makes a contract change
