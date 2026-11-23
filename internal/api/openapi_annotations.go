@@ -2550,6 +2550,7 @@ var openAPISchemas = []openAPISchema{
 			"            - type: number",
 			"            - type: string",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PromQLSeries",

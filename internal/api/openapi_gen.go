@@ -27,19 +27,15 @@
 // *renders* an entry from its struct, and that half is per-type: an entry flips
 // from authored to generated one at a time through openAPISchema.Generated, and
 // TestEmitMarkedEntries requires a marked entry's render to equal its committed
-// block byte for byte. Twenty-eight are flipped. The rest stay authored for two
-// reasons: three are unrenderable by design (PromQLSeries and QueryDetailView are
-// composed with allOf, which the emitter generates flat objects only; SamplePair
-// declares its own marshaller, so its wire shape isn't derivable from its fields),
-// and one renders to something that is not yet byte-identical: PromQLResult, whose
-// `oneOf:` the entry authors and the emitter has no rule for. The five flipped here
-// were the last four classes the header used to list — the flow-or-block width
-// (InstanceView), a property description rendered where the entry wrote none
-// (PVCView, PoolerView), a nullable derived where the entry wrote none (LatencyView),
-// and a format the type table cannot know (PromQLQueryRequest) — and each became a
-// field to copy rather than a rule to guess, which is what the per-type migration was
-// for. PromQLResult is the one entry left that needs a rule the emitter does not have
-// yet, not a slot it was filling from the wrong source.
+// block byte for byte. Twenty-nine are flipped, which closes the seventeen the
+// migration was scoped around. What stays authored is exactly the three entries that
+// cannot render at all: PromQLSeries and QueryDetailView, composed with allOf when the
+// emitter generates flat objects only, and SamplePair, whose MarshalJSON emits an
+// array form its named fields do not describe. The last of the seventeen was
+// PromQLResult, and it was the one entry that needed a rule rather than a field — a
+// property's `oneOf:` is a list no Go type supplies, so propSchema carries it the way
+// it carries the other authored blocks and copies it. Every entry the emitter is able
+// to render is now rendered.
 //
 // # Why assembly is string concatenation
 //

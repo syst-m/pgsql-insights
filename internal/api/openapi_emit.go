@@ -267,6 +267,15 @@ type authoredProse struct {
 	// entry left undocumented, and authoredAny is what tells the two apart.
 	Format   string
 	Nullable string
+	// OneOf is the authored `oneOf:` block, on the same footing as Enum one last time:
+	// it is a list the entry writes and no Go type supplies. PromQLResult.result is a
+	// json.RawMessage — which has no type to render — and the entry names in three
+	// branches what the field can hold (an array of PromQLSeries, a number, a string),
+	// because OpenAPI 3.0 cannot tie a property's type to a sibling's value and
+	// Prometheus really does emit a bare number for a `scalar` result. The emitter has
+	// no rule that derives a oneOf from a Go type, so the entry's block is the only
+	// source there is, and copying it is the whole rule.
+	OneOf []string
 }
 
 // authoredAny reports whether the entry documented this owner at all — the test that
@@ -276,7 +285,7 @@ type authoredProse struct {
 // fills the slots of an owner the entry said nothing about, and nothing else.
 func (p authoredProse) authoredAny() bool {
 	return len(p.Desc) > 0 || len(p.Example) > 0 || len(p.Enum) > 0 ||
-		p.Format != "" || p.Nullable != ""
+		len(p.OneOf) > 0 || p.Format != "" || p.Nullable != ""
 }
 
 // authoredProseFor indexes one entry's authored prose by owner.
@@ -318,7 +327,7 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 				continue // inside a nested items:/additionalProperties: block
 			}
 		}
-		// The keys captured are exactly authoredProse's five fields. `type:` and
+		// The keys captured are exactly authoredProse's six fields. `type:` and
 		// `required:` are not among them: they are structure the emitter derives from
 		// the Go type, and copying them would let a marked entry keep a type its struct
 		// no longer has — which is the whole claim `Generated: true` makes.
@@ -327,7 +336,8 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 		isEnum := strings.HasPrefix(trimmed, "enum:")
 		isFormat := strings.HasPrefix(trimmed, "format:")
 		isNullable := strings.HasPrefix(trimmed, "nullable:")
-		if !isDesc && !isExample && !isEnum && !isFormat && !isNullable {
+		isOneOf := strings.HasPrefix(trimmed, "oneOf:")
+		if !isDesc && !isExample && !isEnum && !isFormat && !isNullable && !isOneOf {
 			continue
 		}
 		block, n := rawProseBlock(e.Lines, i)
@@ -353,6 +363,11 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 		if isNullable && a.Nullable == "" {
 			a.Nullable, changed = inlineValue(trimmed), true
 		}
+		// oneOf is the block form, captured the way enum is: the entry's branch list is
+		// the content and rawProseBlock consumes it whole.
+		if isOneOf && len(a.OneOf) == 0 {
+			a.OneOf, changed = block, true
+		}
 		if changed {
 			out[owner] = a
 		}
@@ -371,19 +386,20 @@ func inlineValue(line string) string {
 	return strings.TrimSpace(v)
 }
 
-// rawProseBlock returns the authored lines that make up the `description:`, `example:`
-// or `enum:` key at index i, and n, how many lines the block consumed, so the caller
-// skips the body instead of re-reading it as a key. Three shapes occur in the
-// document and each has to be recognised:
+// rawProseBlock returns the authored lines that make up the `description:`,
+// `example:`, `enum:` or `oneOf:` key at index i, and n, how many lines the block
+// consumed, so the caller skips the body instead of re-reading it as a key. Three
+// shapes occur in the document and each has to be recognised:
 //
 //   - a block scalar (`description: |`) — the prose is the deeper-indented lines
 //     under the key, blank lines included when the scalar continues after them;
 //   - a bare key whose value is a nested mapping (`example:` followed by
-//     `onepg-server: "2026-12-22T08:39:48Z"`) — the mapping *is* the value, and
-//     reading it as the inline form captures the key and drops the map, which is how
-//     four entries' schema examples vanished from the render;
-//   - the inline form (`example: 42`, `description: One line.`) — the value is on the
-//     key line and the block is that one line.
+//     `onepg-server: "2026-12-22T08:39:48Z"`, `oneOf:` followed by its `- type:`
+//     branches) — the mapping *is* the value, and reading it as the inline form
+//     captures the key and drops the map, which is how four entries' schema examples
+//     vanished from the render;
+//   - the inline form (`example: 42`, `description: One line.`, `nullable: true`) —
+//     the value is on the key line and the block is that one line.
 func rawProseBlock(lines []string, i int) ([]string, int) {
 	l := lines[i]
 	r := strings.TrimRight(l, " \t")
@@ -489,7 +505,7 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 		name := fr.Field.PropertyName()
 		authored := a[name]
 		ps.RawDesc, ps.RawExample = authored.Desc, authored.Example
-		ps.RawEnum = authored.Enum
+		ps.RawEnum, ps.RawOneOf = authored.Enum, authored.OneOf
 		ps.RawFormat, ps.RawNullable = authored.Format, authored.Nullable
 		// An entry that documented a property and left one of these three slots empty
 		// left it empty on purpose, and clearing the derived value is what makes that
@@ -580,10 +596,13 @@ type propSchema struct {
 	// of slots for the two keys added after the enum was: an entry's `format:` is
 	// copied rather than looked up in the type table (PromQLQueryRequest.startTime is a
 	// Go string the document documents as a timestamp) and its `nullable:` is copied
-	// rather than derived from pointer-ness (see authoredProse.Nullable).
+	// rather than derived from pointer-ness (see authoredProse.Nullable), and RawOneOf
+	// is the same copy for the one property that has a `oneOf:` (see
+	// authoredProse.OneOf).
 	RawDesc     []string
 	RawExample  []string
 	RawEnum     []string
+	RawOneOf    []string
 	RawFormat   string
 	RawNullable string
 	Items       *propSchema
@@ -650,6 +669,14 @@ func (p propSchema) lines(indent int) []string {
 				out = append(out, pad+"  - "+inlineScalar(v))
 			}
 		}
+	}
+	if len(p.RawOneOf) > 0 {
+		// Authored block, verbatim: see propSchema.RawOneOf. Unlike the three slots
+		// above it, this one has no derived twin — a Go type never yields a oneOf, so
+		// the block is emitted or nothing is. The document's only property-level oneOf
+		// sits directly under its description, which is the only evidence there is for
+		// where the slot goes.
+		out = append(out, p.RawOneOf...)
 	}
 	if p.Items != nil {
 		out = append(out, pad+"items:")
