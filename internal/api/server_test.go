@@ -113,21 +113,30 @@ func TestBuildInfoMetricMatchesHandler(t *testing.T) {
 
 func TestUnknownRoutesAndMethods(t *testing.T) {
 	s := newTestServer(t)
-	// /api/v1/clusters was the route this assertion expected to 404; Phase 1a
-	// registered it, so it now answers 503 (no fleet, not listening) and the 404
-	// coverage moves to routes this build genuinely lacks. They are named as
-	// openapi.yaml's x-planned-paths names them — /api/v1/clusters/{ns}/{name}
-	// and /api/v1/insights/queries (R8.2, Phase 5) — so the test asserts the
-	// *planned* URL is absent, not some ad-hoc one. The SPA guard in spa.go is
-	// what answers them, and it is what stops any unknown /api/... path from
-	// returning the app shell with a 200.
-	for _, path := range []string{"/api/v1/queries", "/api/v1/insights/queries", "/api/v1/clusters/default/pg1"} {
+	// The 404 coverage is kept pointed at routes this build genuinely lacks, and
+	// named the way openapi.yaml's x-planned-paths names them, so the test
+	// asserts the *planned* URL is absent rather than some ad-hoc one. Two routes
+	// that used to be in this list have since been registered and moved to the
+	// 503 assertions below: /api/v1/clusters (Phase 1a) and
+	// /api/v1/clusters/{namespace}/{name} (Phase 5, cluster_detail.go). The
+	// remaining entries are /api/v1/insights/queries (R8.2, still planned) and
+	// /api/v1/queries, which the spec never names at all — the singular form is
+	// here because a client that guesses it must get a 404, not the app shell.
+	// The SPA guard in spa.go is what answers them, and it is what stops any
+	// unknown /api/... path from returning the app shell with a 200.
+	for _, path := range []string{"/api/v1/queries", "/api/v1/insights/queries"} {
 		if rec := do(t, s, http.MethodGet, path); rec.Code != http.StatusNotFound {
 			t.Fatalf("GET %s = %d, want 404", path, rec.Code)
 		}
 	}
-	if rec := do(t, s, http.MethodGet, "/api/v1/clusters"); rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("GET /api/v1/clusters = %d, want 503 (registered, not yet ready)", rec.Code)
+	// Registered routes on a server that has not synced answer 503, not 200 with
+	// an empty body and not 404: R8.7's single readiness signal, asserted for both
+	// cluster routes so the detail route cannot quietly answer 404 for a fleet it
+	// has not read yet.
+	for _, path := range []string{"/api/v1/clusters", "/api/v1/clusters/default/pg1"} {
+		if rec := do(t, s, http.MethodGet, path); rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("GET %s = %d, want 503 (registered, not yet ready)", path, rec.Code)
+		}
 	}
 	// R8.7's third surface, registered in the same commit that documented it in
 	// openapi.yaml's `paths`.

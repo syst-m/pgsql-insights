@@ -232,6 +232,79 @@ paths:
         '503':
           $ref: '#/components/responses/NotReady'
 
+  # R8.2's single-cluster detail (R10.3). Phase 5's first new route: of the
+  # eighteen entries that were under x-planned-paths, this is the only one whose
+  # data source exists today. discovery.Inventory carries Clusters, Failed,
+  # Loading and GeneratedAt and nothing else, so the pooler, query, wait-event,
+  # database, user, session and system routes are gated on collectors that have
+  # not been built, not on handlers that have not been written — and a handler
+  # written against data that does not exist answers 200 with an empty body,
+  # which is the one thing R8.7 rules out.
+  /api/v1/clusters/{namespace}/{name}:
+    get:
+      tags: [clusters]
+      operationId: getCluster
+      summary: One cluster by namespace and name
+      description: |
+        R8.2's `/clusters/{ns}/{name}`. In code now (`Server.handleClusterDetail`,
+        `internal/api/cluster_detail.go`).
+
+        The body is a bare `ClusterView`, not an envelope. R8.4's `{data, meta}`
+        contract is stated for *list* endpoints, and wrapping a single object
+        would give a `meta` whose `total` is always 1 and whose `truncated` is
+        always false — two fields carrying no information — while its
+        `failed[]`/`loading[]` would describe namespaces the response is not
+        summarising. Minting a `ClusterDetailEnvelope` would be a fourth name
+        for a shape the spec does not name; the type is here already.
+
+        The partial-render contract (R8.4, R10.22) reaches a route with no `meta`
+        to carry it in through the status code instead. A namespace that failed
+        to sync answers 503 `Unavailable` carrying that failure's own message,
+        and a namespace still loading answers 503 `NotReady` — the same R8.5
+        codes the list route uses for the same two facts. Answering 404 in
+        either case would say "no such cluster" about a namespace the inventory
+        never read, which is the same lie R8.7 refuses on the list route: "it is
+        not there" and "I have not looked yet" are different facts. R8.4 states
+        this contract for list endpoints only; extending it here is a decision,
+        recorded in the handler's own comment as well as in this one.
+      x-status: implemented
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+          description: |
+            The Kubernetes namespace holding the Cluster — R8.4's identity pair,
+            first half, the same string `?namespace=` takes on `/clusters`.
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: |
+            The CloudNativePG Cluster's `metadata.name` — R8.4's identity pair,
+            second half.
+      responses:
+        '200':
+          description: |
+            The cluster, byte-identical to the entry this cluster contributes to
+            `GET /api/v1/clusters`' `data[]`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterView'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/NotReady'
+
   /api/v1/version:
     get:
       tags: [build]
@@ -843,8 +916,14 @@ paths:
 # catalogue is fixed by R8.2, so this is a list of names, not a design.
 # ---------------------------------------------------------------------------
 x-planned-paths:
+  # /api/v1/clusters/{namespace}/{name} was the first route in this list. It
+  # moved up to `paths` when Phase 5 registered it (internal/api/cluster_detail.go),
+  # and — per the rule the r8.3-promql-pair note below states — it was deleted
+  # rather than marked: a planned path that is implemented is a second name for
+  # a route that exists, and R14.7 counts one. `paths` and `x-planned-paths`
+  # being disjoint is what makes that checkable, and it is the invariant
+  # scripts/check-openapi.py owns.
   r8.2-catalogue:
-    - /api/v1/clusters/{namespace}/{name}   # R8.2 single-cluster detail (R10.3)
     - /api/v1/insights/queries              # R8.2, R10.4
     - /api/v1/insights/queries/{fingerprint}
     - /api/v1/insights/queries/{fingerprint}/plans
@@ -1113,6 +1192,31 @@ components:
             error:
               code: InvalidRequest
               message: 'invalid limit: 5000 exceeds the maximum of 500 (R8.10)'
+              details: []
+    # R8.5's enum has ten codes and this block had six; `NotFound` is the
+    # seventh, added with the route that emits it. The remaining three are
+    # deliberately absent rather than pending: `MethodNotAllowed` is a status
+    # ServeMux itself returns (every registered pattern answers 405 for the
+    # other methods, which server_test.go asserts) and carries no body worth
+    # documenting; `Unsupported` and `Internal` have no emitting route yet, and
+    # documenting a response no path references is the prose kind of contract
+    # that goes stale silently.
+    NotFound:
+      description: |
+        The object does not exist (R8.5 `NotFound`). On a detail route this is
+        emitted only when the inventory is qualified to say so: a cluster in a
+        namespace that failed to sync answers `Unavailable`, and one in a
+        namespace still loading answers `NotReady`, because "it is not there"
+        and "I have not looked yet" are different facts (R8.7's distinction,
+        applied to a route with no `meta` to carry the second one in).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: NotFound
+              message: no cluster postgres/onepg in the fleet inventory
               details: []
     Unauthorized:
       description: |

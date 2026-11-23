@@ -155,6 +155,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /api/v1/clusters", s.handleClusters)
+	// R8.2's `/clusters/{ns}/{name}` (cluster_detail.go) — Phase 5's first new
+	// route. Same inline-listing reason as the series route below, and the path
+	// comes from ClusterDetailPath so the registration and api/openapi.yaml
+	// cannot spell it two ways (R14.7).
+	mux.HandleFunc("GET "+ClusterDetailPath, s.handleClusterDetail)
 	// R8.11's batched series route (series.go). Listed inline rather than mounted
 	// through a subsystem like PromQL/CORS, because it is one pattern with one
 	// dependency — and the path comes from the package's QuerySeriesPath const so
