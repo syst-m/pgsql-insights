@@ -27,15 +27,22 @@
 // *renders* an entry from its struct, and that half is per-type: an entry flips
 // from authored to generated one at a time through openAPISchema.Generated, and
 // TestEmitMarkedEntries requires a marked entry's render to equal its committed
-// block byte for byte. Twelve are flipped. The rest stay authored for two reasons:
+// block byte for byte. Fifteen are flipped. The rest stay authored for two reasons:
 // three are unrenderable by design (PromQLSeries and QueryDetailView are composed
 // with allOf, which the emitter generates flat objects only; SamplePair declares
 // its own marshaller, so its wire shape isn't derivable from its fields), and
-// seventeen render to something that is not yet byte-identical — a `required:`
-// that switches from flow to block at a different width, an `@enum` marker the
-// struct carries and the entry phrases as prose, a description the entry omits on
-// purpose. Each of those is now a one-entry fix rather than an emitter rewrite,
-// which is what the per-type migration was for.
+// fourteen render to something that is not yet byte-identical, in seven classes: an
+// `enum:` whose per-value comments are authored prose the emitter renders as a bare
+// flow list (NamespaceFailure, ErrorDetail, ClusterView), an `enum:` the struct
+// documents as `A | B | C` and the emitter only extracts from `@enum` form
+// (ConditionView, PVCView, ServiceView, PoolerView, PlanSampleView, QuerySeries), a
+// `required:` that switches from flow to block at a different width (InstanceView), a
+// `nullable: true` the entry omits (LatencyView), a `oneOf:` the entry authors and the
+// emitter has no rule for (PromQLResult), a `format: date-time` on a field it resolves
+// through an alias (PromQLQueryRequest), and a type-level description the entry omits
+// on purpose and the emitter renders from the Go doc (ServicePort). Each of those is
+// now a one-entry fix rather than an emitter rewrite, which is what the per-type
+// migration was for.
 //
 // # Why assembly is string concatenation
 //

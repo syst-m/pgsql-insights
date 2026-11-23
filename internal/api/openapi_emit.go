@@ -295,14 +295,25 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 }
 
 // rawProseBlock returns the authored lines that make up the `description:` or
-// `example:` key at index i — the key line plus, for a block scalar (`|` or `>`),
-// every deeper-indented line under it, blank lines included when the scalar continues
-// after them. n is how many lines the block consumed, so the caller skips the body
-// instead of re-reading it as a key.
+// `example:` key at index i, and n, how many lines the block consumed, so the caller
+// skips the body instead of re-reading it as a key. Three shapes occur in the
+// document and each has to be recognised:
+//
+//   - a block scalar (`description: |`) — the prose is the deeper-indented lines
+//     under the key, blank lines included when the scalar continues after them;
+//   - a bare key whose value is a nested mapping (`example:` followed by
+//     `onepg-server: "2026-12-22T08:39:48Z"`) — the mapping *is* the value, and
+//     reading it as the inline form captures the key and drops the map, which is how
+//     four entries' schema examples vanished from the render;
+//   - the inline form (`example: 42`, `description: One line.`) — the value is on the
+//     key line and the block is that one line.
 func rawProseBlock(lines []string, i int) ([]string, int) {
 	l := lines[i]
 	r := strings.TrimRight(l, " \t")
-	if !strings.HasSuffix(r, "|") && !strings.HasSuffix(r, ">") {
+	switch {
+	case strings.HasSuffix(r, "|"), strings.HasSuffix(r, ">"), strings.HasSuffix(r, ":"):
+		// block scalar or nested mapping: both continue on the deeper-indented lines
+	default:
 		return []string{l}, 1 // inline form: the value is on the key line
 	}
 	ind := indentOf(l)

@@ -2223,6 +2223,7 @@ var openAPISchemas = []openAPISchema{
 			"            onepg-client-ca-1735689600: \"2026-12-22T08:39:48Z\"",
 			"            onepg-server: \"2026-12-22T08:39:48Z\"",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PVCView",
@@ -2783,6 +2784,7 @@ var openAPISchemas = []openAPISchema{
 			"        sharedBlocksRead: 12",
 			"        lockTimeSeconds: 0.0031",
 		},
+		Generated: true,
 	},
 	{
 		Name: "QueriesEnvelope",
@@ -2952,6 +2954,7 @@ var openAPISchemas = []openAPISchema{
 			"        loadByCPUMs: 118905.2",
 			"        loadByIOWaitMs: 9505.3",
 		},
+		Generated: true,
 	},
 	{
 		Name: "QueryDetailView",
