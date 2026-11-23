@@ -118,11 +118,29 @@ for line in src:
     for part in re.split(r"[·]", c[1]):
         if "→" not in part: continue
         ids, phase = part.split("→", 1)
-        note = re.findall(r"\(([^)]*)\)", part)
-        for fid in expand(ids):
-            if note:
-                annotated.setdefault(fid, set()).update(n.strip() for n in note if n.strip())
-print("annotated ids (generated):", ", ".join(f"{k}:{sorted(v)[0]}" for k, v in sorted(annotated.items())) or "none")
+        # Two placements, and the two forms name them differently. A scope-split attaches
+        # the note to an id (`10.4 *(inventory columns)*`, `9.7 (partial)`); a re-validation
+        # attaches it to the phase (`→ **1a** *(partial)*`) and applies to every id in the
+        # part. The first version ran one findall over the whole part and applied every note
+        # to every id, so `10.1, 10.2, 10.4 *(inventory columns)*, 10.12, 10.16 *(page,
+        # sort)*` recorded `page, sort` on R10.1 and `inventory columns` on R10.16 -- a
+        # cross product, not an attribution. Splitting on `·` alone wasn't enough either:
+        # the ids side is comma-separated and `*(page, sort)*` contains a comma, so the
+        # token boundary has to respect paren depth, which is what split_tokens does. The
+        # first patch tried to do that with a regex over the whole ids string and matched
+        # `4` where it meant `10.4` -- `\d+` gave back `10` at the first position that let
+        # the rest of the pattern match, because the optional `(?:\.\d+[a-z])?` demands a
+        # letter after the minor number and `10.4 ` has a space there.
+        for tok in split_tokens(ids):
+            m = re.search(r"\(([^)]*)\)", tok)
+            note = m.group(1).strip() if m else ""
+            for fid in expand(tok):
+                if note: annotated.setdefault(fid, set()).add(note)
+        for note in (n.strip() for n in re.findall(r"\(([^)]*)\)", phase)):
+            if not note: continue
+            for fid in expand(ids):
+                annotated.setdefault(fid, set()).add(note)
+print("annotated ids (generated):", ", ".join(f"{k}:{'/'.join(sorted(v))}" for k, v in sorted(annotated.items())) or "none")
 print(f"mismatches: {len(bad)}")
 for b in bad: print("  ", b)
 
