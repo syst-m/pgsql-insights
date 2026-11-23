@@ -88,6 +88,16 @@ CREATE TABLE IF NOT EXISTS query (
 	first_seen      INTEGER NOT NULL,
 	last_seen       INTEGER NOT NULL
 );
+
+-- idx_query_last_seen is A3's S31. Purge's age query -- "every fingerprint whose
+-- newest sighting is older than the retention window" -- reads the one column
+-- the query table exists to answer by, and that table is the one §4's byte math
+-- sizes as the largest in the store, so without this the retention pass is a
+-- full scan of the biggest table, run on every tick. The file already creates two
+-- indexes (query_source :175, query_rollup :238) for their own range reads and
+-- had none for this one: the index was written twice for the child tables and
+-- never for the parent whose WHERE clause names its column.
+CREATE INDEX IF NOT EXISTS idx_query_last_seen ON query (last_seen);
 `
 
 // querySourceTable is one row per (fingerprint, instance, database): every
@@ -246,9 +256,19 @@ CREATE INDEX IF NOT EXISTS idx_rollup_cluster
 // (dto.MethodExplain / MethodPrepareExecute / MethodAnalyze), the availability
 // (dto.PlanAvailable vs dto.PlanUnavailableTablePrivileges), and the SQL the
 // plan was captured for.
+//
+// fingerprint carries REFERENCES query(fingerprint) ON DELETE CASCADE (A3's S30).
+// Without it a plan sample outlives the query it belongs to: Purge deletes aged
+// `query` rows, and the orphaned plan rows are then rows for a fingerprint the
+// store no longer has — reachable only through plan_sample, which is the
+// "schema that lies about what the store keeps" failure this file's header names.
+// The constraint itself is not new to the schema (query_source:114 has it); it was
+// written once and not copied, which is what makes the omission a bug rather than
+// a design choice — a FK on one child table and bare columns on the other two says
+// the cascade was meant to be universal.
 const planSampleTable = `
 CREATE TABLE IF NOT EXISTS plan_sample (
-	fingerprint  TEXT    NOT NULL,
+	fingerprint  TEXT    NOT NULL REFERENCES query(fingerprint) ON DELETE CASCADE,
 	captured_at  INTEGER NOT NULL,
 	method       TEXT    NOT NULL,
 	availability TEXT    NOT NULL,
@@ -279,9 +299,11 @@ CREATE TABLE IF NOT EXISTS plan_sample (
 // one event says the plan moved, two says it moved twice, and the regression
 // question is answered by lining the change up against the latency curve above
 // it (dto.QueryDetailView.PlanChanges).
+// fingerprint carries the same REFERENCES … ON DELETE CASCADE as plan_sample
+// (A3's S30) — see that table for why one occurrence in the schema was the bug.
 const planChangeTable = `
 CREATE TABLE IF NOT EXISTS plan_change (
-	fingerprint        TEXT    NOT NULL,
+	fingerprint        TEXT    NOT NULL REFERENCES query(fingerprint) ON DELETE CASCADE,
 	detected_at        INTEGER NOT NULL,
 	previous_plan_hash TEXT    NOT NULL,
 	current_plan_hash  TEXT    NOT NULL,
@@ -305,9 +327,21 @@ CREATE TABLE IF NOT EXISTS plan_change (
 // why the write path (PutDimensionRollups) takes the dimensions as data rather
 // than growing a tag-specific method the parser's owner has not asked for.
 // R3.13:317's --record-client-address gates kind='client_address' rows.
+//
+// namespace and cluster are in the PK, and the read path is what proved they had
+// to be. The first version of this table keyed on (kind, dim_hash, bucket_kind,
+// bucket) alone, which makes one tag's minute one row *for the whole deployment*:
+// two clusters running the same `/* pgsi:route=/orders */` statement collapse
+// into one row, and R8.2's /insights/tags route — which takes ?namespace= and
+// ?cluster= as filters per R8.4's uniform parameter set, and whose R9.6 metric
+// family carries both labels — then has no way to answer a cluster-scoped
+// request. The same argument R9.3 makes for (namespace, cluster, pod) being the
+// identity of anything the API scopes to a cluster applies to a rollup.
 const dimensionTable = `
 CREATE TABLE IF NOT EXISTS dimension_rollup (
 	kind        TEXT NOT NULL,
+	namespace   TEXT NOT NULL DEFAULT '',
+	cluster     TEXT NOT NULL DEFAULT '',
 	dim_hash    TEXT NOT NULL,
 	application TEXT NOT NULL DEFAULT '',
 	datname     TEXT NOT NULL DEFAULT '',
@@ -327,7 +361,7 @@ CREATE TABLE IF NOT EXISTS dimension_rollup (
 	shared_blks_hit  REAL NOT NULL DEFAULT 0,
 	shared_blks_read REAL NOT NULL DEFAULT 0,
 	lock_wait_ms     REAL NOT NULL DEFAULT 0,
-	PRIMARY KEY (kind, dim_hash, bucket_kind, bucket)
+	PRIMARY KEY (kind, namespace, cluster, dim_hash, bucket_kind, bucket)
 ) WITHOUT ROWID;
 `
 

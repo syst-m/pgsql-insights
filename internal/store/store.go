@@ -1,7 +1,18 @@
-// Package store is the SQLite query store: §3.4's storage layer, and the read
-// side of every Phase 3 endpoint (R3.2's top-N, R3.8's detail, R3.10's plans,
-// R3.7's rollups, R8.11's batched series) plus the SQLite half of
-// collector.Sink that A1's sink.go assigned to this commit.
+// Package store is the SQLite query store: §3.4's storage layer.
+//
+// The read side it serves today is R3.2's Queries table (topn.go, satisfying
+// api.QueryListSource). R3.8's detail, R8.11's batched series, R3.7's rollups and
+// the SQLite half of collector.Sink that A1's sink.go:26-29 assigns to this commit
+// are the files that follow it in this directory, named here as following rather
+// than claimed.
+//
+// The file list is part of the sentence on purpose (A3's S32). The first version
+// of this doc said "the read side of every Phase 3 endpoint" while the only
+// methods on *Store were the Open plumbing and the PutSnapshot write path, and
+// the first criterion in §3.3's set ("Top-N table matches a manual SELECT within
+// tolerance") was unexecutable from the store side until topn.go existed. A
+// package doc that ships ahead of its code is what teaches a reader to stop
+// reading package docs, so this one names the file that answers each route.
 //
 // # What §3.4 says lives here, and what does not
 //
@@ -61,6 +72,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frankellis/pgsql-insights/internal/api"
 	"github.com/frankellis/pgsql-insights/internal/query"
 
 	// The driver registers itself as "sqlite". modernc's pure-Go build is the
@@ -451,4 +463,93 @@ func validFingerprint(s string) bool {
 // dto.LatencyView's pointer percentiles make at field level. A handler that
 // cannot tell the two apart answers a 404 with a 200-and-nothing or vice versa,
 // which is the R16.8 class of bug on the route's side.
-var ErrUnknownFingerprint = errors.New("store: unknown fingerprint")
+//
+// It wraps api.ErrQueryDetailNotFound rather than being a second unrelated
+// sentinel (A3's S35), because that is the value the handler answers 404 on:
+// query_detail.go's doc says errors.Is must match "over wrapping [so that] a
+// Phase 3 store [can] add context ('no row for 550e8400… in default/pg1')
+// without changing what the client sees". A store error that did not wrap it
+// would make the handler answer 500 to a 404 question. Wrapping keeps one
+// vocabulary — callers inside this package match on ErrUnknownFingerprint and
+// inherit api's message, and callers outside it match on the api name.
+var ErrUnknownFingerprint = fmt.Errorf("store: unknown fingerprint: %w", api.ErrQueryDetailNotFound)
+
+// ErrMalformedFingerprint is the write-side sibling of ErrUnknownFingerprint:
+// the string in hand is not a fingerprint at all (R3.4's key shape — see
+// validFingerprint), as opposed to a well-formed one the store has no row for.
+//
+// Before the split, statements.go used ErrUnknownFingerprint for both, which
+// collapses exactly the two states the doc above exists to separate: a caller
+// reading "unknown fingerprint" back from PutSnapshot cannot tell "this
+// collector is hashing wrong" from "you asked about a query that aged out".
+// A3's S35; the split costs one var and makes both messages true.
+var ErrMalformedFingerprint = errors.New("store: malformed fingerprint")
+
+// whereBuilder assembles the WHERE clause every read path in this package
+// shares.
+//
+// Each read is the same shape — a fixed FROM plus a set of optional equality
+// filters — and the alternative to a builder is the same `if ns != "" { sql +=
+// " AND namespace = ?"; args = append(...) }` chain written five times, which is
+// where a missing AND, or an args slice that has fallen out of step with the
+// placeholders, lives. The seeded `WHERE 1=1` is what lets the first condition be
+// appended without knowing whether any condition exists: an all-empty filter set
+// yields `WHERE 1=1`, valid SQL meaning "everything", whereas emitting `WHERE`
+// and then nothing is a syntax error, and prefixing the first clause conditionally
+// is the branch the seed removes.
+//
+// It is a type rather than a `buildWhere(cfg…) func` because the read paths each
+// apply a different subset of their DTO's filters (topn.go applies db,
+// clusterLoadSQL deliberately does not), so the set is per-call, not per-store.
+type whereBuilder struct {
+	clause []string
+	args   []any
+}
+
+// newWhere returns an empty builder, seeded so any number of conditions —
+// including zero — produces valid SQL.
+func newWhere() *whereBuilder {
+	return &whereBuilder{clause: []string{"WHERE 1=1"}}
+}
+
+// raw adds one condition with its own placeholders and arguments, for the
+// conditions that are not a bare `column = ?`: `r.bucket >= ? AND r.bucket <= ?`
+// is one fragment with two args, and `r.bucket_kind = 'minute'` is one with none.
+func (w *whereBuilder) raw(fragment string, args ...any) {
+	w.clause = append(w.clause, "AND "+fragment)
+	w.args = append(w.args, args...)
+}
+
+// eq adds `AND <column> = ?` and its argument.
+func (w *whereBuilder) eq(column, value string) {
+	w.raw(column+" = ?", value)
+}
+
+// in adds `AND <column> IN (?, ?, …)`.
+//
+// An empty list emits `AND 0`, not `IN ()`: SQLite rejects the empty
+// parenthesised list outright, and the honest answer to "these no fingerprints"
+// is no rows, which is what `AND 0` gives. Dropping the clause instead would
+// silently widen the query to every row in the table — the one case where an
+// empty filter means "everything" while the caller meant "nothing", and the
+// reason api.SeriesQuery's empty Fingerprints needs its own rule (series.go).
+func (w *whereBuilder) in(column string, values []string) {
+	if len(values) == 0 {
+		w.raw("0")
+		return
+	}
+	ph := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, v := range values {
+		ph[i] = "?"
+		args[i] = v
+	}
+	w.raw(column+" IN ("+strings.Join(ph, ", ")+")", args...)
+}
+
+// String renders the clause.
+func (w *whereBuilder) String() string { return strings.Join(w.clause, " ") }
+
+// Args returns the arguments in placeholder order. The slice is the builder's
+// own, not a copy: callers pass it straight to QueryContext and never mutate it.
+func (w *whereBuilder) Args() []any { return w.args }

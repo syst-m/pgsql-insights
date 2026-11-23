@@ -157,11 +157,24 @@ const (
 		VALUES (?, ?, ?, ?)`
 
 	// previousPlanHashSQL is R3.11's "previous" for a new sample: the newest
-	// stored hash for that fingerprint, whatever database it came from —
-	// R3.11's plan-change event is per fingerprint, not per source.
+	// stored hash for that fingerprint that is *older than the sample being
+	// written*, whatever database it came from — R3.11's plan-change event is per
+	// fingerprint, not per source.
+	//
+	// The `captured_at < ?` is A3's S26 and it is not a refinement, it is the
+	// requirement. Detection runs after the insert, inside the same tx, so a
+	// read-back without the bound returns the row the insert just wrote: prev
+	// equals the hash in hand, the equality check at detectPlanChange trips, and
+	// every plan change is missed forever — not just the first, which would be
+	// correct. A3 proved it against the DDL extracted from this file (a second
+	// snapshot with hash h2 returns prev = h2 and zero change rows where R3.11
+	// wants one; with `AND captured_at < 200` it returns h1 and the event fires).
+	// The comment that shipped with the first version described the query *with*
+	// the bound; the SQL did not have it, which is the failure mode of writing the
+	// prose and the query in separate passes.
 	previousPlanHashSQL = `
 		SELECT plan_hash FROM plan_sample
-		WHERE fingerprint = ? AND plan_hash <> ''
+		WHERE fingerprint = ? AND plan_hash <> '' AND captured_at < ?
 		ORDER BY captured_at DESC LIMIT 1`
 )
 
@@ -365,28 +378,75 @@ type normalizedRow struct {
 //
 // Duplicates are real: pg_stat_statements' own key is (userid, dbid, queryid),
 // so two queryids whose statements normalize to one template — `SELECT $1` from
-// two prepared statements, say — produce two rows with one fingerprint. Keeping
-// the higher-total one is the same "highest-load source" rule QueryDetail uses,
-// and deciding it here is what stops the survivor depending on slice order.
+// two prepared statements, say — produce two rows with one fingerprint.
+//
+// The merge sums the counters (A3's S28); it does not keep the larger row. The
+// first version kept the higher-total one — the "highest-load source" rule
+// QueryDetail renders — which imports a display rule into a storage path. With
+// A=100 and B=50 in one snapshot the minute stored 100 ms where 150 happened, and
+// since query_source is R3.3's baseline for the fingerprint's whole life, the
+// error is permanent rather than one round's. The second symptom is the worse one:
+// a later round whose slice order flips the survivor from A to B stores 60 where
+// 110 was stored, and R3.3's counter-reset rule fires on a minute in which no
+// reset occurred — a false reset is precisely what R3.3 exists to prevent.
+//
+// So the numbers sum and the text comes from the highest-load row, which is how
+// both rules survive: R3.3 gets the sum it needs to diff the next round against,
+// and queryRow.sql keeps the text of the row that actually scored highest (A3's
+// stated wrinkle — the fingerprint's stored text must not migrate to the smaller
+// statement just because it arrived second).
 func (s *Store) normalizeAndDedupe(snap Snapshot) ([]normalizedRow, error) {
 	out := make([]normalizedRow, 0, len(snap.Rows))
 	at := map[sourceKey]int{}
 	for _, r := range snap.Rows {
 		n := query.Normalize(r.SQL, s.cfg.Normalizer)
 		if !validFingerprint(n.Fingerprint) {
-			return nil, fmt.Errorf("store: fingerprint for %s: %w", describe(r), ErrUnknownFingerprint)
+			return nil, fmt.Errorf("store: fingerprint for %s: %w", describe(r), ErrMalformedFingerprint)
 		}
 		k := sourceKey{n.Fingerprint, r.Usename}
-		if i, ok := at[k]; ok {
-			if r.TotalExecTimeMs > out[i].r.TotalExecTimeMs {
-				out[i].r = r
-			}
+		i, seen := at[k]
+		if !seen {
+			at[k] = len(out)
+			out = append(out, normalizedRow{n: n, r: r})
 			continue
 		}
-		at[k] = len(out)
-		out = append(out, normalizedRow{n: n, r: r})
+		out[i].r = mergeRows(out[i].r, r)
 	}
 	return out, nil
+}
+
+// mergeRows folds a second StatementRow that shares a sourceKey into the first.
+//
+// Every counter sums. Every non-additive field — the three text fields, Min, Max,
+// Stddev, Plan — comes from whichever row has the higher TotalExecTimeMs: a min
+// is not a sum, and taking the whole non-additive set from one row keeps the
+// latency stats consistent with the SQL they were measured on instead of pairing
+// one row's min with another row's stddev.
+//
+// The Normalized struct is not merged here: both rows normalized to the same
+// fingerprint, which is a hash of the template, so the template (and therefore the
+// display text and truncated flag) is the same string either way.
+func mergeRows(prev, r StatementRow) StatementRow {
+	best := prev
+	if r.TotalExecTimeMs > prev.TotalExecTimeMs {
+		best = r
+	}
+	return StatementRow{
+		QueryID:          best.QueryID,
+		SQL:              best.SQL,
+		Usename:          best.Usename,
+		Calls:            prev.Calls + r.Calls,
+		TotalExecTimeMs:  prev.TotalExecTimeMs + r.TotalExecTimeMs,
+		RowsReturned:     prev.RowsReturned + r.RowsReturned,
+		SharedBlocksHit:  prev.SharedBlocksHit + r.SharedBlocksHit,
+		SharedBlocksRead: prev.SharedBlocksRead + r.SharedBlocksRead,
+		BlockReadMs:      prev.BlockReadMs + r.BlockReadMs,
+		BlockWriteMs:     prev.BlockWriteMs + r.BlockWriteMs,
+		MinExecTimeMs:    best.MinExecTimeMs,
+		MaxExecTimeMs:    best.MaxExecTimeMs,
+		StddevExecTimeMs: best.StddevExecTimeMs,
+		Plan:             best.Plan,
+	}
 }
 
 // queryRow is one row of the `query` table, the shape the upsert takes.
@@ -612,7 +672,11 @@ func detectPlanChange(tx *sql.Tx, p planRow) (planChange, bool) {
 		return planChange{}, false
 	}
 	var prev string
-	err := tx.QueryRow(previousPlanHashSQL, p.fingerprint).Scan(&prev)
+	// The second argument is the bound A3's S26 asked for. Without it the read-back
+	// returns the row the insert loop above just wrote, prev equals p.planHash, the
+	// check below returns false, and no plan change is ever recorded — a compile
+	// green, test-green (until S29's tests exist) way to miss the requirement.
+	err := tx.QueryRow(previousPlanHashSQL, p.fingerprint, p.capturedAt).Scan(&prev)
 	if err != nil || prev == "" || prev == p.planHash {
 		return planChange{}, false
 	}
