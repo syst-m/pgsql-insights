@@ -826,9 +826,9 @@ paths:
                   resultType: vector
                   result:
                     - metric:
-                        namespace: postgres
-                        cluster: onepg
-                        datname: appdb
+                        namespace: open-webui
+                        cluster: open-webui-pg
+                        datname: openwebui
                         usename: app
                       value: [1764209523.000, "0.4182"]
         '400':
@@ -928,11 +928,11 @@ paths:
                   resultType: vector
                   result:
                     - metric:
-                        namespace: postgres
-                        cluster: onepg
-                        pod: onepg-1
+                        namespace: open-webui
+                        cluster: open-webui-pg
+                        pod: open-webui-pg-2
                         instance_role: primary
-                        datname: appdb
+                        datname: openwebui
                       value: [1764209523.000, "181542"]
         '400':
           $ref: '#/components/responses/InvalidRequest'
@@ -1824,20 +1824,20 @@ components:
       required: false
       schema:
         type: string
-      example: namespaces/postgres/clusters/onepg
+      example: namespaces/open-webui/clusters/open-webui-pg
     Resource:
       name: resource
       in: query
       description: |
         The MCP's optional sub-resource, spelled here as a comma-separated list of
-        R9.3's optional labels: `datname=appdb,usename=app`, or `pooler=rw`.
+        R9.3's optional labels: `datname=openwebui,usename=app`, or `pooler=rw`.
         Applied as a label filter in catalogue mode; validated and not applied in
         proxy mode, because the forwarded PromQL string carries its own selectors
         and injecting labels into someone else's query is an evaluator again.
       required: false
       schema:
         type: string
-      example: datname=appdb,usename=app
+      example: datname=openwebui,usename=app
     StartTime:
       name: startTime
       in: query
@@ -1900,7 +1900,7 @@ components:
           example:
             error:
               code: NotFound
-              message: no cluster postgres/onepg in the fleet inventory
+              message: no cluster open-webui/open-webui-pg in the fleet inventory
               details: []
     Unauthorized:
       description: |
@@ -2644,15 +2644,15 @@ components:
             `namespaces/<ns>/clusters/<name>` — the cluster the query is scoped
             to, in R8.2's addressing. Empty means every cluster the caller can
             see, which is what a fleet-wide dashboard asks for.
-          example: namespaces/postgres/clusters/onepg
+          example: namespaces/open-webui/clusters/open-webui-pg
         resource:
           type: string
           description: |
             The MCP's sub-resource, spelled as R9.3's optional labels:
-            `datname=appdb,usename=app`, or `pooler=rw`. A key outside that set is
+            `datname=openwebui,usename=app`, or `pooler=rw`. A key outside that set is
             a label no pgsi series has, so it is rejected rather than silently
             answering "no series" to a question that meant something else.
-          example: datname=appdb,usename=app
+          example: datname=openwebui,usename=app
         promqlQuery:
           type: string
           description: |
