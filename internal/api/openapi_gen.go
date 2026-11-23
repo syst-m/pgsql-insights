@@ -11,8 +11,8 @@
 //     resolved so `"GET "+ClusterDetailPath` expands to
 //     the string the router and the tests use.
 //  2. the dto structs      — internal/api/dto/*.go, whose json tags are the
-//     property schemas. NOT YET CHECKED here; see
-//     "What this does not do" below.
+//     property schemas. Checked by openapi_schemas.go and
+//     emitted, per type, by openapi_emit.go.
 //  3. the planned manifest — api/x-planned-paths.yaml, embedded by the api
 //     package and re-emitted verbatim.
 //  4. the prose            — openapi_annotations.go, the authored strings a
@@ -20,23 +20,32 @@
 //
 // # What this does not do (yet)
 //
-// Input 2 is unimplemented: the generator does not yet validate an authored
-// schema's property list against the named Go struct's json tags, so a dto field
-// renamed without a document edit is still caught by the web types' tsc import
-// (R16.8) and not by this file. The route table (input 1) and the manifest
-// (input 3) are implemented, which is the half this commit exists for: it is
-// what makes `paths` and `x-planned-paths` disjoint by construction, and so what
-// makes the extraction of the manifest into its own file a source/output pair
-// rather than a second authored copy.
+// Input 2 exists in two halves that are deliberately separate. openapi_schemas.go
+// *checks* every entry against the Go structs — a schema naming a type that does
+// not exist, or listing a property the struct's json tags do not have, fails the
+// build — and that half applies to all 32 entries at once. openapi_emit.go
+// *renders* an entry from its struct, and that half is per-type: an entry flips
+// from authored to generated one at a time through openAPISchema.Generated, and
+// TestEmitMarkedEntries requires a marked entry's render to equal its committed
+// block byte for byte. Twelve are flipped. The rest stay authored for two reasons:
+// three are unrenderable by design (PromQLSeries and QueryDetailView are composed
+// with allOf, which the emitter generates flat objects only; SamplePair declares
+// its own marshaller, so its wire shape isn't derivable from its fields), and
+// seventeen render to something that is not yet byte-identical — a `required:`
+// that switches from flow to block at a different width, an `@enum` marker the
+// struct carries and the entry phrases as prose, a description the entry omits on
+// purpose. Each of those is now a one-entry fix rather than an emitter rewrite,
+// which is what the per-type migration was for.
 //
 // # Why assembly is string concatenation
 //
 // A yaml.dump of the document would reflow every hand-wrapped description and
 // turn a prose edit into a 2000-line diff — D20's recorded failure mode for
 // gen-pgmatrix.py's whitespace. So the generator concatenates strings that are
-// the document's lines verbatim, and openapi_gen_test.go byte-compares the
-// result against the committed file. The committed file is therefore generated
-// output; the editable sources are the annotation table and the manifest.
+// the document's lines verbatim, and openapi_gen_test.go compares the result
+// against the committed file (byte-for-byte, and when entries are marked
+// Generated, schema-by-schema). The committed file is therefore generated output;
+// the editable sources are the annotation table, the emitter, and the manifest.
 package api
 
 import (
@@ -90,7 +99,16 @@ func GenerateOpenAPI() (string, error) {
 	// sections — R14.7 for `paths:` (a route in code with no entry, or an entry
 	// with no route) and R16.8 for `schemas:` (an entry whose properties are not
 	// the struct's tags) — and both have to fail the build rather than print.
-	if problems := checkSchemas(); len(problems) > 0 {
+	//
+	// The context is built once and used twice, here and in the emit loop below:
+	// parsing the packages separately for the check and for the render would let the
+	// two halves describe different code, which is the second-copy failure this
+	// generator exists to remove.
+	c, err := newSchemaContext(".", "dto", openAPISchemas)
+	if err != nil {
+		return "", err
+	}
+	if problems := c.check(); len(problems) > 0 {
 		return "", fmt.Errorf("openapi_gen: %d schema/struct mismatch(es):\n%s",
 			len(problems), strings.Join(problems, "\n"))
 	}
@@ -133,7 +151,16 @@ func GenerateOpenAPI() (string, error) {
 	// and the generator supplies it.
 	writeLines(&b, "  schemas:")
 	for _, s := range openAPISchemas {
-		writeLines(&b, s.Lines...)
+		// linesFor returns the authored Lines for an entry that is not marked
+		// Generated, and the rendered schema for one that is (openapi_emit.go). The
+		// per-entry flag is what makes the migration reviewable: one flip is one
+		// schema block in the diff, and TestGeneratedOpenAPI's second gate checks
+		// that nothing else moved.
+		lines, err := c.linesFor(s)
+		if err != nil {
+			return "", err
+		}
+		writeLines(&b, lines...)
 	}
 	return b.String(), nil
 }

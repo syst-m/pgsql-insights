@@ -32,6 +32,26 @@ import (
 var updateGolden = flag.Bool("update", false,
 	"rewrite api/openapi.yaml from GenerateOpenAPI() instead of comparing it")
 
+// TestGeneratedOpenAPI is the R8.1b gate, in two gates.
+//
+// Gate 1 is the byte-compare the header describes: the committed document must be
+// exactly what the generator produces. That is the whole test while every schema is
+// authored, and it is still the whole test whenever the generator's output matches
+// the file — a matching document cannot have moved a schema it doesn't mention.
+//
+// Gate 2 exists because of what the emitter changed. Once openapi_emit.go renders a
+// schema from its Go type instead of copying the table's Lines, a generator change
+// can move a schema block anywhere in the file, and "the golden file changed, is
+// that right?" stops having an answer in the test's own output — you read 2000 lines
+// or you trust the author. So when the bytes differ, the test names every schema
+// whose body differs (changedSchemas, openapi_emit.go:949) and requires each name to
+// be marked Generated in the table. A schema that moved without declaring it is the
+// failure the gate catches: the commit flipped a type its message didn't name, or the
+// emitter changed a schema it shouldn't have.
+//
+// Together the two gates make the migration bisectable. A flip that produces a worse
+// schema shows up as that one entry named in the failure, so the fix is to unmark
+// that entry rather than revert the emitter.
 func TestGeneratedOpenAPI(t *testing.T) {
 	got, err := GenerateOpenAPI()
 	if err != nil {
@@ -51,15 +71,67 @@ func TestGeneratedOpenAPI(t *testing.T) {
 		t.Fatalf("read %s: %v (R8.1 names this path; run `make openapi` to regenerate it)",
 			CommittedDocumentRelPath, err)
 	}
-	if got != string(want) {
+
+	// Gate 1: byte-identical.
+	if got == string(want) {
+		return
+	}
+
+	flipped := generatedEntryNames()
+	if len(flipped) == 0 {
+		// Nothing is marked Generated, so the generator's only source is the table
+		// itself and any difference is an unexplained edit to generated output.
 		// firstDiff is the package's existing line-naming diff helper
 		// (clusters_test.go:87, written for the JSON golden). Reusing it is the
 		// R16.8 rule applied inside the test package: the helper already exists,
 		// so a second copy of the same function is the drift this project keeps
 		// hitting, in miniature.
-		t.Errorf("%s is not what the generator produces (%d bytes generated vs %d committed); run `make openapi`\n%s",
+		t.Errorf("%s is not what the generator produces (%d bytes generated vs %d committed) and no schema is marked Generated, so nothing was declared as changing; run `make openapi`\n%s",
 			CommittedDocumentRelPath, len(got), len(want), firstDiff(got, string(want)))
+		return
 	}
+
+	// Gate 2: the document moved, and entries are marked — name what moved.
+	changed, err := changedSchemas(string(want), got)
+	if err != nil {
+		t.Fatalf("changedSchemas: %v", err)
+	}
+	for _, name := range changed {
+		if !containsName(flipped, name) {
+			t.Errorf("schema %s changed in the generated document but openapi_annotations.go does not mark it Generated — the commit moved a schema it did not declare (R8.1b's per-type migration requires the flag to name every flip)",
+				name)
+		}
+	}
+	if len(changed) == 0 {
+		// Marked entries exist, and every one of them rendered to its committed block
+		// (TestEmitMarkedEntries), so the bytes differ somewhere outside `schemas:` —
+		// the paths section, a prose block, the banner. Say so rather than reporting
+		// an empty changed-list as a pass.
+		t.Errorf("%s differs from the generator outside components.schemas (%d bytes generated vs %d committed) while %d entries are marked Generated; run `make openapi`\n%s",
+			CommittedDocumentRelPath, len(got), len(want), len(flipped), firstDiff(got, string(want)))
+	}
+}
+
+// generatedEntryNames returns the schema names the table marks Generated — the set
+// gate 2 compares against. It reads the table rather than the emitter's output so
+// that the set comes from the same file a reviewer reads in the diff.
+func generatedEntryNames() []string {
+	var out []string
+	for _, e := range openAPISchemas {
+		if e.Generated {
+			out = append(out, e.Name)
+		}
+	}
+	return out
+}
+
+func containsName(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestRouteTable pins the route table the generator derives from the package

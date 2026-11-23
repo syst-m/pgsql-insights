@@ -1688,6 +1688,18 @@ type openAPISchema struct {
 	Name  string
 	Go    string
 	Lines []string
+
+	// Generated marks an entry whose Lines come from the emitter (openapi_emit.go)
+	// instead of from this table. It is the per-type migration switch for R8.1's
+	// input 2: types are flipped one at a time, and TestGeneratedOpenAPI's second
+	// gate uses the flag to prove the document changed *only* inside the entries the
+	// commit marked — which is what turns "the golden file changed, is that right?"
+	// into a question the test answers.
+	//
+	// An entry with this set must be renderable: the emitter returns an error rather
+	// than silently falling back to Lines, because a silent fallback would make the
+	// flag a no-op that still looks like a flip in the table.
+	Generated bool
 }
 
 var openAPISchemas = []openAPISchema{
@@ -1719,6 +1731,7 @@ var openAPISchemas = []openAPISchema{
 			"        meta:",
 			"          $ref: '#/components/schemas/Meta'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "Meta",
@@ -1796,6 +1809,7 @@ var openAPISchemas = []openAPISchema{
 			"          items:",
 			"            type: string",
 		},
+		Generated: true,
 	},
 	{
 		Name: "NamespaceFailure",
@@ -1863,6 +1877,7 @@ var openAPISchemas = []openAPISchema{
 			"        error:",
 			"          $ref: '#/components/schemas/ErrorDetail'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "ErrorDetail",
@@ -2146,6 +2161,7 @@ var openAPISchemas = []openAPISchema{
 			"            from outside the pod (R1.10). Populated only when the probe path is",
 			"            exec/port-forward rather than a direct URL.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "ConditionView",
@@ -2382,6 +2398,7 @@ var openAPISchemas = []openAPISchema{
 			"        ip:",
 			"          type: string",
 		},
+		Generated: true,
 	},
 	{
 		Name: "VersionResponse",
@@ -2406,6 +2423,7 @@ var openAPISchemas = []openAPISchema{
 			"          type: string",
 			"          example: 9214534",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PromQLQueryRequest",
@@ -2483,6 +2501,7 @@ var openAPISchemas = []openAPISchema{
 			"        promqlResult:",
 			"          $ref: '#/components/schemas/PromQLResult'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PromQLResult",
@@ -2616,6 +2635,7 @@ var openAPISchemas = []openAPISchema{
 			"        meta:",
 			"          $ref: '#/components/schemas/Meta'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "QuerySeries",
@@ -2795,6 +2815,7 @@ var openAPISchemas = []openAPISchema{
 			"        meta:",
 			"          $ref: '#/components/schemas/Meta'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "QueryView",
@@ -3124,6 +3145,7 @@ var openAPISchemas = []openAPISchema{
 			"          description: |",
 			"            The number of sampled executions at or below `le`.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PlanSampleView",
@@ -3240,6 +3262,7 @@ var openAPISchemas = []openAPISchema{
 			"        currentPlanHash:",
 			"          type: string",
 		},
+		Generated: true,
 	},
 	{
 		Name: "RecommendationView",
@@ -3284,5 +3307,6 @@ var openAPISchemas = []openAPISchema{
 			"            is post-0.1, so there is no implementation to derive a vocabulary from",
 			"            yet. The Go type says the same thing (dto/queries.go).",
 		},
+		Generated: true,
 	},
 }

@@ -72,6 +72,12 @@ type goField struct {
 	OmitEmpty bool
 	TypeStr   string // rendered Go type: "string", "*float64", "[]HistogramBucket", "time.Time"
 	Doc       string // the field's doc comment, flattened to one line
+	// DocLines is the same comment with its line and paragraph structure intact.
+	// The emitter needs it, not just Doc: a YAML block scalar preserves line breaks,
+	// so rendering from the flattened text would rewrap every field the migration
+	// touches and turn a one-property flip into a forty-line diff. The `@example`
+	// marker lives on its own comment line too, which flattening destroys.
+	DocLines []string
 }
 
 // PropertyName is the key encoding/json would emit for this field.
@@ -86,7 +92,13 @@ func (f goField) PropertyName() string {
 type goStruct struct {
 	Name    string
 	Generic bool // `type Envelope[T any] struct` — OpenAPI 3.0 cannot name it, R8.4
-	Fields  []goField
+	// Params are the type-parameter names (`[T any]` → ["T"]). The check does not
+	// need them and the emitter cannot do without them: an entry names an
+	// instantiation (`dto.Envelope[dto.ClusterView]`), the struct's field says
+	// `[]T`, and without the binding the emitter is left rendering a property whose
+	// type is the letter T.
+	Params []string
+	Fields []goField
 	// CustomMarshal is true when the type declares its own MarshalJSON (or
 	// MarshalText). Such a type's Go field names are not JSON property names at
 	// all — the marshaller decides the wire shape — so the property diff does not
@@ -97,6 +109,13 @@ type goStruct struct {
 	// against a `properties:` block demands two properties the document must not
 	// have; the first run of this file reported exactly that false mismatch.
 	CustomMarshal bool
+	// Doc is the type's own doc comment, flattened; DocLines is the same comment with
+	// its line structure intact. The emitter's per-type migration rule keys off
+	// Doc — a type with no prose keeps its authored entry rather than gaining a
+	// generated one — so it has to be read from both attachment sites (see
+	// parseGoPackage) or the rule skips types that do have prose.
+	Doc      string
+	DocLines []string
 }
 
 // parseGoPackage parses every non-test .go file in dir and returns the package's
@@ -128,7 +147,14 @@ func parseGoPackage(dir string) (structs map[string]goStruct, aliases map[string
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		// ParseComments is not optional. Without it every ast.CommentGroup is nil,
+		// so goField.Doc and goStruct.Doc are empty strings that *look* populated —
+		// the check never noticed because it compares property names, and the first
+		// thing that ever read the prose was the emitter, which then reported every
+		// type in the repo as having no doc comment. SkipObjectResolution keeps the
+		// rest of the walk cheap.
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil,
+			parser.ParseComments|parser.SkipObjectResolution)
 		if err != nil {
 			return nil, nil, fmt.Errorf("openapi_schemas: parse %s: %w", name, err)
 		}
@@ -166,12 +192,20 @@ func parseGoPackage(dir string) (structs map[string]goStruct, aliases map[string
 				}
 				if st, ok := ts.Type.(*ast.StructType); ok {
 					s := goStruct{Name: ts.Name.Name, Generic: ts.TypeParams != nil}
+					if ts.TypeParams != nil {
+						for _, p := range ts.TypeParams.List {
+							for _, n := range p.Names {
+								s.Params = append(s.Params, n.Name)
+							}
+						}
+					}
 					for _, fld := range st.Fields.List {
 						if len(fld.Names) == 0 {
 							// Embedded: `QueryView` on its own line, no name of its own.
 							s.Fields = append(s.Fields, goField{
-								TypeStr: types.ExprString(fld.Type),
-								Doc:     docText(fld.Doc),
+								TypeStr:  types.ExprString(fld.Type),
+								Doc:      docText(fld.Doc),
+								DocLines: rawDocLines(fld.Doc),
 							})
 							continue
 						}
@@ -180,6 +214,17 @@ func parseGoPackage(dir string) (structs map[string]goStruct, aliases map[string
 						for _, nm := range fld.Names {
 							s.Fields = append(s.Fields, goFieldFrom(nm.Name, fld))
 						}
+					}
+					// go/ast attaches a type's doc comment to the GenDecl when the file
+					// declares one type per top-level `type X struct`, and to the
+					// TypeSpec inside a grouped `type ( ... )` block. Reading only one
+					// site loses the prose for whichever form the file does not use, and
+					// the emitter's "no prose, no generation" rule would then skip types
+					// that do have a comment — the check would still pass, because the
+					// check reads the type, not the prose.
+					s.Doc, s.DocLines = docText(ts.Doc), rawDocLines(ts.Doc)
+					if s.Doc == "" {
+						s.Doc, s.DocLines = docText(gd.Doc), rawDocLines(gd.Doc)
 					}
 					s.CustomMarshal = marshalers[ts.Name.Name]
 					structs[ts.Name.Name] = s
@@ -200,7 +245,12 @@ func parseGoPackage(dir string) (structs map[string]goStruct, aliases map[string
 }
 
 func goFieldFrom(name string, f *ast.Field) goField {
-	gf := goField{Name: name, TypeStr: types.ExprString(f.Type), Doc: docText(f.Doc)}
+	gf := goField{
+		Name:     name,
+		TypeStr:  types.ExprString(f.Type),
+		Doc:      docText(f.Doc),
+		DocLines: rawDocLines(f.Doc),
+	}
 	if f.Tag != nil {
 		tag := reflect.StructTag(strings.Trim(f.Tag.Value, "`"))
 		gf.JSONName, gf.OmitEmpty = parseJSONTag(tag.Get("json"))
@@ -249,17 +299,43 @@ func parseJSONTag(v string) (name string, omitEmpty bool) {
 }
 
 // docText flattens a comment group to a single line: `// a` and `// b` become
-// "a b". The emitter quotes field prose into a YAML block scalar; the validator
-// only carries it so the two agree on what a field's description is.
+// "a b". It is derived from rawDocLines so the two cannot disagree about what a
+// field's prose says — the check compares text, the emitter renders lines, and a
+// third implementation of "strip the //" is one more way for them to drift.
 func docText(c *ast.CommentGroup) string {
+	return strings.TrimSpace(strings.Join(rawDocLines(c), " "))
+}
+
+// rawDocLines returns a comment group's text with the comment markers stripped and
+// the line and paragraph structure kept, including the empty `//` lines that
+// separate paragraphs. The emitter needs this form: a YAML block scalar preserves
+// line breaks, so a description rendered from the flattened text would collapse a
+// three-paragraph comment into one wrapped wall and change the document for every
+// field the migration touches.
+func rawDocLines(c *ast.CommentGroup) []string {
 	if c == nil {
-		return ""
+		return nil
 	}
-	var lines []string
+	var out []string
 	for _, l := range c.List {
-		lines = append(lines, strings.TrimSpace(strings.TrimPrefix(l.Text, "//")))
+		text := l.Text
+		switch {
+		case strings.HasPrefix(text, "//"):
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(text, "//")))
+		case strings.HasPrefix(text, "/*"):
+			// A block comment spans several lines inside one ast.Comment, so the
+			// group's line structure lives *inside* the string: split it, then strip
+			// the `*` continuation markers gofmt puts on continuation lines.
+			body := strings.TrimSuffix(strings.TrimPrefix(text, "/*"), "*/")
+			for _, one := range strings.Split(body, "\n") {
+				one = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(one), "*"))
+				out = append(out, strings.TrimSpace(one))
+			}
+		default:
+			out = append(out, strings.TrimSpace(text))
+		}
 	}
-	return strings.TrimSpace(strings.Join(lines, " "))
+	return out
 }
 
 // resolveGoRef turns a `Go:` annotation value into the struct it names.
@@ -329,9 +405,28 @@ func splitGeneric(name string) (base, arg string, ok bool) {
 // and `type B struct { A }` compile, and an unbounded expansion of an embedded
 // cycle turns this function into the reason `go test` hangs rather than the
 // reason it fails.
-func jsonProps(s goStruct, pkg string, pkgs map[string]map[string]goStruct) []string {
+// goFieldRef is a field paired with the package its type resolves in. A flattened
+// field list cannot carry the fields alone: `Wrapper{Plain; …}` reaches `alpha`
+// through a type in the same package, and an api-side struct can embed a dto one,
+// so the package a field's type string resolves against changes as the walk goes.
+type goFieldRef struct {
+	Field goField
+	Pkg   string
+}
+
+// flattenFields is the single definition of "the properties this struct's JSON
+// object has, in declaration order". jsonProps sorts its names for the set
+// comparison and the emitter renders them in order, and both read it from here —
+// two walkers would be a second copy of the contract, which is the failure this
+// whole file exists to prevent (R16.8).
+//
+// The depth cap and the cycle guard are not decoration: `type A struct { B }`
+// and `type B struct { A }` compile, and an unbounded expansion of an embedded
+// cycle turns this function into the reason `go test` hangs rather than the
+// reason it fails.
+func flattenFields(s goStruct, pkg string, pkgs map[string]map[string]goStruct) []goFieldRef {
 	seen := map[string]bool{}
-	var out []string
+	var out []goFieldRef
 	var walk func(goStruct, string, int)
 	walk = func(s goStruct, pkg string, depth int) {
 		if depth > 8 {
@@ -362,14 +457,29 @@ func jsonProps(s goStruct, pkg string, pkgs map[string]map[string]goStruct) []st
 				// and is reported by checkSchemasInDirs through the entry that names it.
 			}
 			n := f.PropertyName()
-			if n == "" || n == "-" || seen[n] {
+			if n == "" || n == "-" {
+				continue
+			}
+			if seen[n] {
+				// A name reached twice (embedded twice, or shadowed by an outer field)
+				// contributes once: the first declaration wins, which is the order
+				// encoding/json itself uses for a shadowed field.
 				continue
 			}
 			seen[n] = true
-			out = append(out, n)
+			out = append(out, goFieldRef{Field: f, Pkg: pkg})
 		}
 	}
 	walk(s, pkg, 0)
+	return out
+}
+
+func jsonProps(s goStruct, pkg string, pkgs map[string]map[string]goStruct) []string {
+	fl := flattenFields(s, pkg, pkgs)
+	out := make([]string, 0, len(fl))
+	for _, fr := range fl {
+		out = append(out, fr.Field.PropertyName())
+	}
 	sort.Strings(out)
 	return out
 }
@@ -602,16 +712,34 @@ func checkSchemas() []string { return checkSchemasInDirs(".", "dto", openAPISche
 // read of openAPISchemas is what lets a fixture entry that *should* fail exist
 // without editing the real table.
 func checkSchemasInDirs(apiDir, dtoDir string, entries []openAPISchema) []string {
-	apiStructs, apiAliases, err := parseGoPackage(apiDir)
+	pkgs, aliasPkgs, err := parseSchemaInputs(apiDir, dtoDir)
 	if err != nil {
 		return []string{err.Error()}
+	}
+	return checkEntries(pkgs, aliasPkgs, entries)
+}
+
+// parseSchemaInputs parses the two packages a `Go:` annotation can name and returns
+// them keyed by package name. It is split out of checkSchemasInDirs so the emitter
+// and the check can share one parse: GenerateOpenAPI needs the same structs to
+// render a generated entry that it needs to validate one, and the failure mode of
+// parsing twice is a schema validated against one file set and emitted from another.
+func parseSchemaInputs(apiDir, dtoDir string) (map[string]map[string]goStruct, map[string]map[string]string, error) {
+	apiStructs, apiAliases, err := parseGoPackage(apiDir)
+	if err != nil {
+		return nil, nil, err
 	}
 	dtoStructs, dtoAliases, err := parseGoPackage(dtoDir)
 	if err != nil {
-		return []string{err.Error()}
+		return nil, nil, err
 	}
-	pkgs := map[string]map[string]goStruct{"api": apiStructs, "dto": dtoStructs}
-	aliasPkgs := map[string]map[string]string{"api": apiAliases, "dto": dtoAliases}
+	return map[string]map[string]goStruct{"api": apiStructs, "dto": dtoStructs},
+		map[string]map[string]string{"api": apiAliases, "dto": dtoAliases}, nil
+}
+
+// checkEntries is the check itself over an already-parsed package set; separating it
+// from the parse is what lets GenerateOpenAPI parse once for both gates.
+func checkEntries(pkgs map[string]map[string]goStruct, aliasPkgs map[string]map[string]string, entries []openAPISchema) []string {
 	docProps := docSchemaProps(entries)
 
 	var problems []string
