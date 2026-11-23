@@ -229,6 +229,14 @@ func typeArgs(ref string, s goStruct) map[string]string {
 type authoredProse struct {
 	Desc    []string
 	Example []string
+	// Enum holds the authored `enum:` block verbatim, for the same reason Desc and
+	// Example do: an enum's per-value comments are prose, not structure. The derived
+	// propSchema.Enum can only ever hold the value list, and the document annotates
+	// the values it names — `- PromQLUnavailable # R8.3: query outside the named
+	// catalogue` in ErrorDetail, `# --credential-secret` in ClusterView — which no
+	// reading of a Go field produces. The entry's list is copied; the derived one is
+	// the fallback when the entry has no list at all.
+	Enum []string
 }
 
 // authoredProseFor indexes one entry's authored prose by owner.
@@ -236,7 +244,7 @@ type authoredProse struct {
 // The owner is read from the indentation, which is the only place the information
 // lives: at indent 4 is the schema key, at indent 6 the schema's own keys
 // (type/description/required/properties/example), at indent 8 a property key, at
-// indent 10 that property's schema. A description at indent 12 belongs to a nested
+// indent 10 that property's schema. A block at indent 12 belongs to a nested
 // items: block rather than to the property, and the first capture for an owner wins,
 // which is the property's own — the nested one comes after it in the entry.
 func authoredProseFor(e openAPISchema) map[string]authoredProse {
@@ -272,7 +280,8 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 		}
 		isDesc := strings.HasPrefix(trimmed, "description:")
 		isExample := strings.HasPrefix(trimmed, "example:")
-		if !isDesc && !isExample {
+		isEnum := strings.HasPrefix(trimmed, "enum:")
+		if !isDesc && !isExample && !isEnum {
 			continue
 		}
 		block, n := rawProseBlock(e.Lines, i)
@@ -285,6 +294,9 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 		}
 		if isExample && len(a.Example) == 0 {
 			a.Example, changed = block, true
+		}
+		if isEnum && len(a.Enum) == 0 {
+			a.Enum, changed = block, true
 		}
 		if changed {
 			out[owner] = a
@@ -358,14 +370,20 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 	// an entry that carries no authored prose at all, which is the fresh-entry case
 	// the per-type migration rule is written for. An entry with a description but no
 	// example, or the reverse, is a choice the emitter copies rather than
-	// second-guesses: ErrorDetail's entry documents no description because its parent
-	// ErrorBody does, and rendering the Go doc there would add a line the document
-	// deliberately omits.
+	// second-guesses, and so is an entry that documents no schema-level description at
+	// all: ErrorDetail has none because its parent ErrorBody carries one, ServicePort
+	// has none because the port list says everything the type needs. Measured over the
+	// document those two are the only entries without a schema description, and both
+	// have property prose — so "the entry authored anything anywhere" is what separates
+	// an authored entry from a fresh one, and rendering the Go doc into their empty slot
+	// adds a line the document deliberately omits.
 	self := a[""]
 	switch {
 	case len(self.Desc) > 0:
 		out = append(out, self.Desc...)
-	case len(self.Example) == 0:
+	case len(a) == 0:
+		// The entry authored nothing at all, so this is the fresh-entry case and the Go
+		// doc is the only prose available.
 		out = append(out, descLines(prose, 6)...)
 	}
 
@@ -405,6 +423,7 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 		// Desc/Example above are what an entry without authored prose falls back to.
 		name := fr.Field.PropertyName()
 		ps.RawDesc, ps.RawExample = a[name].Desc, a[name].Example
+		ps.RawEnum = a[name].Enum
 		out = append(out, "        "+fr.Field.PropertyName()+":")
 		inner := ps.lines(10)
 		if len(inner) == 0 {
@@ -439,7 +458,13 @@ func requiredNames(fields []goFieldRef) []string {
 
 // propSchema is a rendered OpenAPI schema for one Go type, decomposed so the
 // renderer can emit keys in the order the document uses them: type, format,
-// nullable, enum, description, items/additionalProperties, example.
+// nullable, description, enum, items/additionalProperties, example. The order is
+// measured, not chosen — all twelve properties with both a description and an enum
+// write the description first, and all eight property schemas with a `format` and the
+// three with a `nullable` put those between `type` and the description. An earlier
+// version of this comment had enum above description, which is why every
+// enum-bearing property the emitter rendered came out reordered: the order lives in
+// the renderer, so a wrong note here is a wrong render everywhere.
 type propSchema struct {
 	// Type is "" for a schema with no type at all — the document's `plan:` property,
 	// whose Go type is json.RawMessage and which is deliberately untyped because the
@@ -451,20 +476,25 @@ type propSchema struct {
 	Enum     []string
 	Desc     []string
 	Example  string
-	// RawDesc and RawExample replace the description and example slots with lines
-	// copied verbatim from the authored entry. The emitter derives a *schema* from a
-	// Go type; the prose in openapi_annotations.go is R8.1's separate input, and it is
-	// not the Go doc comment — measured over the table, 0 of 31 entries' descriptions
-	// equal their type's doc comment (Meta's Go doc says "the pagination/envelope
-	// metadata every list endpoint returns", the document says "Pagination and
-	// partial-render metadata … extended by R10.22"). Rendering prose from the struct
-	// would delete curated input-4 text on every flip and bury a structural change
-	// under a rewrapped paragraph, so a generated entry keeps the prose it was given
-	// and derives only what the struct actually decides. They are separate fields
-	// because the document's key order puts the description above `required:` and the
-	// example below `properties:` — one combined block could not sit in both places.
+	// RawDesc, RawExample and RawEnum replace the description, example and enum slots
+	// with lines copied verbatim from the authored entry. The emitter derives a
+	// *schema* from a Go type; the prose in openapi_annotations.go is R8.1's separate
+	// input, and it is not the Go doc comment — measured over the table, 0 of 31
+	// entries' descriptions equal their type's doc comment (Meta's Go doc says "the
+	// pagination/envelope metadata every list endpoint returns", the document says
+	// "Pagination and partial-render metadata … extended by R10.22"). Rendering prose
+	// from the struct would delete curated input-4 text on every flip and bury a
+	// structural change under a rewrapped paragraph, so a generated entry keeps the
+	// prose it was given and derives only what the struct actually decides. They are
+	// separate fields because the document's key order puts the description above
+	// `required:` and the example below `properties:` — one combined block could not
+	// sit in both places. RawEnum wins over Enum the way RawDesc wins over Desc: the
+	// entry's list carries the per-value comments the derived one cannot (see
+	// authoredProse.Enum), and Enum — from the type's `@enum` marker — is what an entry
+	// with no authored list falls back to.
 	RawDesc    []string
 	RawExample []string
+	RawEnum    []string
 	Items      *propSchema
 	MapValue   *propSchema
 }
@@ -491,7 +521,19 @@ func (p propSchema) lines(indent int) []string {
 	if p.Nullable {
 		out = append(out, pad+"nullable: true")
 	}
-	if len(p.Enum) > 0 {
+	if len(p.RawDesc) > 0 {
+		// Authored prose, verbatim, in the description slot: see propSchema.RawDesc.
+		out = append(out, p.RawDesc...)
+	} else {
+		out = append(out, descLines(p.Desc, indent)...)
+	}
+	if len(p.RawEnum) > 0 {
+		// Authored block, verbatim: see propSchema.RawEnum. It occupies the same slot
+		// as the derived render below and takes it wholesale, because the entry's list
+		// is the one with the per-value comments and the flow-or-block choice already
+		// made.
+		out = append(out, p.RawEnum...)
+	} else if len(p.Enum) > 0 {
 		// The same flow-or-block rule as `required:` (see objectBody): the document
 		// writes `enum: [True, False, Unknown]` and switches to one value per line only
 		// when the flow form passes the width — NamespaceFailure's `code` is the entry
@@ -506,12 +548,6 @@ func (p propSchema) lines(indent int) []string {
 				out = append(out, pad+"  - "+inlineScalar(v))
 			}
 		}
-	}
-	if len(p.RawDesc) > 0 {
-		// Authored prose, verbatim, in the description slot: see propSchema.RawDesc.
-		out = append(out, p.RawDesc...)
-	} else {
-		out = append(out, descLines(p.Desc, indent)...)
 	}
 	if p.Items != nil {
 		out = append(out, pad+"items:")

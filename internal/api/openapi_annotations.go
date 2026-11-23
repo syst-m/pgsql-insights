@@ -1858,6 +1858,7 @@ var openAPISchemas = []openAPISchema{
 			"            `omitempty` never fires on a struct value, and a bare `time.Time`",
 			"            would emit `0001-01-01T00:00:00Z` for \"never\" instead of omitting it.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "ErrorBody",
@@ -1919,6 +1920,7 @@ var openAPISchemas = []openAPISchema{
 			"          items:",
 			"            type: string",
 		},
+		Generated: true,
 	},
 	{
 		Name: "ClusterView",
@@ -2057,6 +2059,7 @@ var openAPISchemas = []openAPISchema{
 			"            shows cluster age, and adding it after the contract freezes is a",
 			"            change the frontend has to react to, so it is here from the start.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "InstanceView",
@@ -2187,6 +2190,7 @@ var openAPISchemas = []openAPISchema{
 			"          format: date-time",
 			"          description: CNPG's `lastTransitionTime`.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "CertificateExpirations",
@@ -2290,6 +2294,7 @@ var openAPISchemas = []openAPISchema{
 			"          type: string",
 			"          description: \"`spec.clusterIP` (\\\"None\\\" for headless services).\"",
 		},
+		Generated: true,
 	},
 	{
 		Name: "ServicePort",
@@ -2313,6 +2318,7 @@ var openAPISchemas = []openAPISchema{
 			"            Kubernetes' `IntOrString` normalised to a string: \"5432\" for a",
 			"            numeric port, \"pgbouncer\" for a named one.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PoolerView",
@@ -2717,6 +2723,7 @@ var openAPISchemas = []openAPISchema{
 			"        usename: app",
 			"        points: []",
 		},
+		Generated: true,
 	},
 	{
 		Name: "QuerySeriesPoint",
@@ -3235,6 +3242,7 @@ var openAPISchemas = []openAPISchema{
 			"            for table orders` (R3.10's (c) quotes the shape). `availability` says",
 			"            why in category; this says which table.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PlanChangeView",
