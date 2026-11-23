@@ -48,6 +48,18 @@ import (
 // is the rule the file follows and the 87s are its exceptions.
 const proseWidth = 80
 
+// maxLineWidth is the longest line the document lets itself write, which is not the
+// same measurement as proseWidth and was rendered as if it were. Measured over the
+// 29 entries with a `required:` key: every flow form up to and including 87 columns
+// stays on one line, and the three that break to one name per line are 107, 188 and
+// 229 — all past it. InstanceView's is exactly 87, and a rule that measured prose
+// (80) rendered it as a block, which is the difference between that entry's
+// authored one line and the emitter's seven. The same constant governs `enum:`
+// flow-or-block; the enum blocks that survive at 63 columns are the ones with
+// per-value comments, which a flow list cannot hold, so they arrive through RawEnum
+// rather than through this test.
+const maxLineWidth = 87
+
 // schemaContext is one parse of the two packages a `Go:` annotation can name, plus
 // the entry table, plus the index from Go reference to schema name. GenerateOpenAPI
 // builds one and hands it to both halves: check() for the R16.8 property diff and
@@ -237,6 +249,34 @@ type authoredProse struct {
 	// reading of a Go field produces. The entry's list is copied; the derived one is
 	// the fallback when the entry has no list at all.
 	Enum []string
+	// Format and Nullable are the authored `format:` and `nullable:` values, on the
+	// same argument one more time. PromQLQueryRequest's startTime is a Go string the
+	// document documents as a timestamp (`format: date-time`, R10.21's wire format),
+	// which the type table cannot know because the field is not a time.Time.
+	//
+	// Nullable is here because pointer-ness turned out not to be the document's rule.
+	// Three properties in the whole document are nullable — NamespaceFailure's
+	// lastSuccessTime, ClusterView's pgMajor, InstanceView's startedAt, all of them
+	// pointers — and the emitter used to derive the key from `*T`, which rendered it
+	// onto LatencyView's three `*float64` percentiles as well. Their own entry
+	// description says why not: `omitempty` already spells "no p95" as an absent
+	// field, so marking them nullable would be a second, contradicting answer to a
+	// question the entry answered elsewhere. The value is the authored string
+	// ("true"/"false", "" when the entry wrote no `nullable:`) so the line is copied
+	// rather than re-derived; propSchema.Nullable is the fallback for a property the
+	// entry left undocumented, and authoredAny is what tells the two apart.
+	Format   string
+	Nullable string
+}
+
+// authoredAny reports whether the entry documented this owner at all — the test that
+// separates an authored entry from a fresh one, at both levels. An entry that wrote an
+// enum and no description wrote no description on purpose, and an entry that wrote a
+// type and no `nullable:` on a pointer field wrote none on purpose; the derived render
+// fills the slots of an owner the entry said nothing about, and nothing else.
+func (p authoredProse) authoredAny() bool {
+	return len(p.Desc) > 0 || len(p.Example) > 0 || len(p.Enum) > 0 ||
+		p.Format != "" || p.Nullable != ""
 }
 
 // authoredProseFor indexes one entry's authored prose by owner.
@@ -278,10 +318,16 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 				continue // inside a nested items:/additionalProperties: block
 			}
 		}
+		// The keys captured are exactly authoredProse's five fields. `type:` and
+		// `required:` are not among them: they are structure the emitter derives from
+		// the Go type, and copying them would let a marked entry keep a type its struct
+		// no longer has — which is the whole claim `Generated: true` makes.
 		isDesc := strings.HasPrefix(trimmed, "description:")
 		isExample := strings.HasPrefix(trimmed, "example:")
 		isEnum := strings.HasPrefix(trimmed, "enum:")
-		if !isDesc && !isExample && !isEnum {
+		isFormat := strings.HasPrefix(trimmed, "format:")
+		isNullable := strings.HasPrefix(trimmed, "nullable:")
+		if !isDesc && !isExample && !isEnum && !isFormat && !isNullable {
 			continue
 		}
 		block, n := rawProseBlock(e.Lines, i)
@@ -298,6 +344,15 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 		if isEnum && len(a.Enum) == 0 {
 			a.Enum, changed = block, true
 		}
+		// format and nullable are the two inline-only keys — `format: date-time` and
+		// `nullable: true` are scalars, so the value is the key line's right-hand side
+		// rather than a block to copy. The rendered line is rebuilt from it verbatim.
+		if isFormat && a.Format == "" {
+			a.Format, changed = inlineValue(trimmed), true
+		}
+		if isNullable && a.Nullable == "" {
+			a.Nullable, changed = inlineValue(trimmed), true
+		}
 		if changed {
 			out[owner] = a
 		}
@@ -306,8 +361,18 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 	return out
 }
 
-// rawProseBlock returns the authored lines that make up the `description:` or
-// `example:` key at index i, and n, how many lines the block consumed, so the caller
+// inlineValue is the right-hand side of an authored inline `key: value` line, taken
+// verbatim: `format: date-time` yields date-time, `nullable: true` yields true. It is
+// not inlineScalar — that one renders a Go value and decides whether to quote it, and
+// an authored value already carries the quoting its author chose, so running it back
+// through that rule would re-quote a string the document quoted by hand.
+func inlineValue(line string) string {
+	_, v, _ := strings.Cut(line, ":")
+	return strings.TrimSpace(v)
+}
+
+// rawProseBlock returns the authored lines that make up the `description:`, `example:`
+// or `enum:` key at index i, and n, how many lines the block consumed, so the caller
 // skips the body instead of re-reading it as a key. Three shapes occur in the
 // document and each has to be recognised:
 //
@@ -389,13 +454,13 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 
 	fields := flattenFields(s, pkg, c.pkgs)
 	if req := requiredNames(fields); len(req) > 0 {
-		// Flow style (`required: [a, b]`) when the list fits the width, block style
+		// Flow style (`required: [a, b]`) when the list fits the line, block style
 		// (one `- name` per line) when it does not. Measured: the document uses flow
 		// 26 times and block 3 times, and the three block cases are exactly the
-		// entries whose flow form exceeds 80 columns — so the file has one rule and
+		// entries whose flow form exceeds maxLineWidth — so the file has one rule and
 		// the emitter follows it rather than picking a style.
 		flow := "      required: [" + strings.Join(req, ", ") + "]"
-		if len(flow) <= proseWidth {
+		if len(flow) <= maxLineWidth {
 			out = append(out, flow)
 		} else {
 			out = append(out, "      required:")
@@ -422,8 +487,28 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 		// The field's authored prose wins over the Go field doc (propSchema.RawDesc);
 		// Desc/Example above are what an entry without authored prose falls back to.
 		name := fr.Field.PropertyName()
-		ps.RawDesc, ps.RawExample = a[name].Desc, a[name].Example
-		ps.RawEnum = a[name].Enum
+		authored := a[name]
+		ps.RawDesc, ps.RawExample = authored.Desc, authored.Example
+		ps.RawEnum = authored.Enum
+		ps.RawFormat, ps.RawNullable = authored.Format, authored.Nullable
+		// An entry that documented a property and left one of these three slots empty
+		// left it empty on purpose, and clearing the derived value is what makes that
+		// the render: PVCView's `phase` has an enum and no description, PoolerView's
+		// `image` an example and none, LatencyView's three percentiles a type and no
+		// `nullable:` despite being `*float64`. The measurement is on
+		// authoredProse.authoredAny; Example and Enum need no clearing because the
+		// derived values there are the entry's own, copied through RawExample/RawEnum.
+		if authored.authoredAny() {
+			if len(authored.Desc) == 0 {
+				ps.Desc = nil
+			}
+			if authored.Format == "" {
+				ps.Format = ""
+			}
+			if authored.Nullable == "" {
+				ps.Nullable = false
+			}
+		}
 		out = append(out, "        "+fr.Field.PropertyName()+":")
 		inner := ps.lines(10)
 		if len(inner) == 0 {
@@ -491,12 +576,18 @@ type propSchema struct {
 	// sit in both places. RawEnum wins over Enum the way RawDesc wins over Desc: the
 	// entry's list carries the per-value comments the derived one cannot (see
 	// authoredProse.Enum), and Enum — from the type's `@enum` marker — is what an entry
-	// with no authored list falls back to.
-	RawDesc    []string
-	RawExample []string
-	RawEnum    []string
-	Items      *propSchema
-	MapValue   *propSchema
+	// with no authored list falls back to. RawFormat and RawNullable are the same pair
+	// of slots for the two keys added after the enum was: an entry's `format:` is
+	// copied rather than looked up in the type table (PromQLQueryRequest.startTime is a
+	// Go string the document documents as a timestamp) and its `nullable:` is copied
+	// rather than derived from pointer-ness (see authoredProse.Nullable).
+	RawDesc     []string
+	RawExample  []string
+	RawEnum     []string
+	RawFormat   string
+	RawNullable string
+	Items       *propSchema
+	MapValue    *propSchema
 }
 
 // lines renders the schema at the given indent.
@@ -515,10 +606,20 @@ func (p propSchema) lines(indent int) []string {
 	if p.Type != "" {
 		out = append(out, pad+"type: "+p.Type)
 	}
-	if p.Format != "" {
-		out = append(out, pad+"format: "+p.Format)
+	// format and nullable follow the same authored-wins rule as the description below:
+	// the entry's own line is copied, and the value derived from the Go type is the
+	// fallback for a property the entry left undocumented.
+	format, nullable := p.Format, p.Nullable
+	if p.RawFormat != "" {
+		format = p.RawFormat
 	}
-	if p.Nullable {
+	if p.RawNullable != "" {
+		nullable = p.RawNullable == "true"
+	}
+	if format != "" {
+		out = append(out, pad+"format: "+format)
+	}
+	if nullable {
 		out = append(out, pad+"nullable: true")
 	}
 	if len(p.RawDesc) > 0 {
@@ -534,13 +635,14 @@ func (p propSchema) lines(indent int) []string {
 		// made.
 		out = append(out, p.RawEnum...)
 	} else if len(p.Enum) > 0 {
-		// The same flow-or-block rule as `required:` (see objectBody): the document
-		// writes `enum: [True, False, Unknown]` and switches to one value per line only
-		// when the flow form passes the width — NamespaceFailure's `code` is the entry
-		// that does, and rendering it inline moves six lines the authored entry has as
-		// six separate ones.
+		// The derived enum, from a type's `@enum` marker: the same flow-or-line-length
+		// rule as `required:` (see objectBody), because the document writes
+		// `enum: [True, False, Unknown]` and switches to one value per line only when
+		// the flow form passes maxLineWidth. An entry that authored its own list gets it
+		// verbatim from RawEnum above instead — a flow list cannot carry the per-value
+		// comments the authored ones have.
 		flow := pad + "enum: [" + strings.Join(p.Enum, ", ") + "]"
-		if len(flow) <= proseWidth {
+		if len(flow) <= maxLineWidth {
 			out = append(out, flow)
 		} else {
 			out = append(out, pad+"enum:")

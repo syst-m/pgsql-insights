@@ -27,18 +27,19 @@
 // *renders* an entry from its struct, and that half is per-type: an entry flips
 // from authored to generated one at a time through openAPISchema.Generated, and
 // TestEmitMarkedEntries requires a marked entry's render to equal its committed
-// block byte for byte. Twenty-three are flipped. The rest stay authored for two
+// block byte for byte. Twenty-eight are flipped. The rest stay authored for two
 // reasons: three are unrenderable by design (PromQLSeries and QueryDetailView are
 // composed with allOf, which the emitter generates flat objects only; SamplePair
 // declares its own marshaller, so its wire shape isn't derivable from its fields),
-// and six render to something that is not yet byte-identical, in five classes: a
-// `required:` that switches from flow to block at a different width (InstanceView), a
-// property `description:` the entry omits and the emitter renders from the Go field
-// doc (PVCView, PoolerView), a `nullable: true` the entry omits (LatencyView), a
-// `oneOf:` the entry authors and the emitter has no rule for (PromQLResult), and a
-// `format: date-time` on a field it resolves through an alias (PromQLQueryRequest).
-// Each of those is now a one-entry fix rather than an emitter rewrite, which is what
-// the per-type migration was for.
+// and one renders to something that is not yet byte-identical: PromQLResult, whose
+// `oneOf:` the entry authors and the emitter has no rule for. The five flipped here
+// were the last four classes the header used to list — the flow-or-block width
+// (InstanceView), a property description rendered where the entry wrote none
+// (PVCView, PoolerView), a nullable derived where the entry wrote none (LatencyView),
+// and a format the type table cannot know (PromQLQueryRequest) — and each became a
+// field to copy rather than a rule to guess, which is what the per-type migration was
+// for. PromQLResult is the one entry left that needs a rule the emitter does not have
+// yet, not a slot it was filling from the wrong source.
 //
 // # Why assembly is string concatenation
 //

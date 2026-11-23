@@ -2126,6 +2126,7 @@ var openAPISchemas = []openAPISchema{
 			"        endpoints:",
 			"          $ref: '#/components/schemas/InstanceEndpoints'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "InstanceEndpoints",
@@ -2260,6 +2261,7 @@ var openAPISchemas = []openAPISchema{
 			"          type: string",
 			"          enum: [Bound, Pending, Lost, \"\"]",
 		},
+		Generated: true,
 	},
 	{
 		Name: "ServiceView",
@@ -2383,6 +2385,7 @@ var openAPISchemas = []openAPISchema{
 			"            The pgbouncer exporter endpoint on 9127 (R1.10's row for pooler",
 			"            pods) — the S5 source for R6.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PoolerPodView",
@@ -2490,6 +2493,7 @@ var openAPISchemas = []openAPISchema{
 			"            (`/api/v1/query`).",
 			"          example: \"2026-11-26T10:00:00Z\"",
 		},
+		Generated: true,
 	},
 	{
 		Name: "PromQLQueryResponse",
@@ -3124,6 +3128,7 @@ var openAPISchemas = []openAPISchema{
 			"            auditable — every bucketed duration is counted exactly once, so the",
 			"            +Inf bucket and `_count` agree.",
 		},
+		Generated: true,
 	},
 	{
 		Name: "HistogramBucket",
