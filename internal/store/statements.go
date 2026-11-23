@@ -163,10 +163,24 @@ const (
 			 previous_plan_hash, current_plan_hash)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	// previousPlanHashSQL is R3.11's "previous" for a new sample: the newest
-	// stored hash for that fingerprint that is *older than the sample being
-	// written*, whatever database it came from — R3.11's plan-change event is per
-	// fingerprint, not per source.
+	// previousPlanHashSQL is R3.11's "previous" for a new sample: the newest hash
+	// the *same row* had before the sample being written.
+	//
+	// The six identity columns are A3's S43, and they are the R10.7 widening's last
+	// unlanded site. The query keyed on `fingerprint` alone — "whatever database it
+	// came from — R3.11's plan-change event is per fingerprint, not per source" —
+	// which described the pre-extension table, whose key was (fingerprint,
+	// captured_at). Now that plan_change's PK is the 6-tuple plus detected_at, the
+	// event *is* per source, and a per-fingerprint read-back compares one pair's
+	// new hash against a different pair's old one: a db2 sample reported
+	// `bbb3<-aaa1`, where aaa1 is db1's plan and the db2 pair never had it. The
+	// consequence is that every new (pod, datname, usename) appearing for an
+	// existing fingerprint logs a plan change on its first round, which is not a
+	// plan change but a new row — and R3.11's regression signal is the series of
+	// real changes, so a spurious one per new source is noise in the one number the
+	// feature produces. detectPlanChange already agrees with the widened key (its
+	// planChange{identity: p.identity} is the sample's own identity); the SQL was
+	// the half that had not caught up.
 	//
 	// The `captured_at < ?` is A3's S26 and it is not a refinement, it is the
 	// requirement. Detection runs after the insert, inside the same tx, so a
@@ -181,7 +195,9 @@ const (
 	// prose and the query in separate passes.
 	previousPlanHashSQL = `
 		SELECT plan_hash FROM plan_sample
-		WHERE fingerprint = ? AND plan_hash <> '' AND captured_at < ?
+		WHERE fingerprint = ? AND namespace = ? AND cluster = ?
+		  AND pod = ? AND datname = ? AND usename = ?
+		  AND plan_hash <> '' AND captured_at < ?
 		ORDER BY captured_at DESC LIMIT 1`
 )
 
@@ -725,7 +741,8 @@ func (s *Store) existingSources(ctx context.Context, src QuerySource) (existingS
 }
 
 // detectPlanChange is R3.11:315's event for one freshly written sample: the
-// previous hash for the fingerprint, and whether it differs from this one. ok is
+// previous hash for the sample's own row — the row, not the fingerprint, which is
+// S43 and is what the widened PK means — and whether it differs from this one. ok is
 // false when there is no previous hash (the first sample, so nothing changed) or
 // when the sample carries no hash (an unavailable plan — R3.11's hash exists
 // "whenever there is a plan", and dto.PlanSampleView's omitempty says the
@@ -735,11 +752,16 @@ func detectPlanChange(tx *sql.Tx, p planRow) (planChange, bool) {
 		return planChange{}, false
 	}
 	var prev string
-	// The second argument is the bound A3's S26 asked for. Without it the read-back
+	// The last argument is the bound A3's S26 asked for. Without it the read-back
 	// returns the row the insert loop above just wrote, prev equals p.planHash, the
 	// check below returns false, and no plan change is ever recorded — a compile
-	// green, test-green (until S29's tests exist) way to miss the requirement.
-	err := tx.QueryRow(previousPlanHashSQL, p.fingerprint, p.capturedAt).Scan(&prev)
+	// green, test-green (until S29's tests exist) way to miss the requirement. The
+	// six before it are S43's identity: the row whose previous hash we want is the
+	// row this sample belongs to, not the newest one the fingerprint happens to have
+	// somewhere else.
+	err := tx.QueryRow(previousPlanHashSQL,
+		p.fingerprint, p.namespace, p.cluster, p.pod, p.datname, p.usename,
+		p.capturedAt).Scan(&prev)
 	if err != nil || prev == "" || prev == p.planHash {
 		return planChange{}, false
 	}
