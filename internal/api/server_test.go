@@ -132,10 +132,21 @@ func TestUnknownRoutesAndMethods(t *testing.T) {
 	// Registered routes on a server that has not synced answer 503, not 200 with
 	// an empty body and not 404: R8.7's single readiness signal, asserted for both
 	// cluster routes so the detail route cannot quietly answer 404 for a fleet it
-	// has not read yet, and for the query list so it cannot quietly answer 200 with
-	// an empty page for a fleet it has not read yet either (R8.7's rule is about
-	// the readiness *value*, not about which route reads it).
-	for _, path := range []string{"/api/v1/clusters", "/api/v1/clusters/default/pg1", "/api/v1/insights/queries"} {
+	// has not read yet, and for the query routes so neither can quietly answer 200
+	// with an empty page — or 404 for a query it has not read yet — for a fleet it
+	// has not read yet either (R8.7's rule is about the readiness *value*, not
+	// about which route reads it). The query-detail URL carries a valid
+	// fingerprint/namespace/cluster triple so the request reaches the gate: the
+	// handler validates parameters first, and a 400 here would prove nothing about
+	// readiness (query_detail_test.go's TestQueryDetailParameterValidation pins
+	// the order).
+	for _, path := range []string{
+		"/api/v1/clusters",
+		"/api/v1/clusters/default/pg1",
+		"/api/v1/insights/queries",
+		"/api/v1/insights/queries/series?fingerprints=" + testFingerprint,
+		"/api/v1/insights/queries/843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3?namespace=open-webui&cluster=open-webui-pg",
+	} {
 		if rec := do(t, s, http.MethodGet, path); rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("GET %s = %d, want 503 (registered, not yet ready)", path, rec.Code)
 		}

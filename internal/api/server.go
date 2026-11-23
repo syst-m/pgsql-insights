@@ -95,6 +95,18 @@ type Config struct {
 	// Phase 3's query store replaces the default by assigning this field.
 	Queries QueryListSource
 
+	// QueryDetail is R10.7's query detail (GET /api/v1/insights/queries/
+	// {fingerprint}, implemented in query_detail.go). Nil selects the not-found
+	// source, so the route answers 404 for every fingerprint instead of
+	// panicking or inventing a body — the same rule Queries follows, with the
+	// answer that route's shape allows: a list can be empty, an object cannot.
+	//
+	// It is a separate field from Queries because R8.2 has two routes here and
+	// QueryDetailSource is a separate interface, so a store can serve the list
+	// before the detail (and A5's Phase 3 store, which is being written now,
+	// assigns whichever of the two it has implemented without stubbing the other).
+	QueryDetail QueryDetailSource
+
 	// Metrics is the collector self-observability state whose two R2.2 families
 	// (pgsi_collector_duration_seconds, pgsi_collector_errors_total) /metrics
 	// renders alongside pgsi_build_info — R9.8's composition, and the call
@@ -223,6 +235,13 @@ func (s *Server) Handler() http.Handler {
 	// dependency — and the path comes from the package's QuerySeriesPath const so
 	// the registration and api/openapi.yaml cannot spell it two ways.
 	mux.HandleFunc("GET "+QuerySeriesPath, s.handleQuerySeries)
+	// R10.7's query detail (query_detail.go), listed after the two literals above
+	// because that is the order the mux resolves them in: a literal pattern beats
+	// a wildcard, so /insights/queries/series stays the batched route's and
+	// /insights/queries/{fingerprint} is this one's. The path comes from
+	// QueryDetailPath, which is also the string A4's web/src/routes.ts:193 carries
+	// as the query-detail page's endpoint (R14.7).
+	mux.HandleFunc("GET "+QueryDetailPath, s.handleQueryDetail)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	// R8.3's pair registers four patterns of its own (GET and POST on each of
 	// /api/v1/metrics/query and /api/v1/metrics/system), so it mounts here

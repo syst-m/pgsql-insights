@@ -85,6 +85,7 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/clusters/{namespace}/{name}",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
+		"GET /api/v1/insights/queries/{fingerprint}",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
 		"GET /api/v1/version",
@@ -112,6 +113,7 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/clusters/{namespace}/{name}",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
+		"GET /api/v1/insights/queries/{fingerprint}",
 		"GET /api/v1/metrics/query",
 	} {
 		found := false

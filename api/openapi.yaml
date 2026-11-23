@@ -669,6 +669,95 @@ paths:
         '503':
           $ref: '#/components/responses/NotReady'
 
+  /api/v1/insights/queries/{fingerprint}:
+    get:
+      tags: [insights]
+      operationId: getQueryDetail
+      summary: R10.7's Query Detail page for one query
+      description: |
+        R8.2's query detail — R10.7's Query Detail page for one fingerprint.
+        The body is `QueryDetailView`, which embeds the `QueryView` row the
+        list route above serves, so the header's fingerprint, database and every
+        load column are the same object the table row renders rather than a
+        second spelling of them (R16.8). The fields R10.7 asks for and R3.2's
+        table has no column for — `user`, `firstSeen`, `latency`, `plans` and
+        `planChanges` — are the only additions.
+
+        The per-minute load chart R10.7 also puts on this page is not in the
+        body, and the reason is dto/queries.go's own sentence: the series route's
+        per-point set "is what lets one response serve both R10.6's row sparkline
+        and R10.7's Query Detail chart", and a batch of one fingerprint is legal
+        (`MaxBatchFingerprints` is 50). Inlining the array here would duplicate an
+        answer the client can already ask for.
+
+        `namespace` and `cluster` are required here and optional on the list,
+        which is why all three parameters are inline rather than `$ref`s: R3.4
+        makes a fingerprint canonical *within* a cluster, so the pair is what
+        turns `{fingerprint}` into a row. The list uses them as filters and this
+        route uses them as half of the key — one fact, two requirements, and a
+        shared component could only carry one of the two.
+
+        Served today by a not-found source — the interface-plus-default shape the
+        entries above document, with the answer this route's shape allows: a list
+        with no store behind it can answer 200 with an empty page, an object
+        cannot, so every fingerprint answers 404 `NotFound` until Phase 3's store
+        is assigned to `Config.QueryDetail`. A 200 with a zero-value body would
+        render a page for a query that does not exist, and a 503 would claim the
+        store is unreadable when it is only empty.
+      x-status: implemented
+      parameters:
+        - name: fingerprint
+          in: path
+          description: |
+            The query to open (R10.7). R3.4's normalisation hash — the same value
+            the list's rows carry as `fingerprint` and the series route accepts in
+            its `fingerprints` list.
+          required: true
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          description: |
+            The namespace of the cluster the statement ran in. Required here,
+            optional on `/api/v1/insights/queries` — see the description above for
+            why the two are not one component.
+          required: true
+          schema:
+            type: string
+        - name: cluster
+          in: query
+          description: |
+            The CloudNativePG Cluster the statement ran on (R3.4: the fingerprint
+            is canonical within one, so this and `namespace` together are what
+            resolve `{fingerprint}` to a row).
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: |
+            The query's detail — the row this query contributes to
+            `GET /api/v1/insights/queries`' `data[]`, plus the detail-only fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryDetailView'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        # Two 503 bodies in code, one response key in OpenAPI, exactly the
+        # limitation the queries and series entries above spell out: the readiness
+        # gate answers NotReady and a store read that errors answers Unavailable.
+        # NotReady is the one reachable today, because the default source cannot
+        # error — its only answer is the 404 above.
+        '503':
+          $ref: '#/components/responses/NotReady'
+
   /api/v1/insights/queries/series:
     get:
       tags: [insights]
@@ -1055,14 +1144,21 @@ x-planned-paths:
   # being disjoint is what makes that checkable, and it is the invariant
   # scripts/check-openapi.py owns.
   #
-  # /api/v1/insights/queries (R8.2, R10.4) was the second route from this list to
-  # be written: internal/api/queries.go registered it and it moved up to `paths`
-  # in the same commit, so the entry is deleted rather than marked, same rule. Its
-  # sibling two lines below — /api/v1/insights/queries/{fingerprint}, R10.7's
-  # detail route — is a separate catalogue entry and is still planned: the list
-  # and the detail are two routes, and landing one does not land the other.
+  # /api/v1/insights/queries (R8.2, R10.4) and /api/v1/insights/queries/{fingerprint}
+  # (R8.2, R10.7) were the second and third routes from this list to be written —
+  # internal/api/queries.go and internal/api/query_detail.go — and each moved up to
+  # `paths` in the commit that registered it, so both entries are deleted rather
+  # than marked, same rule.
+  #
+  # The list's commit had said of the detail route: "the list and the detail are
+  # two routes, and landing one does not land the other." That sentence is why this
+  # file lists them separately, and why the list's commit deleted one line and not
+  # two. This commit deletes the second.
+  #
+  # /api/v1/insights/queries/{fingerprint}/plans (R3.10) stays planned even though
+  # the detail response carries the same list inline in `plans`: R8.2 counts the
+  # route separately, and an inline array on one response is not the route.
   r8.2-catalogue:
-    - /api/v1/insights/queries/{fingerprint}
     - /api/v1/insights/queries/{fingerprint}/plans
     - /api/v1/insights/wait-events          # R4, R10.7
     - /api/v1/insights/databases            # R10.8
@@ -2536,6 +2632,285 @@ components:
         timesCalled: 3007
         loadByCPUMs: 118905.2
         loadByIOWaitMs: 9505.3
+
+    # ---- Query detail (R10.7) ----------------------------------------------
+
+    QueryDetailView:
+      description: |
+        `dto.QueryDetailView` — R10.7's Query Detail page, field for field.
+
+        Composed with `allOf` over `QueryView` rather than re-listing its fields:
+        the Go type embeds it, and re-declaring the sixteen R3.2 columns here
+        would be a second copy of a contract the first copy already owns (R16.8).
+        It is also why this embed is `allOf` and `QueryView`'s own embed of
+        `LoadColumns` is inline: `LoadColumns` has no schema entry to point at
+        (it is not a response type on any route), so inlining was the only way to
+        document it, while `QueryView` is one — so the composition is checkable
+        and the field list is not duplicated.
+
+        No `example:` here, for the same reason: the row half is the fixture's and
+        is already shown verbatim on `QueryView` and in the list route's response.
+
+        The one R10.7 element with no field is the per-minute load chart, and that
+        is a routing fact rather than an oversight: its data is R8.11's
+        `/insights/queries/series`, whose point type carries all five values so
+        "one response serve[s] both R10.6's row sparkline and R10.7's Query
+        Detail chart". The client asks that route for this one fingerprint.
+      allOf:
+        - $ref: '#/components/schemas/QueryView'
+        - type: object
+          required: [firstSeen, latency, plans, planChanges]
+          properties:
+            user:
+              type: string
+              description: |
+                R10.7's header `user` (R9.3's `usename`): the role that executed the
+                query. R3.2's table has no user column, so the field exists only on
+                the detail shape — which is where R10.7 asks for it. Single-valued
+                because R9.4's row identity is (cluster, db, user): a statement run
+                by two roles is two rows in the store and two rows in the table,
+                each naming its own user.
+            firstSeen:
+              type: string
+              format: date-time
+              description: |
+                When the store first observed this fingerprint (R10.7's header
+                `first-seen`). RFC 3339 UTC like every timestamp the API emits
+                (R10.21); a Go time.Time always marshals, so it is required and
+                never omitted.
+            latency:
+              $ref: '#/components/schemas/LatencyView'
+            plans:
+              type: array
+              description: |
+                R10.7's "plan samples list with a JSON/plan viewer" (R3.10) — the
+                same list R8.2's `/insights/queries/{fingerprint}/plans` route
+                serves on its own, inline here because R10.7 puts it on this page
+                and a detail page that needed a second request to render its own
+                list is the R10.14 budget spent on the wrong thing. `[]` when there
+                are none, never null.
+              items:
+                $ref: '#/components/schemas/PlanSampleView'
+            planChanges:
+              type: array
+              description: |
+                R3.11's plan-change events for this fingerprint. A list rather than
+                a boolean because R3.11's value is the *series* of changes over the
+                retention window: one event says the plan moved, two say it moved
+                twice, and the regression question (R3.14) is answered by lining a
+                change up against the latency curve above it.
+              items:
+                $ref: '#/components/schemas/PlanChangeView'
+
+    LatencyView:
+      type: object
+      description: |
+        R10.7's latency panel, and R3.9 is the requirement that decides its shape:
+        Cloud SQL serves P50/P95/P99 from a DISTRIBUTION metric, and
+        `pg_stat_statements` gives min/mean/max/stddev, not a distribution. So the
+        panel has two halves and the UI renders whichever the data supports — which
+        is what R10.7's parenthetical "(P50/P95/P99 or the R3.9 fallback)" means.
+
+        The three percentiles are pointers in Go and optional here for the reason
+        the Go doc gives: 0 ms is a perfectly plausible execution time, so
+        "we have no p95" and "the p95 is zero" have to be spellable apart, and
+        `omitempty` on a float64 renders both as an absent field. An absent p95
+        means "render the four stats and the histogram instead"; `"p95Ms": 0`
+        means the p95 is zero.
+      required: [minMs, meanMs, maxMs, stddevMs, sampled, buckets, sumMs, count]
+      properties:
+        minMs:
+          type: number
+          description: |
+            The four stats pg_stat_statements actually has (R3.9's "v1 serves
+            min/mean/max/stddev"), over the R3.3 window, in milliseconds — the
+            unit R3.2's column spells `(ms)`.
+        meanMs:
+          type: number
+          description: |
+            `mean` over the R3.3 window — the second of the four stats.
+        maxMs:
+          type: number
+          description: |
+            `max` over the R3.3 window — the third.
+        stddevMs:
+          type: number
+          description: |
+            `stddev` over the R3.3 window — the fourth.
+        p50Ms:
+          type: number
+          description: |
+            The three percentiles Cloud SQL serves. Present only when a real
+            distribution exists to produce them; absent is the R3.9 fallback's
+            answer.
+        p95Ms:
+          type: number
+          description: |
+            The second percentile; absent with the same meaning as `p50Ms`.
+        p99Ms:
+          type: number
+          description: |
+            The third percentile; absent with the same meaning as `p50Ms`.
+        sampled:
+          type: boolean
+          description: |
+            R3.9's Divergence flag: true when `buckets` below is built from the
+            activity collector's 60 s samples rather than from every execution,
+            which is what obliges the UI to label the panel "sampled, biased
+            toward long queries" (R3.9 — "a 60 s sample of `pg_stat_activity`
+            observes long-running statements far more often than short ones, and an
+            unlabelled histogram overstates p95"). A field rather than a constant
+            in the UI because it is not constant: when the percentiles above come
+            from a real distribution, the histogram is not sampled and the label
+            must not appear.
+        buckets:
+          type: array
+          description: |
+            R3.9's named bucket set, and R9.13's accounted histogram.
+          items:
+            $ref: '#/components/schemas/HistogramBucket'
+        sumMs:
+          type: number
+          description: |
+            R9.13's `_sum` — the summed duration behind the buckets, counted
+            alongside them ("50 fingerprints × (8 buckets + `_sum` + `_count`) =
+            450 series per cluster").
+        count:
+          type: integer
+          description: |
+            R9.13's `_count`. Duplicates the +Inf bucket's count rather than
+            replacing it: the invariant between the two is what makes the histogram
+            auditable — every bucketed duration is counted exactly once, so the
+            +Inf bucket and `_count` agree.
+
+    HistogramBucket:
+      type: object
+      description: |
+        One of R3.9's named latency buckets — the eight R3.9 names (1, 5, 25, 100,
+        500, 1000, 5000, 10000 ms) plus the overflow bucket — and one series of
+        R9.13's accounted histogram.
+      required: [le, count]
+      properties:
+        le:
+          type: string
+          description: |
+            The bucket's upper bound in milliseconds, spelled the way Prometheus
+            spells it: "1", "5", "25", "100", "500", "1000", "5000",
+            "10000" — R3.9's eight named buckets — plus "+Inf" for the overflow
+            bucket.
+
+            A string rather than a number because encoding/json cannot marshal
+            +Inf at all (`json: unsupported value: +Inf`), and the overflow bucket
+            is exactly the half R9.13 counts as `_count`. A float field would make
+            the one bucket the accounting requires unrepresentable.
+        count:
+          type: integer
+          description: |
+            The number of sampled executions at or below `le`.
+
+    PlanSampleView:
+      type: object
+      description: |
+        One captured plan — R3.10's plan sample, and the element of R8.2's
+        `/insights/queries/{fingerprint}/plans` response.
+
+        R3.10 constrains capture in three ways and all three show up in this shape:
+        (a) the plan is EXPLAINed from the raw first-seen text, not the normalised
+        template the table displays (hence `sql`); (b) a parameterized statement
+        is captured with `PREPARE` + `EXPLAIN EXECUTE` so the plan is the generic
+        one and not a pet plan (hence `method`); (c) on a `pg_monitor`-only
+        deployment (R12.4) EXPLAIN answers `permission denied for table …` and
+        R3.10 requires that be a *state*, not a per-query failure (hence
+        `availability` and `message`).
+
+        `EXPLAIN ANALYZE` is "never run automatically (it executes the
+        statement)" and is available only on explicit request, so a sample
+        captured that way is `method: analyze` — the automatic and the requested
+        cases stay distinguishable in the list instead of conflating into one
+        "here is the plan" field.
+      required: [capturedAt, method, availability]
+      properties:
+        capturedAt:
+          type: string
+          format: date-time
+          description: |
+            When the plan was captured, RFC 3339 UTC (R10.21). A6 asked for
+            `captured_at`; the dto convention is camelCase (`generatedAt`,
+            `lastSuccessTime`, `phaseReason`), so the tag is `capturedAt`.
+        method:
+          type: string
+          description: |
+            How the plan was obtained (R3.10's (b) and the EXPLAIN ANALYZE rule).
+            The values are the Go constants `MethodExplain`, `MethodPrepareExecute
+            and `MethodAnalyze`, named there because a client switching on a string
+            literal copied from a comment is how an enum rots.
+          enum: [explain, prepare_execute, analyze]
+        availability:
+          type: string
+          description: |
+            The R3.10 state. The value is the exact string R3.10 puts in the spec
+            (`unavailable (insufficient table privileges)`) rather than a second
+            snake_case spelling of it, so the UI renders a field instead of
+            maintaining a wording table the spec already owns.
+          enum: [available, "unavailable (insufficient table privileges)"]
+        sql:
+          type: string
+          description: |
+            The raw first-seen statement text that was EXPLAINed (R3.10's (a)) —
+            the plan belongs to that text, not to the normalised template in
+            `QueryView.query`, and the viewer has to be able to show which one it
+            is rendering. An unavailable sample still names its text: R3.10's (c)
+            is about a specific table the role cannot read, so the statement was
+            submitted and failed, and the text is the only evidence of which one.
+        plan:
+          description: |
+            The `EXPLAIN (FORMAT JSON)` output, verbatim. Go holds it as a
+            `json.RawMessage` — a string would make the UI parse JSON out of a
+            JSON string, and a parsed structure would commit the API to a shape
+            Postgres owns and changes across majors (R2.4's matrix governs the
+            *views*, not EXPLAIN's output). Omitted when there is no plan, which
+            is R3.10's (c); untyped here because the bytes are Postgres's.
+        planHash:
+          type: string
+          description: |
+            R3.11's plan hash — the value a plan-change event compares against.
+            Present whenever there is a plan; its absence on an available plan is a
+            bug, not a state. Ours is the SHA-256 of the plan JSON's canonical
+            compact encoding, hex-encoded (R3.11 leaves the derivation open, and
+            the Go doc flags that a whole-JSON hash makes an `EXPLAIN ANALYZE
+            capture look like a change whenever the planner's cost estimates move
+            — a shape-only digest is the better answer, and the contract carries a
+            hex digest either way, so the choice needs no wire change).
+        message:
+          type: string
+          description: |
+            The underlying text for a non-available state, e.g. `permission denied
+            for table orders` (R3.10's (c) quotes the shape). `availability` says
+            why in category; this says which table.
+
+    PlanChangeView:
+      type: object
+      description: |
+        One R3.11 plan-change event: "keep plan hashes per fingerprint and surface
+        a plan-change event when the hash changes for a stable fingerprint — the
+        regression detection Cloud SQL gets from `auto_explain` and we get from
+        bounded sampling." The event is the hash moving from one value to the
+        other and nothing else; attributing a latency movement to it is R3.14's
+        week-over-week question, not this object's answer.
+      required: [detectedAt, previousPlanHash, currentPlanHash]
+      properties:
+        detectedAt:
+          type: string
+          format: date-time
+          description: |
+            When the new hash was first observed. RFC 3339 UTC (R10.21).
+        previousPlanHash:
+          type: string
+          description: |
+            The two hashes are both always present: an event with one hash is not a
+            change, and R3.11's whole claim is that there are two.
+        currentPlanHash:
+          type: string
 
     RecommendationView:
       type: object

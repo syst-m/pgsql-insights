@@ -299,6 +299,9 @@ func documentedMethods(lines []string) []string {
 // Without validating it, the old `strings.HasPrefix(status, "implemented")` test
 // classed a typo ("implmented") as not-implemented, which exempts the entry from
 // the phantom check, and the document ships a status that asserts nothing.
+//
+// Which token a Status carries is statusToken's business, and the space after the
+// token is part of this vocabulary, not formatting — see its doc.
 var knownStatusTokens = map[string]bool{
 	"implemented": true,
 	"planned":     true,
@@ -307,6 +310,18 @@ var knownStatusTokens = map[string]bool{
 
 // statusToken returns the leading word of an x-status value, or "" when the
 // value has no word at all.
+//
+// The whitespace after the token is load-bearing. strings.Fields ends a token at
+// the first space, so "implemented (4 of R9.8's 8 named families …)" — the
+// /metrics entry, the document's one qualified status — splits into the token
+// "implemented" plus a qualification the check ignores. "implemented(pending)",
+// the same words with no space, is a single token that is not in
+// knownStatusTokens, and checkRouteTable fails the entry. That is the intended
+// outcome rather than a bug to smooth over: a parenthesised status is a status
+// whose author meant something the vocabulary does not have, and a silent
+// acceptance of it is how "implemented (pgsi_build_info only)" once went stale
+// (mismatchedStatusLines). Write the grammar as `word` or `word (qualification)`,
+// never `word(qualification)`, and the failure message quotes both spellings.
 func statusToken(status string) string {
 	fields := strings.Fields(status)
 	if len(fields) == 0 {
