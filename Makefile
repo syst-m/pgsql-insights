@@ -219,8 +219,11 @@ licenses:
 # `make render-check` is the house precedent for a generated file that must be
 # committed (R11.13); this is the same gate for docs/licenses. It uses the script's
 # --check rather than `git diff --exit-code` because the diff of a 176-line lockfile
-# buries the answer, while --check names the stale files. Until this target existed,
-# docs/licenses/README.md claimed "CI regenerates it" while the target appeared
+# buries the answer, while --check names the stale files. Once the files match it
+# goes on to assert docs/licenses/README.md's own ten restated counts against them:
+# the README is prose the generator does not write, so it is the one copy of those
+# numbers nothing regenerated, and it stayed wrong from a8da067 to d2b08f5.
+# Until this target existed, docs/licenses/README.md claimed "CI regenerates it" while the target appeared
 # nowhere in .github/workflows/ci.yml — the false-claim class at IMPLEMENTATION.md
 # §5, and the reason the fix has to be the wiring rather than another README edit.
 # ci.yml calls this step directly instead of folding it into `lint:` — the same shape

@@ -40,6 +40,10 @@ Usage: gen-licenses.py [--check]
   --check    write to a temp dir and diff against the committed files; exit 1 on
              any difference. This is `make licenses-check`, and it is the half
              that makes "regenerated in CI" true rather than merely claimed.
+             Once the files match, it goes on to check the counts this directory's
+             README.md restates — see check_readme_counts, and the note under
+             "The README's numbers are checked too" in that file for why the
+             generator has to own them even though it does not write that file.
 """
 
 from __future__ import annotations
@@ -58,6 +62,12 @@ OUT_DIR = os.path.join(ROOT, "docs", "licenses")
 GO_MOD = os.path.join(ROOT, "go.mod")
 LOCK = os.path.join(ROOT, "web", "package-lock.json")
 GO_LICENSES = shutil.which("go-licenses")
+# The two files this script writes but does not own the prose of: README.md
+# describes the outputs, and go-licenses-report.csv is only in the generated set
+# when the tool is installed. Both are read here so their numbers can be checked
+# even on a machine where `files` has fewer entries than the directory does.
+README_MD = os.path.join(OUT_DIR, "README.md")
+CSV_REPORT = os.path.join(OUT_DIR, "go-licenses-report.csv")
 
 # The project's own license, from LICENSE at the repo root (R15.1). Hard-coded
 # rather than parsed because a module's license is not derivable from its source
@@ -205,6 +215,148 @@ def run_go_licenses() -> str | None:
     return buf.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# The README's numbers are checked too
+# ---------------------------------------------------------------------------
+# docs/licenses/README.md restates five counts the generator computes: the module
+# total and its direct/indirect split, the npm package total and its
+# missing-license count, the CSV row count — and then the same numbers again in two
+# prose sentences. Those restatements are the only copy of these facts that
+# `make licenses` does not write, which is the shape docs/agents.md §5 item 10
+# names ("a fact written in two files needs a third thing asserting they agree")
+# and the reason the counts sat wrong from a8da067 until d2b08f5 corrected them by
+# hand. Asserting them is what turns "someone remembers to fix the README" into a
+# gate: the manifests and the prose now fail together, in the same command.
+#
+# Each pattern is anchored to the sentence the number sits in, not to the number
+# alone. A stray digit elsewhere in the file cannot satisfy it, and rewording one
+# of those sentences fails with "sentence not found" rather than silently
+# un-checking the count it used to carry — a check that quietly stops checking is
+# exactly how the first four numbers rotted.
+
+GO_COUNT_RE = re.compile(r"^# (\d+) dependencies: (\d+) direct, (\d+) indirect\.$", re.M)
+WEB_COUNT_RE = re.compile(r"^# (\d+) packages, (\d+) without a license field\.$", re.M)
+
+# (label, pattern over README.md, keys) where keys[i] names the generated scalar
+# that capture group i must equal. The prose rows deliberately mix sources — "the
+# SPA is 176 packages against the Go side's 56 modules" is one npm number and one
+# Go number in a single sentence — which is why the keys are per-group rather than
+# one key per row.
+README_COUNT_PATTERNS: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ...] = (
+    (
+        "go-dependencies.txt table row",
+        re.compile(
+            r"\|\s*`go-dependencies\.txt`\s*\|[^|]*?—\s*(\d+) of them, (\d+) direct "
+            r"and (\d+) indirect\s*—"
+        ),
+        ("go_total", "go_direct", "go_indirect"),
+    ),
+    (
+        "web-dependencies.txt table row",
+        re.compile(
+            r"\|\s*`web-dependencies\.txt`\s*\|[^|]*?—\s*(\d+) packages, (\d+) without "
+            r"a license field\.\s*\|"
+        ),
+        ("web_total", "web_missing"),
+    ),
+    (
+        "go-licenses-report.csv table row",
+        re.compile(r"`go-licenses report \./\.\.\.`\s*—\s*(\d+) packages with their license URL"),
+        ("csv_rows",),
+    ),
+    (
+        "prose: SPA vs Go",
+        re.compile(r"the SPA is (\d+)\s+packages against the Go side's (\d+) modules"),
+        ("web_total", "go_total"),
+    ),
+    (
+        "prose: CSV rows vs modules",
+        re.compile(r"the CSV has (\d+) rows against\s+`go\.mod`'s (\d+) modules"),
+        ("csv_rows", "go_total"),
+    ),
+)
+
+
+def expected_counts(files: dict[str, str]) -> dict[str, str]:
+    """The scalars README.md's counts are checked against, read off the outputs.
+
+    They come from the generated bodies rather than from a second parse of
+    go.mod/package-lock.json: the header lines are the only place those numbers
+    are written down as text, so reading them back is the same value the
+    manifests carry, not a parallel implementation that can itself drift.
+    """
+    expected: dict[str, str] = {}
+    go = GO_COUNT_RE.search(files["go-dependencies.txt"])
+    if go:
+        expected["go_total"], expected["go_direct"], expected["go_indirect"] = go.groups()
+    web = WEB_COUNT_RE.search(files["web-dependencies.txt"])
+    if web:
+        expected["web_total"], expected["web_missing"] = web.groups()
+    # The CSV is only in the generated set when go-licenses is on PATH; on a
+    # machine without it the committed file is the value, which is also what
+    # `--check` above just compared.
+    csv_body = files.get("go-licenses-report.csv")
+    if csv_body is None and os.path.exists(CSV_REPORT):
+        with open(CSV_REPORT, encoding="utf-8") as fh:
+            csv_body = fh.read()
+    if csv_body is not None:
+        rows = sum(1 for line in csv_body.splitlines() if line.strip())
+        # Line 1 is `package,license_url,license`; the README counts data rows,
+        # the same way ci.yml's "53 rows both" verification note does.
+        expected["csv_rows"] = str(max(rows - 1, 0))
+    return expected
+
+
+def check_readme_counts(files: dict[str, str]) -> int:
+    """Compare every count README.md restates against the generated values.
+
+    Runs only after the generated files themselves match — a stale manifest
+    already explains a stale README, and naming both would be two errors for one
+    cause. Returns the exit code for `--check`.
+    """
+    if not os.path.exists(README_MD):
+        print(
+            "GUARD: docs/licenses/README.md is missing, so its counts cannot be "
+            "checked (R15.3)",
+            file=sys.stderr,
+        )
+        return 1
+    with open(README_MD, encoding="utf-8") as fh:
+        text = fh.read()
+    expected = expected_counts(files)
+    bad: list[str] = []
+    checked = 0
+    for label, pattern, keys in README_COUNT_PATTERNS:
+        found = pattern.search(text)
+        if found is None:
+            bad.append(
+                f"{label}: sentence not found — the count it carried is no longer "
+                f"being checked; reword the sentence and the pattern together"
+            )
+            continue
+        missing = [k for k in keys if k not in expected]
+        if missing:
+            bad.append(f"{label}: no generated value for {', '.join(missing)}")
+            continue
+        checked += 1
+        got = found.groups()
+        want = tuple(expected[k] for k in keys)
+        if got != want:
+            bad.append(
+                f"{label}: README says {' / '.join(got)}, the generated files say "
+                f"{' / '.join(want)}"
+            )
+    if bad:
+        print(
+            "FAIL: docs/licenses/README.md counts disagree with the generated files "
+            "(R15.3):\n  " + "\n  ".join(bad),
+            file=sys.stderr,
+        )
+        return 1
+    print(f"ok: README counts match the generated files ({checked} sites)")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     check = "--check" in argv[1:]
     module, requires = parse_go_mod(GO_MOD)
@@ -244,7 +396,7 @@ def main(argv: list[str]) -> int:
                 )
             return 1
         print(f"ok: docs/licenses matches the manifests ({len(files)} files)")
-        return 0
+        return check_readme_counts(files)
 
     os.makedirs(OUT_DIR, exist_ok=True)
     for name, body in files.items():

@@ -19,11 +19,21 @@ R15.3 names both halves explicitly, and the numbers are the reason: the SPA is 1
 packages against the Go side's 56 modules, so a Go-only audit covers the smaller
 dependency surface while the UI carries the larger one.
 
+That sentence is not this table's invention — it is `web-dependencies.txt`'s own
+header, which carries the Go module count in the same line as its npm one. So a
+Go-only dependency change makes the SPA manifest stale with zero npm changes, and a
+one-line diff in that file is not evidence about `web/`; read its header before
+reading it as one. The `d2b08f5` regeneration is the case: its npm half changed by
+one line, and every npm package in it was already current.
+
 ## How CI regenerates it
 
 `make licenses` runs `scripts/gen-licenses.py` and writes the three files.
 `make licenses-check` runs the same script with `--check`, which generates in memory
-and fails naming the stale files. `.github/workflows/ci.yml` runs
+and fails naming the stale files — and then checks this README's own counts too
+([The README's numbers are checked too](#the-readmes-numbers-are-checked-too)), so
+the prose cannot drift from the files it describes without the same command going
+red. `.github/workflows/ci.yml` runs
 `make licenses-check` in the `lint` job, after `openapi-check` and
 `cardinality-check` — the placement R8.1c's row establishes for a doc-consistency
 gate that can fail the build ("the `lint` job beside `scripts/check-parity-matrix.sh`").
@@ -75,6 +85,29 @@ audit — the other 60 rows carry an SPDX id — and the file records it as `Unk
 rather than a hand-typed guess, which is what "generated, not curated" is for. The
 row is a fact about the tool's resolution, not a license change, and it is the one
 cell in `docs/licenses/` worth a human reading before the v0.1.0 license review.
+
+## The README's numbers are checked too
+
+`make licenses` writes three files. This README is not one of them, and it quotes ten
+numbers from them — the module total and its direct/indirect split, the npm package
+total and its missing-license count, the CSV row count, and then the same figures
+again in two prose sentences. That makes it the one copy of those facts the generator
+does not own, which is the shape `docs/agents.md` §5 item 10 names: a fact written in
+two files needs a third thing asserting they agree. The numbers were written once at
+`a8da067` and stayed wrong until `d2b08f5` corrected them by hand — seven of the ten
+were stale at that commit, and a hand-corrected correction is what a gate replaces.
+
+`check_readme_counts` in the script does the asserting, and `--check` runs it after
+the generated files match. Three things about how it matches, each because of the way
+the last set of numbers went wrong:
+
+- each number is matched against the **sentence around it**, not the digit alone, so a
+  stray figure elsewhere in the file cannot satisfy the pattern;
+- a reworded sentence fails as `sentence not found` rather than passing silently — a
+  check that quietly stops checking is the failure mode worth designing against;
+- the expected values are read back off the **generated bodies**, not from a second
+  parse of `go.mod` and `web/package-lock.json`, so the assertion cannot itself drift
+  from what the manifests say.
 
 ## Images
 
