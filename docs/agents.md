@@ -234,6 +234,15 @@ These apply to every slot.
    `scripts/check-parity-matrix.sh` enforces it — a spec edit that breaks the parity check is a
    defect, and CI runs it.
 
+   **The id column is not uniformly formatted, and that is a trap for anyone scripting off line
+   prefixes.** 42 of §4's 176 ids are written bold — `| **R10.20** |`, not `| R10.20 |` (the set
+   includes R1.10, R1.11, R2.9, R3.15, R5.10, R8.1, R8.1b, R8.1c …). A `grep '^| R10.20 '` on such
+   a row returns nothing, so a script that derives the id set from a `^| R` prefix silently drops
+   nearly a quarter of the taxonomy and still reports success — the failure mode is a green run over a short
+   list, not an error. `check-parity-matrix.py` strips the emphasis markers when it parses the
+   cells (`clean()` at `:10`, and `:48`), so the checker is not affected; the fix for a *new* script
+   is to call the checker's parser rather than re-derive the set with grep.
+
    The rule has a citation half, enforced by the same script as of `88929b3`. **An id cited
    anywhere in the repo must be an id §4 defines, and a `file:line` citation must point at what
    it claims.** Both classes shipped defects this week: phantom ids (`R15.4`/`R15.5` in the
