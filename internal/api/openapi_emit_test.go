@@ -24,11 +24,86 @@
 package api
 
 import (
+	"flag"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+// emitDump names the schemas whose authored-vs-rendered line diff the emit tests
+// print. It is the scratch harness kept as a flag instead of a file:
+// `go test -run TestEmitMarkedEntries -emitdump=PVCView` prints the pair for one
+// entry, and the pair it prints is the same pair the test already compares — so the
+// dump cannot drift from the assertion the way a separate experiment file could.
+//
+// It exists because closing an emitter gap means reading the difference, not the
+// pass/fail bit, and the migration is 20 more entries deep.
+var emitDump = flag.String("emitdump", "",
+	"comma-separated schema names: print the authored-vs-rendered line diff for them")
+
+// dumpIfRequested prints the diff between an entry's committed block and the
+// emitter's render when -emitdump named that entry.
+func dumpIfRequested(t *testing.T, name string, authored, rendered []string) {
+	for _, want := range strings.Split(*emitDump, ",") {
+		if strings.TrimSpace(want) != name {
+			continue
+		}
+		t.Logf("%s: authored %d lines, rendered %d\n%s",
+			name, len(authored), len(rendered), diffLines(authored, rendered))
+		return
+	}
+}
+
+// diffLines is a line-oriented diff (longest-common-subsequence edit script) used
+// only by the dump above. firstDiff names the first differing line, which is enough
+// to fail a test and not enough to fix an emitter: a `required:` that renders as
+// three lines where the entry has one produces a diff whose every later line is
+// "changed" by index, and the shape of the difference is the thing being diagnosed.
+func diffLines(a, b []string) string {
+	n, m := len(a), len(b)
+	lcs := make([][]int, n+1)
+	for i := range lcs {
+		lcs[i] = make([]int, m+1)
+	}
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			switch {
+			case a[i] == b[j]:
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			case lcs[i+1][j] >= lcs[i][j+1]:
+				lcs[i][j] = lcs[i+1][j]
+			default:
+				lcs[i][j] = lcs[i][j+1]
+			}
+		}
+	}
+	var out []string
+	i, j := 0, 0
+	for i < n && j < m {
+		switch {
+		case a[i] == b[j]:
+			i++
+			j++
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			out = append(out, "-"+a[i])
+			i++
+		default:
+			out = append(out, "+"+b[j])
+			j++
+		}
+	}
+	for ; i < n; i++ {
+		out = append(out, "-"+a[i])
+	}
+	for ; j < m; j++ {
+		out = append(out, "+"+b[j])
+	}
+	if len(out) == 0 {
+		return "  (identical)"
+	}
+	return strings.Join(out, "\n")
+}
 
 // TestSchemaBlocksRealDocument checks the block splitter against the committed
 // document rather than a fixture, because the real file is where the splitter's edge
@@ -108,6 +183,7 @@ func TestEmitMarkedEntries(t *testing.T) {
 			t.Errorf("schema %s is marked Generated but does not render: %v", e.Name, err)
 			continue
 		}
+		dumpIfRequested(t, e.Name, blocks[e.Name], lines)
 		if !reflect.DeepEqual(lines, blocks[e.Name]) {
 			t.Errorf("schema %s: marked Generated, and the emitter's %d lines are not the committed entry's %d\n%s",
 				e.Name, len(lines), len(blocks[e.Name]),
@@ -153,17 +229,28 @@ func TestEmitUnmarkedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSchemaContext: %v", err)
 	}
+	doc, err := os.ReadFile(CommittedDocumentRelPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", CommittedDocumentRelPath, err)
+	}
+	blocks, err := schemaBlocks(string(doc))
+	if err != nil {
+		t.Fatalf("schemaBlocks: %v", err)
+	}
 	for _, e := range openAPISchemas {
 		if e.Generated {
 			continue
 		}
 		forced := e
 		forced.Generated = true
-		if _, err := c.linesFor(forced); err != nil {
+		lines, err := c.linesFor(forced)
+		if err != nil {
 			if !knownRefusal(err.Error()) {
 				t.Errorf("schema %s: unexpected emitter error (not one of the documented refusals): %v", e.Name, err)
 			}
+			continue
 		}
+		dumpIfRequested(t, e.Name, blocks[e.Name], lines)
 	}
 }
 
