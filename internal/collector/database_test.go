@@ -217,7 +217,7 @@ func TestDatabaseQueriesAreSchemaQualified(t *testing.T) {
 			t.Fatalf("PG%d: %d projections, want %d", major, len(projections), len(databaseViews))
 		}
 		for _, pv := range projections {
-			want := " FROM pg_catalog." + string(pv.view)
+			want := " FROM " + pgversion.Schema(pv.view) + "." + string(pv.view)
 			// Containment, not suffix: a view with a WHERE clause (pg_database,
 			// D20's S7) no longer ends at the table name, and a suffix check would
 			// have failed on the very query the fix added. The suffix check survives

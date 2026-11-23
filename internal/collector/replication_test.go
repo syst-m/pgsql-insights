@@ -137,7 +137,7 @@ func TestReplicationQueriesAreSchemaQualified(t *testing.T) {
 			t.Fatalf("PG%d: %d projections, want %d", major, len(projections), len(replicationViews))
 		}
 		for _, pv := range projections {
-			want := " FROM pg_catalog." + string(pv.view)
+			want := " FROM " + pgversion.Schema(pv.view) + "." + string(pv.view)
 			if !strings.HasSuffix(pv.Query, want) {
 				t.Errorf("PG%d %s: query %q does not end in %q (R2.5)", major, pv.view, pv.Query, want)
 			}
