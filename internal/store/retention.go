@@ -30,7 +30,8 @@
 // Deleting it does not remove old data, it removes the number the next round
 // subtracts, and the first symptom is R3.3's false reset: a fingerprint whose
 // baseline vanished looks like a counter reset in a round where nothing was reset,
-// which is the failure that S28 and the merge rule exist to prevent. Its
+// which is the failure the merge rule (statements.go, R3.4's keying) exists to
+// prevent. Its
 // captured_at column records when the row was last refreshed; it is not an age.
 //
 // The query table's rows are the fingerprint registry (R3.4's identity, plus the

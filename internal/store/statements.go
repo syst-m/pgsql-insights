@@ -146,15 +146,22 @@ const (
 			 shared_blks_hit, shared_blks_read, lock_wait_ms)
 		VALUES (?, ?, ?, ?, ?, ?, 'minute', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
+	// The two plan inserts list the identity tuple A3's R10.7 extension put in
+	// their PKs (schema.go's planSampleTable gives the argument), because a
+	// column list that stops at `fingerprint` is a column list that cannot
+	// address the row it is writing: the PK has six members before the timestamp
+	// and an INSERT that supplies one of them names a row no SELECT can ask for.
 	insertPlanSampleSQL = `
 		INSERT OR REPLACE INTO plan_sample
-			(fingerprint, captured_at, method, availability, sql, plan_json, plan_hash, message)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+			(fingerprint, namespace, cluster, pod, datname, usename, captured_at,
+			 method, availability, sql, plan_json, plan_hash, message)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	insertPlanChangeSQL = `
 		INSERT OR REPLACE INTO plan_change
-			(fingerprint, detected_at, previous_plan_hash, current_plan_hash)
-		VALUES (?, ?, ?, ?)`
+			(fingerprint, namespace, cluster, pod, datname, usename, detected_at,
+			 previous_plan_hash, current_plan_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	// previousPlanHashSQL is R3.11's "previous" for a new sample: the newest
 	// stored hash for that fingerprint that is *older than the sample being
@@ -235,17 +242,25 @@ func (s *Store) PutSnapshot(ctx context.Context, snap Snapshot) error {
 			existingAt:   prev.queries[r.n.Fingerprint].existingAt,
 		})
 
-		key := sourceKey{r.n.Fingerprint, r.r.Usename}
+		// The row's identity, built once per deduped row and then embedded in
+		// every table this row writes to: query_source here, query_rollup via
+		// rollupRow below, and plan_sample via planRow. The dedupe key is two
+		// members of the same tuple, so it reads from the tuple rather than
+		// re-picking them out of the row.
+		id := identity{
+			fingerprint: r.n.Fingerprint,
+			namespace:   snap.Source.Namespace,
+			cluster:     snap.Source.Cluster,
+			pod:         snap.Source.Pod,
+			datname:     snap.Source.Datname,
+			usename:     r.r.Usename,
+		}
+		key := sourceKey{id.fingerprint, id.usename}
 		cur := sourceRow{
-			fingerprint:  r.n.Fingerprint,
-			namespace:    snap.Source.Namespace,
-			cluster:      snap.Source.Cluster,
-			pod:          snap.Source.Pod,
+			identity:     id,
 			instanceRole: snap.Source.Role,
-			datname:      snap.Source.Datname,
 			queryid:      r.r.QueryID,
 			pgMajor:      snap.Source.PGMajor,
-			usename:      r.r.Usename,
 			calls:        r.r.Calls,
 			totalExecMs:  r.r.TotalExecTimeMs,
 			rowsReturned: r.r.RowsReturned,
@@ -286,7 +301,7 @@ func (s *Store) PutSnapshot(ctx context.Context, snap Snapshot) error {
 
 		if r.r.Plan != nil {
 			plans = append(plans, planRow{
-				fingerprint:  r.n.Fingerprint,
+				identity:     id,
 				capturedAt:   unix(r.r.Plan.CapturedAt),
 				method:       r.r.Plan.Method,
 				availability: r.r.Plan.Availability,
@@ -320,10 +335,8 @@ func (s *Store) PutSnapshot(ctx context.Context, snap Snapshot) error {
 		}
 	}
 	for _, p := range plans {
-		if _, err := tx.Exec(insertPlanSampleSQL,
-			p.fingerprint, p.capturedAt, p.method, p.availability,
-			p.sql, p.planJSON, p.planHash, p.message); err != nil {
-			return fmt.Errorf("store: insert plan_sample %s: %w", p.fingerprint[:12], err)
+		if _, err := tx.Exec(insertPlanSampleSQL, p.args()...); err != nil {
+			return fmt.Errorf("store: insert plan_sample %s/%s: %w", p.fingerprint[:12], p.usename, err)
 		}
 	}
 	// R3.11's plan-change detection runs after the samples are written, so
@@ -334,9 +347,8 @@ func (s *Store) PutSnapshot(ctx context.Context, snap Snapshot) error {
 		if !ok {
 			continue
 		}
-		if _, err := tx.Exec(insertPlanChangeSQL,
-			c.fingerprint, c.detectedAt, c.previousPlanHash, c.currentPlanHash); err != nil {
-			return fmt.Errorf("store: insert plan_change %s: %w", p.fingerprint[:12], err)
+		if _, err := tx.Exec(insertPlanChangeSQL, c.args()...); err != nil {
+			return fmt.Errorf("store: insert plan_change %s/%s: %w", p.fingerprint[:12], p.usename, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -380,7 +392,8 @@ type normalizedRow struct {
 // so two queryids whose statements normalize to one template — `SELECT $1` from
 // two prepared statements, say — produce two rows with one fingerprint.
 //
-// The merge sums the counters (A3's S28); it does not keep the larger row. The
+// The merge sums the counters (R3.4's keying, the reason the fingerprint is the
+// canonical key); it does not keep the larger row. The
 // first version kept the higher-total one — the "highest-load source" rule
 // QueryDetail renders — which imports a display rule into a storage path. With
 // A=100 and B=50 in one snapshot the minute stored 100 ms where 150 happened, and
@@ -485,16 +498,35 @@ func (q queryRow) args() []any {
 	}
 }
 
+// identity is the (fingerprint, namespace, cluster, pod, datname, usename) tuple
+// that R10.7's ruling makes one expression across the four tables that carry it:
+// query_source itself, query_rollup (whose PK adds bucket_kind and bucket),
+// plan_sample (adds captured_at) and plan_change (adds detected_at).
+//
+// Embedding it in all three Go row types is the type-level spelling of a sentence
+// the ruling writes in prose. Three field lists that happen to match are three
+// lists that drift — schema.go's own evidence is the FK A3's S30 found "written
+// once and not copied" — and a planRow missing one member is exactly the bug the
+// ruling exists to fix, so the fix is to make the tuple a thing that can be
+// embedded rather than a thing that can be forgotten.
+//
+// The field order is the PK order in all four tables, which is what lets every
+// args() method emit the tuple first and the table's own columns after, in the
+// order its INSERT lists them.
+type identity struct {
+	fingerprint, namespace, cluster, pod, datname, usename string
+}
+
 // sourceRow is one row of `query_source`; rollupRow embeds it because the rollup
 // row's identity is the source's identity plus a bucket.
 type sourceRow struct {
-	fingerprint, namespace, cluster, pod, instanceRole, datname, queryid string
-	pgMajor                                                              int
-	usename                                                              string
-	calls                                                                int64
-	totalExecMs, rowsReturned, shbHit, shbRead, ioWaitMs, cpuMs          float64
-	minMs, maxMs, stddevMs                                               float64
-	statsReset, capturedAt, ingestedAt                                   int64
+	identity
+	instanceRole, queryid                                       string
+	pgMajor                                                     int
+	calls                                                       int64
+	totalExecMs, rowsReturned, shbHit, shbRead, ioWaitMs, cpuMs float64
+	minMs, maxMs, stddevMs                                      float64
+	statsReset, capturedAt, ingestedAt                          int64
 }
 
 func (r sourceRow) args() []any {
@@ -533,18 +565,49 @@ func (r rollupRow) args() []any {
 }
 
 // planRow is one row of `plan_sample` (R3.10).
+//
+// It embeds identity for the reason the schema's PK now spells the tuple out: the
+// row's own key is the source's key plus a timestamp, and a struct that names only
+// the fingerprint cannot address the row it inserts. The coordinator's note on the
+// ruling expected this to be a column-list change with the struct untouched; it is
+// not — planRow had no namespace/cluster/pod/datname/usename to supply, which is
+// the same omission the DDL had, one layer up.
 type planRow struct {
-	fingerprint                 string
+	identity
 	capturedAt                  int64
 	method, availability, sql   string
 	planJSON, planHash, message string
 }
 
+// args is the row's 13 bind values, in insertPlanSampleSQL's column order.
+//
+// Every insert in this file goes through an args() method for one reason: the
+// column list and the value list are two lists that have to agree, and a method is
+// where the agreement lives. The plan inserts used to inline their values at the
+// Exec call, which is how a widened column list ends up with eight placeholders
+// and thirteen columns.
+func (p planRow) args() []any {
+	return []any{
+		p.fingerprint, p.namespace, p.cluster, p.pod, p.datname, p.usename,
+		p.capturedAt,
+		p.method, p.availability, p.sql, p.planJSON, p.planHash, p.message,
+	}
+}
+
 // planChange is one row of `plan_change` (R3.11).
 type planChange struct {
-	fingerprint                       string
+	identity
 	detectedAt                        int64
 	previousPlanHash, currentPlanHash string
+}
+
+// args is the row's 9 bind values, in insertPlanChangeSQL's column order.
+func (c planChange) args() []any {
+	return []any{
+		c.fingerprint, c.namespace, c.cluster, c.pod, c.datname, c.usename,
+		c.detectedAt,
+		c.previousPlanHash, c.currentPlanHash,
+	}
 }
 
 // noLockWait is query_rollup.lock_wait_ms's "no source" value, -1. See
@@ -680,8 +743,11 @@ func detectPlanChange(tx *sql.Tx, p planRow) (planChange, bool) {
 	if err != nil || prev == "" || prev == p.planHash {
 		return planChange{}, false
 	}
+	// The event's identity is the sample's: with the widened PK the change row is
+	// per (fingerprint, source), so appuser's plan change and postgres's in the
+	// same round are two events with the same two hashes and different identities.
 	return planChange{
-		fingerprint:      p.fingerprint,
+		identity:         p.identity,
 		detectedAt:       p.capturedAt,
 		previousPlanHash: prev,
 		currentPlanHash:  p.planHash,

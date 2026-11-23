@@ -99,24 +99,43 @@ FROM query_source s
 JOIN query q ON q.fingerprint = s.fingerprint
 `
 
-// detailPlansSQL is R3.10's plan-sample list for one fingerprint, newest first —
-// the same rows R8.2's /insights/queries/{fingerprint}/plans route serves, inlined
-// here because R10.7 puts the list on this page.
+// detailPlansSQL is R3.10's plan-sample list for one row, newest first — the same
+// rows R8.2's /insights/queries/{fingerprint}/plans route serves, inlined here
+// because R10.7 puts the list on this page.
+//
+// The WHERE clause is the row's identity, not the fingerprint. Before A3's R10.7
+// extension the table's key was (fingerprint, captured_at) and `WHERE fingerprint
+// = ?` addressed every plan the fingerprint had, in every database, under every
+// user — a detail page for appuser showing postgres's plans. Now that the PK
+// carries the identity, the query names the rows the ruling scopes: a filtered
+// detail page reads the filtered pair's plans and nothing else.
+//
+// Five of the PK's six columns, not six. The route has no pod parameter (R10.7's
+// set is namespace, cluster, fingerprint plus the two optionals) and detailPair is
+// a fold across pods, so the page legitimately shows the pair's samples from every
+// pod in the cluster; naming one of them would hide the others behind a choice no
+// caller made. SQLite still serves the predicate from the PK's leading columns.
 const detailPlansSQL = `
 SELECT captured_at, method, availability, sql, plan_json, plan_hash, message
 FROM plan_sample
-WHERE fingerprint = ?
+WHERE fingerprint = ? AND namespace = ? AND cluster = ? AND datname = ? AND usename = ?
 ORDER BY captured_at DESC
 LIMIT ?
 `
 
-// detailPlanChangesSQL is R3.11's event list for one fingerprint, newest first.
+// detailPlanChangesSQL is R3.11's event list for one row, newest first.
 // dto.QueryDetailView.PlanChanges is the field R3.11's series renders: "one event
 // says the plan moved, two say it moved twice".
+//
+// Same identity in the WHERE clause, same reason and the same five columns — and it
+// is the reason the two lists now agree with each other. A page whose header names
+// (db1, appuser) used to list plan changes detected for db2's copy of the
+// fingerprint while its plan list came from db1's; both queries now take the one
+// identity the header does.
 const detailPlanChangesSQL = `
 SELECT detected_at, previous_plan_hash, current_plan_hash
 FROM plan_change
-WHERE fingerprint = ?
+WHERE fingerprint = ? AND namespace = ? AND cluster = ? AND datname = ? AND usename = ?
 ORDER BY detected_at DESC
 LIMIT ?
 `
@@ -272,11 +291,15 @@ func (s *Store) queryDetail(
 		view = rows[0].view(totals[clusterKey(namespace, cluster)])
 	}
 
-	plans, err := s.detailPlans(ctx, fingerprint)
+	// Both plan reads take the pair the header names, so the page cannot show a
+	// header for (db1, appuser) and a plan list for (db2, postgres) — the failure
+	// the widened PK makes impossible now that the reads have to name a row to
+	// exist at all.
+	plans, err := s.detailPlans(ctx, namespace, cluster, fingerprint, pair.datname, pair.usename)
 	if err != nil {
 		return dto.QueryDetailView{}, err
 	}
-	changes, err := s.detailPlanChanges(ctx, fingerprint)
+	changes, err := s.detailPlanChanges(ctx, namespace, cluster, fingerprint, pair.datname, pair.usename)
 	if err != nil {
 		return dto.QueryDetailView{}, err
 	}
@@ -377,8 +400,13 @@ func (s *Store) detailSources(
 }
 
 // detailPlans reads detailPlansSQL into the DTO's plan list.
-func (s *Store) detailPlans(ctx context.Context, fingerprint string) ([]dto.PlanSampleView, error) {
-	rows, err := s.db.QueryContext(ctx, detailPlansSQL, fingerprint, detailHistoryLimit)
+//
+// Its five string parameters are detailPlansSQL's five placeholders in order — the
+// route's three plus the pair's datname and usename — rather than a struct, because
+// the only struct that spells that set is the one the caller already built.
+func (s *Store) detailPlans(ctx context.Context, namespace, cluster, fingerprint, datname, usename string) ([]dto.PlanSampleView, error) {
+	rows, err := s.db.QueryContext(ctx, detailPlansSQL,
+		fingerprint, namespace, cluster, datname, usename, detailHistoryLimit)
 	if err != nil {
 		return nil, fmt.Errorf("store: detail plans: %w", err)
 	}
@@ -417,9 +445,11 @@ func (s *Store) detailPlans(ctx context.Context, fingerprint string) ([]dto.Plan
 	return out, nil
 }
 
-// detailPlanChanges reads detailPlanChangesSQL into R3.11's event list.
-func (s *Store) detailPlanChanges(ctx context.Context, fingerprint string) ([]dto.PlanChangeView, error) {
-	rows, err := s.db.QueryContext(ctx, detailPlanChangesSQL, fingerprint, detailHistoryLimit)
+// detailPlanChanges reads detailPlanChangesSQL into R3.11's event list, with the
+// same five parameters and the same order for the same reason.
+func (s *Store) detailPlanChanges(ctx context.Context, namespace, cluster, fingerprint, datname, usename string) ([]dto.PlanChangeView, error) {
+	rows, err := s.db.QueryContext(ctx, detailPlanChangesSQL,
+		fingerprint, namespace, cluster, datname, usename, detailHistoryLimit)
 	if err != nil {
 		return nil, fmt.Errorf("store: detail plan changes: %w", err)
 	}

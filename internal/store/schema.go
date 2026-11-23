@@ -266,9 +266,33 @@ CREATE INDEX IF NOT EXISTS idx_rollup_cluster
 // written once and not copied, which is what makes the omission a bug rather than
 // a design choice — a FK on one child table and bare columns on the other two says
 // the cascade was meant to be universal.
+//
+// # The PK, and why it is six columns plus a timestamp
+//
+// It was (fingerprint, captured_at) until A3's R10.7 extension (requirements.md
+// R10.7: "Extension (S26's second half): the same identity has to reach the two
+// plan tables or this ruling is unimplementable for plans"). Two users' plans
+// captured in one round share a fingerprint and a captured_at, so the two-column
+// key gave them one row and INSERT OR REPLACE kept the last — the cell's own proof
+// inserts ('f0',500,'hash_for_appuser') then ('f0',500,'hash_for_postgres') and
+// reads back one row, hash_for_postgres. The detail page the ruling scopes then
+// names postgres and cannot show appuser's plan, because the store discarded it at
+// write time: the ?user= that ruling adds has no row to point at.
+//
+// The narrower (fingerprint, usename, captured_at) is rejected in the same cell —
+// the same three-row input yields two rows under it, because one user's plans in
+// db1 and db2 collide, which is the cross-database grouping R3.4's reason (c)
+// exists for — and the ruled key is query_source's identity tuple plus the time
+// column, the spelling query_rollup:241 already uses. Four tables now share one
+// identity expression rather than three spellings and one absence.
 const planSampleTable = `
 CREATE TABLE IF NOT EXISTS plan_sample (
 	fingerprint  TEXT    NOT NULL REFERENCES query(fingerprint) ON DELETE CASCADE,
+	namespace    TEXT    NOT NULL,
+	cluster      TEXT    NOT NULL,
+	pod          TEXT    NOT NULL,
+	datname      TEXT    NOT NULL,
+	usename      TEXT    NOT NULL DEFAULT '',
 	captured_at  INTEGER NOT NULL,
 	method       TEXT    NOT NULL,
 	availability TEXT    NOT NULL,
@@ -286,7 +310,7 @@ CREATE TABLE IF NOT EXISTS plan_sample (
 	-- R3.11:315's plan hash, on every sample including unavailable ones.
 	plan_hash    TEXT    NOT NULL DEFAULT '',
 	message      TEXT    NOT NULL DEFAULT '',
-	PRIMARY KEY (fingerprint, captured_at)
+	PRIMARY KEY (fingerprint, namespace, cluster, pod, datname, usename, captured_at)
 );
 `
 
@@ -301,13 +325,31 @@ CREATE TABLE IF NOT EXISTS plan_sample (
 // it (dto.QueryDetailView.PlanChanges).
 // fingerprint carries the same REFERENCES … ON DELETE CASCADE as plan_sample
 // (A3's S30) — see that table for why one occurrence in the schema was the bug.
+//
+// Its PK is the same widening plan_sample got (A3's R10.7 extension, quoted
+// there): (fingerprint, detected_at) became the identity tuple plus detected_at,
+// so a round in which two users' plans both change produces two events rather
+// than one. That is not a hypothetical the column list is guarding against —
+// statements.go builds both rows from the same deduped set, which is keyed
+// (fingerprint, usename), so any round where a fingerprint runs under two users
+// and both plans move was collapsing two events into one.
+//
+// The read side stays per fingerprint. R3.11's "per fingerprint" describes the
+// grouping, not the row key — the same reading the ruling applies to the write
+// side — so detail.go's change list for one fingerprint keeps listing every
+// user's events, and the PK decides which rows exist, not which ones a query sees.
 const planChangeTable = `
 CREATE TABLE IF NOT EXISTS plan_change (
 	fingerprint        TEXT    NOT NULL REFERENCES query(fingerprint) ON DELETE CASCADE,
+	namespace          TEXT    NOT NULL,
+	cluster            TEXT    NOT NULL,
+	pod                TEXT    NOT NULL,
+	datname            TEXT    NOT NULL,
+	usename            TEXT    NOT NULL DEFAULT '',
 	detected_at        INTEGER NOT NULL,
 	previous_plan_hash TEXT    NOT NULL,
 	current_plan_hash  TEXT    NOT NULL,
-	PRIMARY KEY (fingerprint, detected_at)
+	PRIMARY KEY (fingerprint, namespace, cluster, pod, datname, usename, detected_at)
 );
 `
 
