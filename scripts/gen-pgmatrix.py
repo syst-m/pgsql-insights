@@ -262,7 +262,16 @@ def emit(matrix):
     for v in views:
         inner = ", ".join("%d: %s" % (m, names[(v, m)])
                           for m in sorted(m for m in matrix if v in matrix[m]))
-        a("\t%s: {%s}," % (idents[v], inner))
+        # gofmt aligns a run of key-value lines by padding the *cell*, and for a map
+        # entry the cell ends after the colon — so the spaces go between ":" and the
+        # value, not between the key and the colon (that shape is what a const block
+        # uses, and the two are not interchangeable). Width is the same max ident
+        # length the View const block above pads to. Without this the generator's
+        # output needs a manual `gofmt` pass, and "regenerate and commit" stops being
+        # reproducible: ~30 lines of the diff are the formatter's work rather than the
+        # command the header names. The check is that `gofmt -l` on the generated file
+        # is empty.
+        a("\t%s:%s {%s}," % (idents[v], " " * (width - len(idents[v])), inner))
     a("}")
     a("")
     return "\n".join(out)
