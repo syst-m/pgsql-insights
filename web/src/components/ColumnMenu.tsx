@@ -38,10 +38,17 @@ export interface ColumnDef {
  *
  *  Fleet's set is `ClusterTable.tsx`'s current `COLUMNS` order, so adopting the
  *  menu changes nothing for a table that accepts the default. Queries' set is
- *  the R3.2 column set (requirements.md:306) minus the two columns R3.2 itself
- *  marks as having no per-query source — `Load by lock wait` renders the
- *  `n/a (no per-query source, §5)` literal and `Analyze latency` is a deferred
- *  **Gap**, so neither is on by default even though both are present.
+ *  the R3.2 column set (requirements.md:306) in R3.2's order and with R3.2's
+ *  names — all thirteen, including the two R3.2 itself marks as having no
+ *  per-query value.
+ *
+ *  Those two are on by default *because* §9's 6b acceptance names them: "Queries
+ *  page renders the R3.2 column set exactly (incl. `Load by lock wait` =
+ *  `n/a`)". A default that hid them would render a nine-column table and pass
+ *  the eye while failing the sentence. `Load by lock wait` renders the
+ *  `n/a (no per-query source, §5)` literal and `Analyze latency` the deferred
+ *  **Gap** marker (both in LoadBars.tsx); they are columns with no sort, not
+ *  columns with no cell.
  */
 export const DEFAULTS: Record<string, readonly string[]> = {
   fleet: [
@@ -59,13 +66,17 @@ export const DEFAULTS: Record<string, readonly string[]> = {
   queries: [
     "query",
     "database",
+    "recommendations",
     "loadByTotalTime",
-    "loadByQueriesPct",
+    "pctLoadByQueries",
     "avgExecTimeMs",
     "totalExecTimeMs",
     "avgRowsReturned",
     "timesCalled",
-    "recommendations",
+    "loadByCPUMs",
+    "loadByIOWaitMs",
+    "loadByLockWait",
+    "analyzeLatency",
   ],
 };
 

@@ -35,6 +35,7 @@ import {
   useColumnVisibility,
   type ColumnDef,
 } from "./ColumnMenu";
+import { QUERY_COLUMNS } from "./QueryTable";
 
 const COLUMNS_3: readonly ColumnDef[] = [
   { key: "a", label: "A" },
@@ -49,10 +50,6 @@ const COLUMNS_PLAIN: readonly ColumnDef[] = [
   { key: "b", label: "B" },
   { key: "c", label: "C" },
 ];
-
-/** The Queries column set as ColumnDefs, built from the documented default so
- *  the per-view test exercises the real DEFAULTS entry rather than a fixture. */
-const QUERY_COLUMNS: readonly ColumnDef[] = (DEFAULTS.queries ?? []).map((k) => ({ key: k, label: k }));
 
 interface StorageStub {
   getItem(k: string): string | null;
@@ -111,20 +108,19 @@ describe("the documented default set (R10.20)", () => {
     expect(DEFAULTS.fleet).toEqual(COLUMNS.map((c) => c.key));
   });
 
-  it("Queries' default is the R3.2 set minus the two columns R3.2 marks as having no per-query source", () => {
-    // requirements.md:306 — `Load by lock wait` renders the n/a literal and
-    // `Analyze latency` is a deferred Gap, so neither is on by default.
-    expect(DEFAULTS.queries).toEqual([
-      "query",
-      "database",
-      "loadByTotalTime",
-      "loadByQueriesPct",
-      "avgExecTimeMs",
-      "totalExecTimeMs",
-      "avgRowsReturned",
-      "timesCalled",
-      "recommendations",
-    ]);
+  it("Queries' default is exactly QueryTable's column set, in its order", () => {
+    // The same one-fact assertion as Fleet's, one row up: the table's declared
+    // columns and the documented default are the same list, so a column added to
+    // one and not the other fails here.
+    //
+    // The set is R3.2's thirteen (requirements.md:306) *including* the two it
+    // marks as having no per-query value. An earlier default omitted them —
+    // nine keys, on the reading that a column rendering `n/a (no per-query
+    // source, §5)` doesn't need to be on by default. §9's 6b acceptance is the
+    // counter: "Queries page renders the R3.2 column set exactly (incl.
+    // `Load by lock wait` = `n/a`)". A default that hid the two renders a
+    // nine-column table, passes the eye, and fails that sentence.
+    expect(DEFAULTS.queries).toEqual(QUERY_COLUMNS.map((c) => c.key));
   });
 });
 
