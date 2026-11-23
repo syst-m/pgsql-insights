@@ -291,8 +291,13 @@ generations of the same estimate, and §5's parenthetical claims to have correct
 R13.4 while R13.4 still carries the older figure. The chart README uses the number
 the table actually computes (**24 480**, including the pooler row the prose mentions
 but the sum omits) and files the discrepancy rather than silently picking a side.
-R13.4's CI script (`scripts/cardinality-check.py`) is the artifact that settles it;
-when it lands, its printed number replaces the hand-computed one here.
+R13.4's CI script (`scripts/cardinality-check.py`, landed at `271b7bb`) is the
+artifact that settles it, and its `make cardinality-check` line reads `ok: R13.4
+cardinality — 24,480 series, 1.59 GB over 30 d for 4 fixture clusters` — the figure
+this section computes by hand. The sentence this replaces promised the number would
+be *replaced* when the script landed; it was not, and it could not have been, because
+the script's inputs are §5's table and the fixture — the same two used above — so the
+agreement is consistency, not measurement.
 
 ### 2. Measured on the reference environment today
 
@@ -327,8 +332,10 @@ Two things an adopter should be able to read off this table:
 Not yet available. The families above are Phase 4–8 collector output; the binary
 serves `/metrics` from Phase 5 onward (R9.12's `pgsi_up` is the first series that
 exists before then). Until then the chart README's promise is the computed budget
-plus the measured baseline, and R13.4's assertion is the artifact that converts the
-first into a measured number. This is the same dependency that makes R9.6 and R9.8
+plus the measured baseline. R13.4's script has since landed (`271b7bb`) and it is a
+computation over §5's table and the fixture, not a scrape of a running binary, so it
+confirms the first number and converts nothing — the thing that measures it is the
+Phase 5 `/metrics` itself. This is the same dependency that makes R9.6 and R9.8
 deferred to Phase 2's `/metrics` rather than validated now.
 
 ---
