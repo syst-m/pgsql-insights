@@ -516,3 +516,158 @@ a.cluster-link:focus-visible {
   outline: 2px solid var(--series-1);
   outline-offset: 2px;
 }
+
+/* ============================================================================
+ * A6 — Phase 6b component layer (R10.18 virtualization/density, R10.20 column
+ * menu, R10.6 inline load bars).
+ *
+ * Appended as its own block rather than interleaved, so A4 can read the whole
+ * of A6's styling in one place and move any of it without untangling. All of it
+ * is written against tokens.css roles; no hex here, same rule as the rest of
+ * the file.
+ * ========================================================================= */
+
+/* --- R10.18 virtualization ------------------------------------------------ */
+
+.virtual-list {
+  overflow-y: auto;
+  /* The card already provides the surface and the border; the list is the
+     scroll viewport inside it. */
+}
+
+.virtual-inner {
+  position: relative;
+  /* The spacer that keeps the scrollbar the right length. Its height is set
+     inline to count * rowHeight; nothing here should change that. */
+}
+
+.virtual-window {
+  /* Translated by padTop so the rendered slice sits at the right offset inside
+     the spacer without needing one spacer row per edge. */
+  will-change: transform;
+}
+
+.virtual-row {
+  display: flex;
+  align-items: center;
+}
+
+/* --- R10.20 column menu --------------------------------------------------- */
+
+.column-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.column-menu-count {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.column-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+.column-menu-pop ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.column-menu-pop li {
+  padding: 0;
+}
+
+.column-menu-pop label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.column-menu-pop label:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.column-menu-pop input[type="checkbox"]:disabled + span {
+  color: var(--text-muted);
+}
+
+/* --- R10.6 inline load bars ----------------------------------------------- */
+
+.load-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* The value rides beside the bar in a text token, never the series colour
+   (marks-and-anatomy: "Text never wears the data color"). tabular-nums because
+   this is a column of numbers. */
+.load-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* The meter contract: the fill carries the value and the unfilled track is a
+   lighter step of the same ramp, so the whole bar reads as one scale. */
+.load-track {
+  display: inline-block;
+  width: 72px;
+  height: 8px;
+  border-radius: var(--radius-mark);
+  background: color-mix(in srgb, var(--series-1) 12%, transparent);
+  overflow: hidden;
+}
+
+.load-fill {
+  display: block;
+  height: 100%;
+  /* 4px rounded on the data end (right), square at the baseline (left) — the
+     mark spec, expressed as an asymmetric radius. No border: the gap and the
+     ring are the separation mechanism, a stroke adds ink that isn't data. */
+  border-radius: 0 var(--radius-mark) var(--radius-mark) 0;
+  background: var(--series-1);
+}
+
+/* The R3.2 `n/a (no per-query source, §5)` cell. No track: a track with no
+   fill reads as "measured, and it was zero", which is not what this says. */
+.load-na {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.load-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* R10.4's source-pending marker. Shared shape with the Fleet columns so there
+   is one marker in the app, not one per phase. */
+.pending-marker {
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-mark);
+  padding: 0 4px;
+  white-space: nowrap;
+}
