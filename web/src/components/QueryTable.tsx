@@ -103,6 +103,16 @@ export interface QueryColumn {
   numeric?: boolean;
   /** False exactly for the two columns with no per-query value. */
   sortable: boolean;
+  /** A column the table cannot render without (R10.20's `ColumnDef.required`).
+   *
+   *  `query` is the one, and it is the reason the field exists: the row's link
+   *  lives only in that cell (`QueryCell` below), so a selection without it
+   *  renders a table of twelve cells with zero links — R10.7's detail page
+   *  becomes unreachable while the table looks fine. `ColumnMenu` declares and
+   *  enforces `required` in three places; without it on the consuming type every
+   *  real column is non-required and the machinery only fires on a fixture
+   *  (A3's S23; `ClusterTable.Column` is the same fix on the other table). */
+  required?: boolean;
 }
 
 /** R3.2's column set, in R3.2's order.
@@ -115,7 +125,7 @@ export interface QueryColumn {
  *  advertised here as a column with no renderer.
  */
 export const QUERY_COLUMNS: readonly QueryColumn[] = [
-  { key: "query", label: "Query", sortable: true },
+  { key: "query", label: "Query", sortable: true, required: true },
   { key: "database", label: "Database", sortable: true },
   { key: "recommendations", label: "Recommendations", sortable: true },
   { key: "loadByTotalTime", label: "Load by total time", numeric: true, sortable: true },
@@ -151,15 +161,24 @@ export function queryDetailHref(row: QueryView): string {
   return buildPath("query-detail", `${row.namespace}/${row.cluster}`, row.fingerprint);
 }
 
-/** Which of LoadBars' four states one of the **six load columns** renders for a
- *  row: the four bar columns and the two `n/a` ones. Any other key returns
- *  `{kind:"none"}` — `renderCell` is the total switch over all thirteen, and
- *  this is the part of it worth testing on its own.
+/** Which of LoadBars' three cell states one of the **six load columns** renders
+ *  for a row: the four bar columns and the two `n/a` ones. Any other key returns
+ *  `null` — `renderCell` is the total switch over all thirteen, and this is the
+ *  part of it worth testing on its own.
+ *
+ *  `null`, not a fourth `{kind:"none"}` member (A3's S21). A `none` in the union
+ *  gives `LoadCell` a branch that renders a bare `—` for a column with no load
+ *  cell at all, and `—` is R10.4's marker for *the source has not run yet* —
+ *  which is not a claim `avgExecTimeMs` ever makes, and one LoadBars' own header
+ *  says must not be shared with the `n/a` literal. The only thing keeping it
+ *  unrendered was a caller-side `if (cell.kind !== "none")`. A `null` return is
+ *  the same fact stated where a caller cannot ignore it: you cannot render a
+ *  load cell for a column that has none.
  *
  *  Exported and pure so the denominators are testable without a table: the whole
  *  point of LoadBars' discriminated union is that a cell can't be in two states
  *  at once, and this is the function that decides which one. */
-export function loadCellFor(row: QueryView, key: QueryColumnKey): LoadCellProps {
+export function loadCellFor(row: QueryView, key: QueryColumnKey): LoadCellProps | null {
   // The derivation this row's numbers came from, for the tooltips. queries.go:69
   // names both sides; pgMajor picks one.
   const ioSource =
@@ -205,7 +224,7 @@ export function loadCellFor(row: QueryView, key: QueryColumnKey): LoadCellProps 
       // query / database / recommendations / avgExecTimeMs / totalExecTimeMs /
       // avgRowsReturned / timesCalled are not load cells; `renderCell` renders
       // them and this function's contract is the six load columns only.
-      return { kind: "none" };
+      return null;
   }
 }
 
@@ -423,7 +442,7 @@ export function QueryCell({
   }
 
   const cell = loadCellFor(row, col.key);
-  if (cell.kind !== "none") {
+  if (cell !== null) {
     return (
       <td className={col.numeric ? "num" : undefined}>
         <LoadCell {...cell} />

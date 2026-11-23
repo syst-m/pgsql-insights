@@ -133,13 +133,22 @@ export function LoadSourcePending({ source }: { source: string }) {
   );
 }
 
-/** One call per R3.2 load cell, so the table never re-derives which of the
- *  three states a column is in. */
+/** The three states a load cell can be in — one member per component above, and
+ *  exactly the three this file's header names.
+ *
+ *  There used to be a fourth, `{kind: "none"}`, whose render was a bare `—`.
+ *  That glyph is R10.4's marker for *the source has not run yet*, which is what
+ *  `source-pending` renders *with* its marker; a `none` with no marker was a
+ *  second, unmarked use of the same glyph for "this column has no load cell",
+ *  which the header two thirds up says must not exist ("the two states mean
+ *  opposite things and share a glyph only in a careless implementation").
+ *  `QueryTable.loadCellFor` now returns `LoadCellProps | null` for the columns
+ *  that have no cell, so the case is absent rather than guarded against — A3's
+ *  S21. */
 export type LoadCellProps =
   | { kind: "bar"; fraction: number; text: string; title?: string }
   | { kind: "not-applicable"; text: string }
-  | { kind: "source-pending"; source: string }
-  | { kind: "none" };
+  | { kind: "source-pending"; source: string };
 
 export function LoadCell(props: LoadCellProps) {
   switch (props.kind) {
@@ -149,7 +158,5 @@ export function LoadCell(props: LoadCellProps) {
       return <LoadNotApplicable text={props.text} />;
     case "source-pending":
       return <LoadSourcePending source={props.source} />;
-    case "none":
-      return <span className="muted">{NULL_VALUE}</span>;
   }
 }

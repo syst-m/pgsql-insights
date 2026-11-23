@@ -106,7 +106,10 @@ describe("LoadCell", () => {
       testid: "load-pending",
       text: NULL_VALUE,
     },
-    { props: { kind: "none" } as const, testid: undefined, text: NULL_VALUE },
+    // No `kind: "none"` case: it was a fourth member whose render was a bare
+    // `—`, and `—` belongs to `source-pending` alone (see LoadBars.tsx's note on
+    // the glyph). A column with no load cell is now `loadCellFor` returning
+    // `null`, which is `QueryTable.test.tsx`'s assertion, not a `LoadCell` case.
   ];
 
   for (const c of cases) {
@@ -120,11 +123,11 @@ describe("LoadCell", () => {
   }
 
   it("exhausts the union so a new kind is a compile error, not an unhandled render", () => {
-    // The switch in LoadBars.tsx has no default branch: adding a fifth kind
-    // without handling it fails typecheck. This test only pins the four that
+    // The switch in LoadBars.tsx has no default branch: adding a fourth kind
+    // without handling it fails typecheck. This test only pins the three that
     // exist, so the compiler stays the enforcement.
     expect(cases.map((c) => c.props.kind).sort()).toEqual(
-      ["bar", "none", "not-applicable", "source-pending"],
+      ["bar", "not-applicable", "source-pending"],
     );
   });
 });

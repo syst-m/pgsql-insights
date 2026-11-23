@@ -211,10 +211,12 @@ describe("loadCellFor — the denominators", () => {
   });
 
   it("every other column is not a load cell at all", () => {
-    // The contract is the six load columns; the other seven return `none` so
-    // QueryCell falls through to textCell.
+    // The contract is the six load columns; the other seven return `null` so
+    // QueryCell falls through to textCell. `null` rather than a `{kind:"none"}`
+    // member of the union — see `loadCellFor`'s doc for why a fourth member
+    // would have put an unmarked `—` on screen.
     for (const key of ["query", "database", "recommendations", "avgExecTimeMs", "totalExecTimeMs", "avgRowsReturned", "timesCalled"] as QueryColumnKey[]) {
-      expect(loadCellFor(pg16, key)).toEqual({ kind: "none" });
+      expect(loadCellFor(pg16, key)).toBeNull();
     }
   });
 });

@@ -5,6 +5,14 @@
  * above everything it scopes (interaction.md). The page owns no state of its
  * own beyond the data — every control writes to the URL (R10.16), so the
  * rendered page is a pure function of the URL plus the last payload.
+ *
+ * The one exception is R10.20's column selection, and it is an exception by
+ * design: R10.20's contract is a *persisted per-view* preference, which is a
+ * localStorage fact with a `viewId` key, not a navigable one — `?columns=` in
+ * the URL would put a shared preference in the back button. `useColumnVisibility
+ * ("fleet", COLUMNS)` is the same hook the Queries page uses, and mounting it
+ * here is what makes R10.20's "every wide table" true of both tables rather than
+ * one (A3's S22 — the menu existed, was tested, and was unreachable on Fleet).
  */
 
 import { useMemo } from "react";
@@ -17,7 +25,8 @@ import { filterClusters, namespaceOptions, sortClusters } from "../lib/sort";
 import type { SortDir, SortKey, TimeRange, UrlState } from "../state/urlState";
 import { useFleet } from "../state/useFleet";
 import { HealthBar } from "../components/HealthBar";
-import { ClusterTable } from "../components/ClusterTable";
+import { ClusterTable, COLUMNS } from "../components/ClusterTable";
+import { ColumnMenu, useColumnVisibility } from "../components/ColumnMenu";
 import { StatePanel, derivePanelState, copyFor } from "../components/StatePanel";
 
 export interface FleetPageProps {
@@ -50,6 +59,9 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
     () => sortClusters(filtered, state.sort, state.dir),
     [filtered, state.sort, state.dir],
   );
+  // R10.20's per-view selection, above the early return because it is a hook and
+  // because the menu has to exist in the same render as the table it controls.
+  const columns = useColumnVisibility({ viewId: "fleet", columns: COLUMNS });
 
   // Full-panel states replace the body entirely (R10.12's named fixtures).
   if (panel === "loading" || panel === "empty" || panel === "error") {
@@ -87,12 +99,16 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
       <section className="card">
         <div className="card-head">
           <h2 className="card-title">Clusters</h2>
-          <span className="card-meta num">{rows.length} shown</span>
+          <div className="card-actions">
+            <span className="card-meta num">{rows.length} shown</span>
+            <ColumnMenu columns={COLUMNS} visible={columns.visible} onChange={columns.setVisible} />
+          </div>
         </div>
         <div className={data.refreshing ? "hold-previous" : undefined}>
           <ClusterTable
             rows={rows}
             state={state}
+            columns={columns.visible}
             onSort={(key) => onPatch({ sort: key, dir: nextDir(state, key) })}
             onOpen={(id) => onPatch({ page: "cluster", cluster: id })}
           />

@@ -4,10 +4,11 @@
  * payload — so the test proves the routing and the state choice together, and
  * R16.7's visual suite screenshots the same six screens. */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { App } from "../App";
+import { COLUMNS } from "../components/ClusterTable";
 import {
   FIXTURE_EMPTY,
   FIXTURE_FLEET,
@@ -87,6 +88,20 @@ describe("Fleet page", () => {
     const found = rows(container);
     expect(found).toHaveLength(3);
     expect(found.map((r) => r.textContent).join(" ")).not.toContain("freeidp-pg");
+  });
+
+  it("mounts the column menu on the table it controls (R10.20)", () => {
+    // ColumnMenu.test.tsx tests the menu; this is the assertion that the Fleet
+    // page *renders* one. A3's S22 was exactly that gap — the menu existed and
+    // was green while Fleet rendered no instance of it, so DEFAULTS.fleet was
+    // documented and unreachable. The count is the menu's own readout of the
+    // selection it hands ClusterTable, so it pins the wiring, not just the tag.
+    const { container } = renderPage("/", FIXTURE_FLEET);
+    const menu = container.querySelector(".card-actions .column-menu");
+    expect(menu).not.toBeNull();
+    expect(within(menu as HTMLElement).getByRole("button", { name: /Columns/ }).textContent).toBe(
+      `Columns${COLUMNS.length}/${COLUMNS.length}`,
+    );
   });
 });
 
