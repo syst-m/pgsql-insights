@@ -1,20 +1,3 @@
-package api
-
-import (
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-
-	"github.com/frankellis/pgsql-insights/internal/api/dto"
-	"github.com/frankellis/pgsql-insights/internal/discovery"
-)
-
 // GET /api/v1/clusters — R8.2's `/clusters`, the fleet inventory rendered from
 // the frozen dto.Envelope[dto.ClusterView] contract.
 //
@@ -27,24 +10,34 @@ import (
 // to catch.
 //
 // The endpoint's own contract is R8.4 (the parameter set + envelope) and R8.10
-// (limit/cursor/truncated). Both are implemented here rather than in the
-// handler body's prose: parseClusterQuery is the whole of R8.4's parameter
-// handling, pageClusters is the whole of R8.10's paging, and the handler is
-// eleven lines that call them in order.
+// (limit/cursor/truncated). Both live in paging.go now, because R8.4 states
+// them once for *every* list endpoint and R8.2 names eighteen of them: this
+// file keeps the cluster-specific answers — which sort keys exist, what a row's
+// identity is, which rows a filter matches — and calls the shared parser and
+// pager for everything else. The handler is still the eleven lines that parse,
+// gate on readiness, and page.
 
-// R8.10's page-size pair. They are constants, not a Config field, because R8.10
-// fixes them ("default 50, max 500") rather than making them tunable, and a
-// per-deployment knob would let a cluster be configured into a shape the spec
-// does not describe.
-const (
-	DefaultLimit = 50
-	MaxLimit     = 500
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+
+	"github.com/frankellis/pgsql-insights/internal/api/dto"
+	"github.com/frankellis/pgsql-insights/internal/discovery"
 )
 
-// Sort keys accepted by ?sort= (R8.4). The JSON-tag spelling is the query
-// spelling, so `?sort=pgMajor` matches the field it sorts on. Every sort
-// carries the row identity as its secondary key (see sortKey), which is
+// Sort keys accepted by ?sort= on this route (R8.4). The JSON-tag spelling is
+// the query spelling, so `?sort=pgMajor` matches the field it sorts on. Every
+// sort carries the row identity as its secondary key (see sortKey), which is
 // R8.10's rule for query lists and sessions generalised to every list.
+//
+// The list is per-route data: a cluster list sorts by phase and pgMajor, a
+// query list by total_exec_time, a session list by pid. R8.10's machinery is
+// shared; the vocabulary of *what you can sort by* is not, and pretending it
+// was shared is how a generic ends up with a field per resource.
 const (
 	SortNamespace = "namespace" // the default: the row identity's first half
 	SortName      = "name"
@@ -60,161 +53,41 @@ const (
 // `?sort=name` is the alternative the Fleet table's Name column sorts by.
 const defaultSort = SortNamespace
 
+// clusterQuerySpec is this route's R8.4 vocabulary, handed to the shared parser.
+// It exists so `?sort=` acceptance and the error message that lists the
+// supported keys come from one place: the const block above.
+var clusterQuerySpec = QuerySpec{
+	Sorts:   []string{SortNamespace, SortName, SortPhase, SortInstances, SortPGMajor},
+	Default: defaultSort,
+}
+
 // ClusterQuery is the parsed, validated query string of
 // GET /api/v1/clusters: R8.4's parameter set plus R8.10's cursor.
-type ClusterQuery struct {
-	Namespace string
-	Cluster   string
-	// DB, From and To are part of R8.4's uniform parameter set. This endpoint
-	// has no per-database or time-axis meaning — openapi.yaml documents `db` as
-	// "accepted and ignored on /clusters" — but they are still *validated*,
-	// because a client that sends ?from=yesterday has a bug worth reporting
-	// while one that sends ?db=x on this route is simply asking a question this
-	// route cannot answer.
-	DB   string
-	From time.Time
-	To   time.Time
-
-	// Sort is the resolved key without its direction prefix; Desc is that
-	// prefix. R8.4 names `?sort=` without spelling out the direction syntax,
-	// so this follows the convention the rest of the API uses: a leading "-"
-	// sorts descending.
-	Sort string
-	Desc bool
-
-	Limit int
-	// cursor is the decoded form of ?cursor=. It is unexported so a ClusterQuery
-	// can only carry a cursor that was successfully parsed — the shape R8.10
-	// promises is validated at the edge, not re-derived per page.
-	cursor *pageCursor
-}
-
-// parseClusterQuery validates R8.4's parameters. Every rejection is an
-// R8.5 InvalidRequest with a message naming the parameter, because the
-// alternative — clamping or ignoring — turns a client bug into a silently
-// different answer.
-func parseClusterQuery(q url.Values) (ClusterQuery, error) {
-	out := ClusterQuery{
-		Namespace: q.Get("namespace"),
-		Cluster:   q.Get("cluster"),
-		DB:        q.Get("db"),
-		Sort:      defaultSort,
-		Limit:     DefaultLimit,
-	}
-
-	// limit: R8.10's default/max pair, and the spec is explicit that a value
-	// above the maximum is InvalidRequest, "not a silent clamp, so a client that
-	// asks for 5000 learns about it instead of getting 500".
-	if s := q.Get("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return out, fmt.Errorf("invalid limit: %q is not an integer", s)
-		}
-		if n < 1 {
-			return out, fmt.Errorf("invalid limit: %d is below the minimum of 1", n)
-		}
-		if n > MaxLimit {
-			return out, fmt.Errorf("invalid limit: %d exceeds the maximum of %d", n, MaxLimit)
-		}
-		out.Limit = n
-	}
-
-	// sort: the "-" prefix is the direction, the rest must be a known key.
-	if s := q.Get("sort"); s != "" {
-		sort, desc := s, false
-		if strings.HasPrefix(sort, "-") {
-			sort, desc = sort[1:], true
-		}
-		switch sort {
-		case SortNamespace, SortName, SortPhase, SortInstances, SortPGMajor:
-		default:
-			return out, fmt.Errorf("invalid sort: %q (supported: %s, %s, %s, %s, %s; prefix \"-\" for descending)",
-				s, SortNamespace, SortName, SortPhase, SortInstances, SortPGMajor)
-		}
-		out.Sort, out.Desc = sort, desc
-	}
-
-	// from/to: RFC 3339 per openapi's `format: date-time`. Ignored by this
-	// endpoint's data, validated anyway (see the DB/From/To comment).
-	for _, f := range []struct {
-		name string
-		dst  *time.Time
-	}{{"from", &out.From}, {"to", &out.To}} {
-		s := q.Get(f.name)
-		if s == "" {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, s)
-		if err != nil {
-			return out, fmt.Errorf("invalid %s: %q is not RFC 3339", f.name, s)
-		}
-		*f.dst = t.UTC()
-	}
-
-	// cursor: opaque to the client (R8.10), which is exactly why the server may
-	// put whatever it needs in it — see pageCursor.
-	if s := q.Get("cursor"); s != "" {
-		c, err := decodeCursor(s)
-		if err != nil {
-			return out, fmt.Errorf("invalid cursor: %q is not a pgsi cursor", s)
-		}
-		// A cursor issued for another sort is meaningless here: page 2 of
-		// ?sort=phase is not a subset of page 1 of ?sort=name, so accepting it
-		// would silently skip or repeat rows. R8.10's "two consecutive pages
-		// never overlap or drop a row" is what this check protects.
-		if c.Sort != out.Sort {
-			return out, fmt.Errorf("invalid cursor: issued for sort %q, not %q", c.Sort, out.Sort)
-		}
-		out.cursor = &c
-	}
-
-	return out, nil
-}
-
-// pageCursor is the decoded form of R8.10's opaque cursor.
 //
-// R8.10 says it is "base64 of the last sort key, not an offset", and that is
-// what this is: the sort key of the last row of the previous page, plus the
-// sort it belongs to. The sort is in there because a cursor is only meaningful
-// relative to an ordering — see parseClusterQuery's rejection of a cursor
-// issued for a different sort — and it is *not* an offset, so a page that
-// shrinks between requests neither skips nor repeats the row a client already
-// saw.
-type pageCursor struct {
-	Sort string `json:"s"`
-	Key  string `json:"k"`
-}
+// It is an *alias* of ListQuery rather than a new struct. R8.4's parameter set
+// is uniform across list endpoints by design, so a per-route struct would be a
+// second copy of a contract the spec states once — and the failure mode of
+// per-route copies here is not theoretical: the UI's types were written from
+// spec prose instead of imported, disagreed in every nested type, and nothing
+// went red. The alias keeps the name this route's callers and tests use
+// (`parseClusterQuery`'s return type, clusters_test.go's `mustQuery`) while
+// there is exactly one set of fields to keep in step.
+type ClusterQuery = ListQuery
 
-func encodeCursor(sort, key string) string {
-	b, _ := json.Marshal(pageCursor{Sort: sort, Key: key})
-	return base64.URLEncoding.EncodeToString(b)
-}
-
-func decodeCursor(raw string) (pageCursor, error) {
-	// URLEncoding emits "=" padding; a client that strips it from a query
-	// string is common enough that both spellings are accepted rather than
-	// being a compatibility footnote.
-	b, err := base64.URLEncoding.DecodeString(raw)
-	if err != nil {
-		if b, err = base64.RawURLEncoding.DecodeString(raw); err != nil {
-			return pageCursor{}, err
-		}
-	}
-	var c pageCursor
-	if err := json.Unmarshal(b, &c); err != nil {
-		return pageCursor{}, err
-	}
-	if c.Sort == "" || c.Key == "" {
-		return pageCursor{}, fmt.Errorf("cursor missing its sort key")
-	}
-	return c, nil
+// parseClusterQuery validates this route's parameters through the shared
+// parser. Three lines, and the third is the whole reason the route keeps a
+// named wrapper: the route's vocabulary is passed in here, so a sort key added
+// to the const block is accepted by the parser and named in the error message
+// in the same edit.
+func parseClusterQuery(q url.Values) (ClusterQuery, error) {
+	return parseListQuery(q, clusterQuerySpec)
 }
 
 // identity is a row's unique key: R8.4's two identity fields joined. It is the
 // secondary key of every sort and the cursor's payload.
 func identity(c dto.ClusterView) string { return c.Namespace + "/" + c.Name }
 
-// sortKey returns the string a row sorts on for one key.
+// sortKey returns the string a cluster row sorts on for one key.
 //
 // Every key ends with the identity, which is what makes the ordering *total*:
 // two clusters with the same phase, the same instance count, or (for a
@@ -223,6 +96,10 @@ func identity(c dto.ClusterView) string { return c.Namespace + "/" + c.Name }
 // would let two consecutive pages overlap or drop a row — the exact failure
 // R8.10 names — so the tiebreaker lives in this one function instead of being
 // re-implemented per sort.
+//
+// This is the per-resource half of R8.10: the pager is generic over the row
+// type and receives this function as a value, so "how a row sorts" stays a
+// cluster answer while "how a page is cut" stays a shared one.
 func sortKey(c dto.ClusterView, key string) string {
 	primary := identity(c) // the default: namespace, then name
 	switch key {
@@ -250,14 +127,11 @@ func sortKey(c dto.ClusterView, key string) string {
 	return primary + "|" + identity(c)
 }
 
-// sortRows orders rows by q's key and direction, ascending then reversed.
+// sortRows orders cluster rows by one key and direction. It is the concrete
+// instantiation of the shared sortRowsBy, kept as a named function because
+// clusters_test.go's TestSortKeys calls it directly for each of the five keys.
 func sortRows(rows []dto.ClusterView, key string, desc bool) {
-	sort.Slice(rows, func(i, j int) bool { return sortKey(rows[i], key) < sortKey(rows[j], key) })
-	if desc {
-		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
-			rows[i], rows[j] = rows[j], rows[i]
-		}
-	}
+	sortRowsBy(rows, sortKey, key, desc)
 }
 
 // pageClusters filters, sorts and pages an inventory into R8.4's envelope.
@@ -267,7 +141,8 @@ func sortRows(rows []dto.ClusterView, key string, desc bool) {
 func pageClusters(inv discovery.Inventory, q ClusterQuery) dto.Envelope[dto.ClusterView] {
 	// Filter first: R8.4's ?namespace= and ?cluster= narrow within the set
 	// discovery returned, and meta.total counts *matching* rows, so a filtered
-	// page reports the size of the filtered set, not of the fleet.
+	// page reports the size of the filtered set, not of the fleet. Filtering
+	// stays here because it reads cluster fields; paging is the shared part.
 	rows := make([]dto.ClusterView, 0, len(inv.Clusters))
 	for _, c := range inv.Clusters {
 		if q.Namespace != "" && c.Namespace != q.Namespace {
@@ -278,60 +153,16 @@ func pageClusters(inv discovery.Inventory, q ClusterQuery) dto.Envelope[dto.Clus
 		}
 		rows = append(rows, c)
 	}
-	total := len(rows)
 
-	sortRows(rows, q.Sort, q.Desc)
-
-	// Keyset paging: drop everything at or before the cursor's key. Comparing
-	// against the key (rather than looking the row up by identity) is what makes
-	// a row deleted between requests harmless — the rows after it still come
-	// next instead of the cursor 404ing.
-	if q.cursor != nil {
-		for len(rows) > 0 && !afterCursor(rows[0], q) {
-			rows = rows[1:]
-		}
+	// Failed and Loading are namespace-level (R8.4/R10.22), so they are the
+	// inventory's, not the page's: a page of one namespace still reports the
+	// other namespaces that failed to sync.
+	base := dto.Meta{
+		GeneratedAt: inv.GeneratedAt,
+		Failed:      inv.Failed,
+		Loading:     inv.Loading,
 	}
-
-	limit := q.Limit
-	if limit <= 0 {
-		limit = DefaultLimit
-	}
-	truncated := len(rows) > limit
-	page := rows
-	if truncated {
-		page = rows[:limit]
-	}
-	next := ""
-	if truncated && len(page) > 0 {
-		next = encodeCursor(q.Sort, sortKey(page[len(page)-1], q.Sort))
-	}
-
-	return dto.Envelope[dto.ClusterView]{
-		Data: page,
-		Meta: dto.Meta{
-			Total:       total,
-			Truncated:   truncated,
-			GeneratedAt: inv.GeneratedAt,
-			NextCursor:  next,
-			// Failed and Loading are namespace-level (R8.4/R10.22), so they are
-			// the inventory's, not the page's: a page of one namespace still
-			// reports the other namespaces that failed to sync.
-			Failed:  inv.Failed,
-			Loading: inv.Loading,
-		},
-	}
-}
-
-// afterCursor reports whether a row belongs after the query's cursor, given the
-// sort direction. Ascending means "greater than the cursor key"; descending
-// mirrors it. Both directions are the same comparison on the same key, so the
-// cursor cannot mean two different things depending on which page asked.
-func afterCursor(c dto.ClusterView, q ClusterQuery) bool {
-	k := sortKey(c, q.Sort)
-	if q.Desc {
-		return k < q.cursor.Key
-	}
-	return k > q.cursor.Key
+	return pageRows(rows, q, sortKey, base)
 }
 
 // handleClusters serves GET /api/v1/clusters.
