@@ -1,6 +1,10 @@
 # Binaries and build output
 bin/
 dist/
+# Scratch: throwaway verification programs (the pgversion column dumps
+# and similar one-off probes). One ignored dir rather than a new dotdir per
+# investigation, so a broad `git add` can never sweep one into a commit.
+tmp/
 # ...except the web bundle, which IS committed: R11.4 reports its size as a
 # number of its own, and go:embed (web/embed.go) needs it so `go build` works
 # on a machine with no node toolchain.
