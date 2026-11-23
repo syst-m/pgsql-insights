@@ -456,6 +456,200 @@ print(f"status cells: {status_rows} requirement rows \u00b7 {len(status_bad)} no
 for n, rid, cell in status_bad[:20]:
     print(f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}")
 
+# ---------------------------------------------------------------------------
+# §3's phase table and §1's milestone table: the phase-level status, derived.
+#
+# check_status_enum above gates the 77 R-id rows and nothing else -- it is keyed on
+# STATUS_ROW_ID_RE, and neither `**Phase 0**` nor `Phases 2–9` is an R-id. The two
+# tables that carry *phase* status were therefore unvalidated content in a file this
+# script claims to gate. `0b440df` moved README's status line and left §3's Phase 9
+# row at ⬜; `fe61929` moved §3's row and left §1 reading `Phases 2–9 · ⬜ not
+# started`; `6af534c` fixed that cell by hand, which is the state that rots -- a
+# corrected cell with no generator. docs/agents.md §5 item 10 is the rule; this is
+# the generator A3's ruling asked for, and the §1 cells ship in the same commit as
+# the check that pins them, because a check that ships red and a cell that ships
+# ungenerated are the same failure wearing different clothes.
+#
+# Three tables, three vocabularies: §3.1's R-id rows use the word enum above, §3's
+# phase table uses the bare glyph legend at :103, §1's milestone table uses glyph +
+# label. The legend is the single source for the last two -- parsed, never hardcoded,
+# so editing it moves both vocabularies the way STATUS_ENUM moves the first. It is
+# split on ` · ` rather than matched as a character class because `⚠️` is two code
+# points (0x26a0 0xfe0f) where the other three are one: a class like [⬜🔄✅⚠️]
+# fullmatches the three singletons and rejects every ⚠️, so Phase 0 -- the row every
+# rule about it is written for -- would fail at tokenisation, before any of them ran.
+
+LEGEND_RE = re.compile(r"^Status legend:\s*(.+)$")
+PHASE_TABLE_RE = re.compile(r"^\|\s*Phase\s*\|\s*Scope\s*\|")
+MILESTONE_TABLE_RE = re.compile(r"^\|\s*Milestone\s*\|\s*Status\s*\|")
+PHASE_TOKEN_RE = re.compile(r"^\*\*(\d+[ab]?)\*\*$")
+MILESTONE_PHASE_RE = re.compile(r"^\*\*Phase (\d+[ab]?)\*\*")
+MILESTONE_RANGE_RE = re.compile(r"^Phases (\d+)[–\-](\d+)$")
+MILESTONE_RELEASE_RE = re.compile(r"^v\d+\.\d+\.\d+(?:-[A-Za-z]+)? release$")
+SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|$")
+
+
+def parse_legend(root):
+    """{glyph: label} from IMPLEMENTATION.md's legend line -- the one place the
+    phase-level vocabulary is written. Split on ` · `, not a character class, so
+    multi-codepoint glyphs survive intact."""
+    for line in lines_of(root, "IMPLEMENTATION.md"):
+        m = LEGEND_RE.match(line.strip())
+        if not m:
+            continue
+        out = {}
+        for entry in m.group(1).split(" · "):
+            glyph, _, label = entry.strip().partition(" ")
+            if glyph:
+                out[glyph] = label.strip()
+        return out
+    return {}
+
+
+def table_rows(root, header_re):
+    """Cells of every row under the first table whose header matches header_re."""
+    lines = lines_of(root, "IMPLEMENTATION.md")
+    for i, line in enumerate(lines):
+        if not header_re.match(line.strip()):
+            continue
+        j = i + 1
+        if j < len(lines) and SEPARATOR_RE.match(lines[j].strip()):
+            j += 1                                  # skip the |---|---| row
+        rows = []
+        while j < len(lines) and lines[j].strip().startswith("|"):
+            rows.append(split_row_esc(lines[j].strip()))
+            j += 1
+        return rows
+    return []
+
+
+def rollup(glyphs, by_label):
+    """Phase-level glyph from the glyphs of that phase's rows: all not-started ->
+    not-started, all done (either flavour) -> done, anything else -> in-progress.
+    Needs the legend's *labels*, not just its glyphs -- the rule is about which glyph
+    means 'done', and that is exactly what the legend says. A phase with one ✅ row
+    and one 🔄 row resolves to 🔄, which is how Phase 1 reads."""
+    ns, ip = by_label["not started"], by_label["in progress"]
+    done = (by_label["done"], by_label["done with deviations"])
+    if all(g == ns for g in glyphs):
+        return ns
+    if all(g in done for g in glyphs):
+        return by_label["done"]
+    return ip
+
+
+def check_phase_and_milestone_status(root):
+    """§3's phase table -> the phase-level status; §1's cells must equal what it says.
+
+    Returns (phase_rows, phase_bad, ms_rows, ms_bad): §3's row count with its
+    malformed status cells, and §1's in-scope row count with the cells that disagree
+    with the derived value. A3's structure ruling is that this is its own function
+    with its own printed line rather than an extension of check_status_enum -- that
+    one is keyed on STATUS_ROW_ID_RE and speaks the word enum, and folding glyph rows
+    into it would make the next person who needs to unblock CI revert a function that
+    also gates the 77 R-id cells.
+    """
+    by_glyph = parse_legend(root)
+    if not by_glyph:
+        print("GUARD: phase status check parsed 0 legend glyphs -- the legend line "
+              "moved, not a pass")
+        sys.exit(2)
+    by_label = {v: k for k, v in by_glyph.items()}
+    DONE_LABELS = (by_label["done"], by_label["done with deviations"])
+
+    def cell_for(g):
+        """§1's cell format, derived: the glyph plus the exact label the legend maps
+        it to. Pinned from one place rather than typed per row, which is what lets
+        `⬜ not started` (two words) and `✅ done` (one) both be correct without a
+        word-count rule -- A3's P3, and the reason the existing STATUS_CELL_RE is
+        not a template here: it pins `**word** (A1)` forms, not glyph+label pairs."""
+        return f"{g} {by_glyph[g]}"
+
+    def is_done(g):
+        return by_glyph[g] in DONE_LABELS
+    missing = [w for w in ("not started", "in progress", "done", "done with deviations")
+               if w not in by_label]
+    if missing:
+        print(f"GUARD: legend has no glyph for {missing} -- not a pass")
+        sys.exit(2)
+
+    # §3's status cell is pinned, not scraped. Two of its twelve rows are not a bare
+    # glyph -- `**4**` is `🔄 (§3.9 — one requirement transferred, recorded there)` --
+    # and taking cell[4] verbatim makes Phase 4's derived value that whole string,
+    # which can never equal §1's `🔄 in progress`: the check would ship red on a row
+    # that is correct. glyph = the cell's first whitespace-delimited token, and the
+    # rest of the cell must be a parenthesised note or the row is reported.
+    glyph_alt = "|".join(re.escape(g) for g in sorted(by_glyph, key=len, reverse=True))
+    phase_status_re = re.compile(r"^(%s)(?: \(.*\))?$" % glyph_alt, re.S)
+
+    phase_rows, phase_bad, rows_by_token = 0, [], {}
+    for cells in table_rows(root, PHASE_TABLE_RE):
+        m = PHASE_TOKEN_RE.match(cells[0])
+        if not m:
+            continue
+        phase_rows += 1
+        if len(cells) < 5:
+            phase_bad.append((cells[0], "<row has %d cells>" % len(cells)))
+            continue
+        sm = phase_status_re.match(cells[4])
+        if not sm:
+            phase_bad.append((cells[0], cells[4][:60]))
+            continue
+        rows_by_token[m.group(1)] = sm.group(1)
+
+    ms_rows, ms_bad = 0, []
+    for cells in table_rows(root, MILESTONE_TABLE_RE):
+        if len(cells) < 2:
+            continue
+        label, cell = cells[0], cells[1]
+        expected = None
+        m = MILESTONE_PHASE_RE.match(label)
+        if m:
+            # Single-phase row: compare to that exact §3 token, not to the phase
+            # number's rollup -- §1 has a row per token, and the Phase 1a/1b pair is
+            # the pair this catches (a rollup would hide 1a's 🔄 behind Phase 1).
+            glyph = rows_by_token.get(m.group(1))
+            expected = cell_for(glyph) if glyph else None
+        else:
+            m = MILESTONE_RANGE_RE.match(label)
+            if m:
+                lo, hi = int(m.group(1)), int(m.group(2))
+                nums = sorted({int(re.match(r"\d+", t).group(0))
+                               for t in rows_by_token
+                               if lo <= int(re.match(r"\d+", t).group(0)) <= hi})
+                if nums:
+                    glyphs = [rollup([rows_by_token[t] for t in rows_by_token
+                                      if int(re.match(r"\d+", t).group(0)) == n],
+                                     by_label) for n in nums]
+                    g = rollup(glyphs, by_label)
+                    n_open = sum(1 for x in glyphs if x != by_label["not started"])
+                    expected = "%s (%d of %d)" % (cell_for(g), n_open, len(nums))
+            elif MILESTONE_RELEASE_RE.match(label):
+                # The release ships at the end of Phase 9, so it is not started until
+                # Phase 9 is done. The other ten §1 rows (the two Research rows, the
+                # three requirements.md versions, the two reviews, this file, and the
+                # two single-phase rows counted above) have no §3 counterpart.
+                g = rows_by_token.get("9")
+                if g is not None:
+                    expected = cell_for(g) if is_done(g) \
+                        else cell_for(by_label["not started"])
+        if expected is None:
+            continue
+        ms_rows += 1
+        if cell != expected:
+            ms_bad.append((label, cell, expected))
+    return phase_rows, phase_bad, ms_rows, ms_bad
+
+
+phase_rows, phase_bad, ms_rows, ms_bad = check_phase_and_milestone_status(root)
+print(f"phase cells: {phase_rows} §3 phase rows · {len(phase_bad)} malformed status "
+      f"cells · {ms_rows} §1 phase rows · {len(ms_bad)} disagreeing with §3")
+for label, cell, expected in ms_bad[:20]:
+    print(f"  IMPLEMENTATION.md §1 {label}: {cell!r}, §3 derives {expected!r}")
+for token, cell in phase_bad[:20]:
+    print(f"  IMPLEMENTATION.md §3 **{token}**: status cell {cell!r} is not a glyph")
+
+
 checked_links, links_bad, labels_bad = check_links(root, files_all)
 if not scanned_md:
     print("GUARD: link check scanned 0 markdown files — file discovery broke, not a pass")
@@ -469,5 +663,6 @@ for f, n, text, path in labels_bad[:20]:
           f"{path!r}")
 
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
-              or id_orphans or path_orphans or labels_bad or status_bad) else 0)
+              or id_orphans or path_orphans or labels_bad or status_bad
+              or phase_bad or ms_bad) else 0)
 

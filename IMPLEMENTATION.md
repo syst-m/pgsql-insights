@@ -30,10 +30,10 @@ anything.
 | **`requirements.md` v0.2.0** (reviews incorporated) | ✅ done | all 55 findings dispositioned; 4 reviewer disagreements ruled on in spec §11 |
 | **`requirements.md` v0.3.0** (Phase 1 split 1a/1b) | ✅ done | spec §7.2/§7.3; the UI moved from Phase 5 to Phase 1b — see D13 |
 | **`IMPLEMENTATION.md`** (this file) | ✅ current | R14.1 satisfied; R14.8 table in §3.1 |
-| **Phase 0** — packaging & skeleton | ✅ done | A4 — this commit; ⚠️ deviations in §5 |
-| **Phase 1a** — discovery + `/api/v1/clusters` | ✅ done | A1 (opus) — `362e8d3` + this commit (see §3.4's commit map); §3.4–§3.5 + §3.8, ⚠️ deviations §5-D4, D6, D16, D17 |
+| **Phase 0** — packaging & skeleton | ⚠️ done with deviations | A4 — this commit; ⚠️ deviations in §5 |
+| **Phase 1a** — discovery + `/api/v1/clusters` | 🔄 in progress | A1 (opus) — `362e8d3` + this commit (see §3.4's commit map); §3.4–§3.5 + §3.8, ⚠️ deviations §5-D4, D6, D16, D17 |
 | **Phase 1b** — embedded SPA + Fleet page | ✅ done | A4 (sonnet) — this commit; §3.4–§3.6, ⚠️ deviations §5-D7…D9 |
-| Phases 2–9 | ⬜ not started | see §3 |
+| Phases 2–9 | 🔄 in progress (4 of 8) | see §3 |
 | v0.1.0 release | ⬜ not started | end of Phase 9 |
 
 **What exists on disk right now:** everything Phase 0 scopes — `cmd/pgsi/`, `internal/api/`,
