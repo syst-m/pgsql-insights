@@ -1,7 +1,9 @@
 // Command pgsi is the single pgsql-insights binary (R11.1): API, collector and
 // embedded UI in one process.
 //
-// Subcommand surface (R3.1): serve | collect | api | version.
+// Subcommand surface (R3.1): serve | collect | api | version, plus R11.8's
+// `config dump`, which prints the resolved config and exits without starting
+// anything.
 // Per spec §3.1 and IMPLEMENTATION.md D9 (A3-M1), v1 ships exactly one working
 // role — serve. `collect` and `api` are reserved stubs that exit without doing
 // work, so the v1.x --role=collect|serve split can land without breaking the
@@ -24,6 +26,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/frankellis/pgsql-insights/internal/api"
 	"github.com/frankellis/pgsql-insights/internal/discovery"
@@ -41,6 +44,7 @@ commands:
   collect   reserved: the collector role of the v1.x role split (D9) — no-op in v1
   api       reserved: the API-only role of the v1.x role split (D9) — no-op in v1
   version   print the build version and commit (R11.3)
+  config    dump the resolved config for a set of serve flags (R11.8)
 
 serve flags (run "pgsi serve -h" for the full set):
   --listen                      address the HTTP server binds (R8.7)         :8080
@@ -95,6 +99,12 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		os.Exit(runServe(os.Args[2:]))
+	case "config":
+		// R11.8 — resolve the chain and print it, without starting anything.
+		// The flags it accepts are serve's, so `pgsi config dump --listen=:9`
+		// answers "what would serve use", which is the question the requirement
+		// says the dump is for.
+		os.Exit(runConfig(os.Args[2:]))
 	case "collect", "api":
 		// Reserved for the v1.x role split (D9). Exiting 0 keeps scripts and
 		// CI honest about the contract without pretending the split exists.
@@ -113,20 +123,69 @@ func main() {
 	}
 }
 
-func runServe(args []string) int {
-	// R13.7's `--log-field-*` shape cannot be declared as a Go flag (the flag
-	// package has no dynamic flag names), so the prefixed form is lifted out of
-	// argv before Parse sees it. Everything else parses normally, including the
-	// plain repeatable `--log-field k=v`.
-	prefixed, rest, err := logx.FieldsFromArgs(args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
-		return 2
-	}
+// serveFlags is the `pgsi serve` flag set: the FlagSet itself plus a typed
+// pointer to every flag's value.
+//
+// It exists so the flag set has exactly one enumeration. Before R11.8 the
+// declarations lived inline in runServe, and the only way to hand the same set
+// to the resolver was to rebuild it — and a rebuilt set is a second list of
+// flag names, which is the third source of truth main.go's package doc promises
+// does not exist. Embedding the FlagSet and naming each pointer as a field keeps
+// every downstream `*listen` / `*resync` read working while making the
+// constructor the single place a flag is declared, and it is what
+// TestTableCoversEveryFlag compares the R11.8 table against.
+//
+// Field types mirror the flag constructors.
+type serveFlags struct {
+	*flag.FlagSet
 
+	listen               *string
+	shutdown             *time.Duration
+	authMode             *string
+	authMetrics          *string
+	authToken            *string
+	authTokenFile        *string
+	authMetricsToken     *string
+	authMetricsTokenFile *string
+	corsOrigin           *string
+	corsCreds            *bool
+	corsMaxAge           *time.Duration
+	prometheusURL        *string
+	logLevel             *string
+	logField             logx.Fields
+	discover             *bool
+	namespaces           *string
+	exclude              *string
+	resync               *time.Duration
+	staleGrace           *time.Duration
+	credSecret           *string
+	credUser             *string
+	credPass             *string
+	credDB               *string
+	kubeconfig           *string
+	kubeContext          *string
+	apiServer            *string
+	bearer               *string
+	clientCert           *string
+	clientKey            *string
+	insecure             *bool
+	useProxy             *bool
+	qps                  *float64
+	burst                *int
+	reqTimeout           *time.Duration
+}
+
+// newServeFlags declares every `pgsi serve` flag and returns them as one value.
+//
+// `prefixed` is the --log-field-* set the R13.7 pre-scan lifted out of argv; it
+// seeds the --log-field flag's value so both spellings accumulate into one set,
+// exactly as runServe did before the extraction.
+func newServeFlags(prefixed logx.Fields) *serveFlags {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	listen := fs.String("listen", ":8080", "address the HTTP server binds (R8.7)")
-	shutdown := fs.Duration("shutdown-timeout", 0, "graceful-shutdown drain budget (R13.8); 0 selects 10s")
+	sf := &serveFlags{FlagSet: fs}
+
+	sf.listen = fs.String("listen", ":8080", "address the HTTP server binds (R8.7)")
+	sf.shutdown = fs.Duration("shutdown-timeout", 0, "graceful-shutdown drain budget (R13.8); 0 selects 10s")
 
 	// --- R8.8 auth -------------------------------------------------------
 	// The defaults are the requirement's own words: "Default `token` with a
@@ -139,14 +198,14 @@ func runServe(args []string) int {
 	// /metrics alone; /healthz and /readyz are never auth-gated under any value
 	// of either flag, because kubelet's httpGet probe cannot present a bearer
 	// token and a 401 on a probe is a pod that never becomes Ready.
-	authMode := fs.String("auth", string(api.DefaultAuthMode), "auth mode for /, /api/v1/* and /debug/pprof/*: none|token|kube-rbac-proxy (R8.8)")
-	authMetrics := fs.String("auth-metrics", string(api.AuthNone), "auth mode for /metrics only (R8.8/R8.9); /healthz and /readyz are never auth-gated. none lets Prometheus scrape without a token")
-	authToken := fs.String("auth-token", "", "bearer token for --auth=token; takes precedence over --auth-token-file")
+	sf.authMode = fs.String("auth", string(api.DefaultAuthMode), "auth mode for /, /api/v1/* and /debug/pprof/*: none|token|kube-rbac-proxy (R8.8)")
+	sf.authMetrics = fs.String("auth-metrics", string(api.AuthNone), "auth mode for /metrics only (R8.8/R8.9); /healthz and /readyz are never auth-gated. none lets Prometheus scrape without a token")
+	sf.authToken = fs.String("auth-token", "", "bearer token for --auth=token; takes precedence over --auth-token-file")
 	// The default is the path the chart mounts the Secret at, exported from
 	// internal/api as TokenFile so the chart and the binary cannot disagree
 	// about it. Off-pod, `--auth=token` with no --auth-token produces a clear
 	// "no such file" error rather than a silently unauthenticated server.
-	authTokenFile := fs.String("auth-token-file", api.TokenFile, "file holding the bearer token (R8.8's Secret, mounted by the chart); used when --auth-token is empty")
+	sf.authTokenFile = fs.String("auth-token-file", api.TokenFile, "file holding the bearer token (R8.8's Secret, mounted by the chart); used when --auth-token is empty")
 
 	// --- R8.8's second secret: /metrics' own token ------------------------
 	// R8.8 says the /metrics credential is separate from the API credential,
@@ -163,17 +222,17 @@ func runServe(args []string) int {
 	// --auth-metrics-token-file gets a real second Secret. A default of
 	// api.TokenFile here would instead make the fallback unreachable, because
 	// "unset" and "the chart's API path" would be the same string.
-	authMetricsToken := fs.String("auth-metrics-token", "", "bearer token for --auth-metrics=token (R8.8's separate /metrics credential); falls back to --auth-token when empty; takes precedence over --auth-metrics-token-file")
-	authMetricsTokenFile := fs.String("auth-metrics-token-file", "", "file holding the /metrics bearer token; falls back to --auth-token-file when empty and --auth-metrics-token is unset")
+	sf.authMetricsToken = fs.String("auth-metrics-token", "", "bearer token for --auth-metrics=token (R8.8's separate /metrics credential); falls back to --auth-token when empty; takes precedence over --auth-metrics-token-file")
+	sf.authMetricsTokenFile = fs.String("auth-metrics-token-file", "", "file holding the /metrics bearer token; falls back to --auth-token-file when empty and --auth-metrics-token is unset")
 
 	// --- R8.9 CORS -------------------------------------------------------
 	// Empty --cors-allow-origin means no CORS headers at all. R8.6 serves the
 	// SPA from this same binary, so the normal deployment is same-origin and
 	// defaulting to "*" would open the API to every origin for nobody's
 	// benefit (and "*" is invalid alongside credentials). See internal/api/cors.go.
-	corsOrigin := fs.String("cors-allow-origin", "", "comma-separated CORS allow-list (R8.9); empty means same-origin only, no CORS headers")
-	corsCreds := fs.Bool("cors-allow-credentials", false, "send Access-Control-Allow-Credentials on CORS responses (R8.9)")
-	corsMaxAge := fs.Duration("cors-max-age", 0, "how long a browser may cache a preflight (R8.9); 0 selects 5m")
+	sf.corsOrigin = fs.String("cors-allow-origin", "", "comma-separated CORS allow-list (R8.9); empty means same-origin only, no CORS headers")
+	sf.corsCreds = fs.Bool("cors-allow-credentials", false, "send Access-Control-Allow-Credentials on CORS responses (R8.9)")
+	sf.corsMaxAge = fs.Duration("cors-max-age", 0, "how long a browser may cache a preflight (R8.9); 0 selects 5m")
 
 	// --- R8.3 PromQL pair --------------------------------------------------
 	// One flag picks the mode the pair answers in. Set, and
@@ -184,15 +243,15 @@ func runServe(args []string) int {
 	// PromQLUnavailable for anything else, because §3.4 keeps raw samples out of
 	// SQLite and the binary ships no PromQL evaluator. The pair is mounted either
 	// way; the flag changes what it can answer, not whether it exists.
-	prometheusURL := fs.String("prometheus-url", "", "base URL of the Prometheus the R8.3 pair proxies PromQL to (R8.3); empty serves the fixed named-query catalogue only")
+	sf.prometheusURL = fs.String("prometheus-url", "", "base URL of the Prometheus the R8.3 pair proxies PromQL to (R8.3); empty serves the fixed named-query catalogue only")
 
 	// --- R13.7 logging ---------------------------------------------------
-	logLevel := fs.String("log-level", "info", "log level: debug|info|warn|error (R13.7); debug is where a collector dumps the SQL it ran")
+	sf.logLevel = fs.String("log-level", "info", "log level: debug|info|warn|error (R13.7); debug is where a collector dumps the SQL it ran")
 	// The flag value is seeded with the --log-field-* fields the pre-scan
 	// found, so both spellings accumulate into one set and flag's usage output
 	// still shows --log-field.
-	logFields := prefixed
-	fs.Var(&logFields, "log-field", "extra structured log field as k=v (R13.7), repeatable; --log-field-<key>=<value> is also accepted")
+	sf.logField = prefixed
+	fs.Var(&sf.logField, "log-field", "extra structured log field as k=v (R13.7), repeatable; --log-field-<key>=<value> is also accepted")
 
 	// --- R1.1/R1.9 discovery ---------------------------------------------
 	// D9's role knob, one flag ahead of the v1.x subcommand split: --discover=
@@ -200,41 +259,69 @@ func runServe(args []string) int {
 	// `api` role. R8.7(ii) is what makes that useful — a process that runs no
 	// discovery is ready once it is listening, not permanently unready under a
 	// discovery-only rule.
-	discover := fs.Bool("discover", true, "run cluster discovery in this process (D9's role knob; --discover=false serves the API with an empty fleet)")
-	namespaces := fs.String("namespaces", "", "comma-separated namespace allow list (R1.1); empty means every namespace the RBAC can see")
-	exclude := fs.String("exclude-namespaces", "", "comma-separated namespace deny list (R1.1); applies to the allow list, or to the visible set when it is empty")
-	resync := fs.Duration("resync", 0, "informer resync period (R1.1's 30s); 0 selects 30s")
-	staleGrace := fs.Duration("stale-grace", 0, "how long a deleted cluster's series stay labelled stale (R1.9); 0 selects 15m")
+	sf.discover = fs.Bool("discover", true, "run cluster discovery in this process (D9's role knob; --discover=false serves the API with an empty fleet)")
+	sf.namespaces = fs.String("namespaces", "", "comma-separated namespace allow list (R1.1); empty means every namespace the RBAC can see")
+	sf.exclude = fs.String("exclude-namespaces", "", "comma-separated namespace deny list (R1.1); applies to the allow list, or to the visible set when it is empty")
+	sf.resync = fs.Duration("resync", 0, "informer resync period (R1.1's 30s); 0 selects 30s")
+	sf.staleGrace = fs.Duration("stale-grace", 0, "how long a deleted cluster's series stay labelled stale (R1.9); 0 selects 15m")
 
 	// --- R1.8 credentials -------------------------------------------------
 	// The configured side of R1.8's precedence; the cluster side (<cluster>-app)
 	// is read by discovery itself. These three flags are the pre-multi-cluster
 	// single-credential shape, kept working.
-	credSecret := fs.String("credential-secret", "", "app credential Secret as namespace/name or a bare name (R1.8's first level); outranks every other source")
-	credUser := fs.String("credential-username", "", "configured app username (R1.8's third level) when no secret is configured")
-	credPass := fs.String("credential-password", "", "configured app password (R1.8)")
-	credDB := fs.String("credential-dbname", "", "configured app database name (R1.8)")
+	sf.credSecret = fs.String("credential-secret", "", "app credential Secret as namespace/name or a bare name (R1.8's first level); outranks every other source")
+	sf.credUser = fs.String("credential-username", "", "configured app username (R1.8's third level) when no secret is configured")
+	sf.credPass = fs.String("credential-password", "", "configured app password (R1.8)")
+	sf.credDB = fs.String("credential-dbname", "", "configured app database name (R1.8)")
 
 	// --- R1.7/R1.11 kube client ------------------------------------------
-	kubeconfig := fs.String("kubeconfig", "", "kubeconfig path (R1.7); empty uses $KUBECONFIG/~/.kube/config, or in-cluster config inside a pod")
-	kubeContext := fs.String("kube-context", "", "kubeconfig context to use (R1.7); empty uses the current-context")
-	apiServer := fs.String("api-server-url", "", "explicit API server endpoint (R1.11's tunnelled cluster); bypasses the kubeconfig")
-	bearer := fs.String("bearer-token", "", "bearer token for --api-server-url (R1.11); required unless the endpoint accepts anonymous")
-	clientCert := fs.String("client-cert", "", "client certificate for --api-server-url (R1.11)")
-	clientKey := fs.String("client-key", "", "client key for --api-server-url (R1.11)")
-	insecure := fs.Bool("insecure-skip-verify", false, "skip TLS verification of --api-server-url (R1.11's self-signed tunnels)")
-	useProxy := fs.Bool("use-proxy", false, "force the pods/proxy transport for instance access even when the pod IP is reachable (R1.7's --use-proxy=true)")
-	qps := fs.Float64("qps", 0, "API request rate limit (R1.7); 0 selects 25 — client-go's 5 default is tuned for one controller, not a fleet-wide watch")
-	burst := fs.Int("burst", 0, "request burst for --qps (R1.7); 0 selects 50")
-	reqTimeout := fs.Duration("request-timeout", 0, "bound on a single API request (R1.7); 0 selects 15s")
+	sf.kubeconfig = fs.String("kubeconfig", "", "kubeconfig path (R1.7); empty uses $KUBECONFIG/~/.kube/config, or in-cluster config inside a pod")
+	sf.kubeContext = fs.String("kube-context", "", "kubeconfig context to use (R1.7); empty uses the current-context")
+	sf.apiServer = fs.String("api-server-url", "", "explicit API server endpoint (R1.11's tunnelled cluster); bypasses the kubeconfig")
+	sf.bearer = fs.String("bearer-token", "", "bearer token for --api-server-url (R1.11); required unless the endpoint accepts anonymous")
+	sf.clientCert = fs.String("client-cert", "", "client certificate for --api-server-url (R1.11)")
+	sf.clientKey = fs.String("client-key", "", "client key for --api-server-url (R1.11)")
+	sf.insecure = fs.Bool("insecure-skip-verify", false, "skip TLS verification of --api-server-url (R1.11's self-signed tunnels)")
+	sf.useProxy = fs.Bool("use-proxy", false, "force the pods/proxy transport for instance access even when the pod IP is reachable (R1.7's --use-proxy=true)")
+	sf.qps = fs.Float64("qps", 0, "API request rate limit (R1.7); 0 selects 25 — client-go's 5 default is tuned for one controller, not a fleet-wide watch")
+	sf.burst = fs.Int("burst", 0, "request burst for --qps (R1.7); 0 selects 50")
+	sf.reqTimeout = fs.Duration("request-timeout", 0, "bound on a single API request (R1.7); 0 selects 15s")
+	return sf
+}
 
-	if err := fs.Parse(rest); err != nil {
+func runServe(args []string) int {
+	// R13.7's `--log-field-*` shape cannot be declared as a Go flag (the flag
+	// package has no dynamic flag names), so the prefixed form is lifted out of
+	// argv before Parse sees it. Everything else parses normally, including the
+	// plain repeatable `--log-field k=v`.
+	prefixed, rest, err := logx.FieldsFromArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+		return 2
+	}
+
+	sf := newServeFlags(prefixed)
+
+	// Parse, then resolve. The order IS R11.8's precedence chain expressed as
+	// control flow: flag.Parse records which flags the command line actually set,
+	// and apply writes only to the ones it did not — so a flag given on the
+	// command line beats the env and ConfigMap layers by construction rather than
+	// by a comparison. Running apply before Parse would invert that, because
+	// every env value would then be overwritten by the flag's own default.
+	if err := sf.Parse(rest); err != nil {
+		return 2
+	}
+	if _, err := applyFlags(sf.FlagSet, OSEnv()); err != nil {
+		// Before the logger exists, so this is the same Fprintf the pre-scan
+		// failure gets: R13.7 wants a startup failure to be a log line, and there
+		// is no logger to make one yet.
+		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		return 2
 	}
 
 	// The logger is built before anything else that can talk, so a startup
 	// failure is a log line and not a printf of unknown shape (R13.7).
-	log, err := logx.NewFromFlags(*logLevel, logFields)
+	log, err := logx.NewFromFlags(*sf.logLevel, sf.logField)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		return 2
@@ -246,29 +333,29 @@ func runServe(args []string) int {
 	// with an empty Secret looks healthy in the Deployment and broken through
 	// the Service.
 	authz, err := api.AuthzConfig{
-		Mode:             api.AuthMode(*authMode),
-		MetricsMode:      api.AuthMode(*authMetrics),
-		Token:            *authToken,
-		TokenFile:        *authTokenFile,
-		MetricsToken:     *authMetricsToken,
-		MetricsTokenFile: *authMetricsTokenFile,
+		Mode:             api.AuthMode(*sf.authMode),
+		MetricsMode:      api.AuthMode(*sf.authMetrics),
+		Token:            *sf.authToken,
+		TokenFile:        *sf.authTokenFile,
+		MetricsToken:     *sf.authMetricsToken,
+		MetricsTokenFile: *sf.authMetricsTokenFile,
 	}.Build()
 	if err != nil {
 		log.Error("auth configuration", "error", err.Error())
 		return 2
 	}
 
-	cfg := api.Config{Listen: *listen, ShutdownTimeout: *shutdown, Auth: authz, Log: log}
+	cfg := api.Config{Listen: *sf.listen, ShutdownTimeout: *sf.shutdown, Auth: authz, Log: log}
 
 	// --- CORS (R8.9) -----------------------------------------------------
 	// An empty allow-list leaves cfg.CORS nil, which cors.go treats as "no CORS
 	// headers at all" — the correct answer for the same-origin deployment R8.6
 	// describes, and the reason "*" is not the default here.
-	if origins := api.ParseCORSAllowOrigin(*corsOrigin); len(origins) > 0 {
+	if origins := api.ParseCORSAllowOrigin(*sf.corsOrigin); len(origins) > 0 {
 		cfg.CORS = &api.CORSConfig{
 			AllowedOrigins:   origins,
-			AllowCredentials: *corsCreds,
-			MaxAge:           *corsMaxAge,
+			AllowCredentials: *sf.corsCreds,
+			MaxAge:           *sf.corsMaxAge,
 		}
 	}
 
@@ -277,7 +364,7 @@ func runServe(args []string) int {
 	// --prometheus-url the pair proxies, without it it serves the catalogue
 	// (NewPromQL fills in DefaultCatalogue and an empty source), and there is no
 	// configuration in which the two documented routes should not exist.
-	cfg.PromQL = api.NewPromQL(api.PromQLConfig{PrometheusURL: *prometheusURL})
+	cfg.PromQL = api.NewPromQL(api.PromQLConfig{PrometheusURL: *sf.prometheusURL})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -294,34 +381,34 @@ func runServe(args []string) int {
 	// rather than leaving a pod serving a fleet it can no longer update.
 	var disc *discovery.Discoverer
 	discDone := make(chan error, 1)
-	if *discover {
+	if *sf.discover {
 		kc, err := kube.New(kube.Config{
-			Kubeconfig:         *kubeconfig,
-			Context:            *kubeContext,
-			APIServerURL:       *apiServer,
-			BearerToken:        *bearer,
-			ClientCertFile:     *clientCert,
-			ClientKeyFile:      *clientKey,
-			InsecureSkipVerify: *insecure,
-			UseProxy:           *useProxy,
-			QPS:                float32(*qps),
-			Burst:              *burst,
-			Timeout:            *reqTimeout,
+			Kubeconfig:         *sf.kubeconfig,
+			Context:            *sf.kubeContext,
+			APIServerURL:       *sf.apiServer,
+			BearerToken:        *sf.bearer,
+			ClientCertFile:     *sf.clientCert,
+			ClientKeyFile:      *sf.clientKey,
+			InsecureSkipVerify: *sf.insecure,
+			UseProxy:           *sf.useProxy,
+			QPS:                float32(*sf.qps),
+			Burst:              *sf.burst,
+			Timeout:            *sf.reqTimeout,
 		})
 		if err != nil {
 			log.Error("kube client", "error", err.Error())
 			return 2
 		}
 		disc = discovery.New(discovery.Config{
-			Namespaces:        splitList(*namespaces),
-			ExcludeNamespaces: splitList(*exclude),
-			Resync:            *resync,
-			StaleGrace:        *staleGrace,
+			Namespaces:        splitList(*sf.namespaces),
+			ExcludeNamespaces: splitList(*sf.exclude),
+			Resync:            *sf.resync,
+			StaleGrace:        *sf.staleGrace,
 			Credentials: discovery.CredentialsConfig{
-				Secret:   *credSecret,
-				Username: *credUser,
-				Password: *credPass,
-				DBName:   *credDB,
+				Secret:   *sf.credSecret,
+				Username: *sf.credUser,
+				Password: *sf.credPass,
+				DBName:   *sf.credDB,
 			},
 		}, kc, log)
 		cfg.Fleet = disc
