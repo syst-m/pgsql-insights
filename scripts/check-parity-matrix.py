@@ -372,11 +372,18 @@ def check_links(root, tracked):
     The broken half resolves the target. The label half checks the bracket text, but only
     when that text *names* a file: the text is prose ("see the chart README"), so comparing
     it whole to the target false-positives on the repo's own fixed form —
-    .claude/agents/a4-frontend.md:52 reads [`docs/agents.md` §5.1](../../docs/agents.md),
-    whose text is "docs/agents.md` §5.1" and whose target is "docs/agents.md". Measured on
-    the current tree: whole-text comparison flags 18 of the 70 links, token extraction flags
-    0. When the text does contain a path-shaped token it is naming a file, and a filename
-    that disagrees with the target's is a stale label — the target moved, the prose didn't.
+    .claude/agents/a4-frontend.md:58 reads [`docs/agents.md` §5.1](../../docs/agents.md),
+    whose text is "docs/agents.md` §5.1" and whose target is "docs/agents.md".
+
+    The 18/0 figure, with its recipe, because the number is recipe-dependent (A4's f14d974
+    review could not reproduce 18 from the sentence alone, and listed four other whole-text
+    variants giving 28, 33, 53 and 69). Command: over the 70 links this function scans, strip
+    backticks from the bracket text, take the basename of what remains, compare it to the
+    basename of the target — 18 differ; re.search(P, text) then basename-vs-basename — 0
+    differ. Stripping backticks from both sides gives 28, and stripping nothing gives 53, so
+    the recipe is part of the claim. (The :58 here was :52 when f14d974 was written: the line
+    moved in db41cbb. The path-citation half of this script checks .md files only, so a stale
+    cite inside this .py docstring is invisible to the tool that exists to catch it.)
     """
     checked, broken, label_bad = 0, [], []
     for rel in tracked:
