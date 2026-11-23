@@ -160,6 +160,10 @@ EXEMPT = {
     "R10.4b": "v0.3.0 review's proposed split of R10.4; shipped unsplit",
     "R15.4": "cited in docs/licenses/README.md only to record that it never existed",
     "R15.5": "cited in docs/licenses/README.md only to record that it never existed",
+    # The same treatment the licenses README gets, applied to the sentence that describes it:
+    # docs/agents.md §6 cites R8.12 to say it was a phantom, and the checker correctly refuses
+    # to let an undefined id through just because the sentence about it is an apology.
+    "R8.12": "cited in docs/agents.md §6 only to record that it never existed (shipped as R8.6)",
 }
 # \d{1,2} on both halves, not \d+: without the bound, the Cloud SQL research note's
 # POSTGRES_$version.R20250727.00_14 reads as an id (the prototype's one false positive).

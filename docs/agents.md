@@ -239,6 +239,19 @@ history, because three of the four slots have shipped a claim that didn't surviv
 **So: re-run the command, don't re-read the prose.** Where a claim is checkable in one command,
 run it. Where it's a test-coverage claim, break the thing and confirm the test notices.
 
+The rule has an author's half, and it is the half that gets skipped. **A finding and the sentence
+about the finding are two claims.** The headline gets verified because it is the thing being acted
+on; the quantified sentence attached to it rides out on the headline's credibility, unchecked. Four
+instances in one session, across three slots: A3's `R8.12 → R8.6` fix in `docs/architecture.md`
+was correct, and the enumeration justifying it — "R8 has exactly R8.1, R8.1b, R8.1c, R8.2–R8.9" —
+was short by two, since R8.10 and R8.11 exist (`requirements.md:385-386`). A2 twice corrected a
+number correctly while overstating what that number implied ("the form that survives the next
+insertion", then "stops owing you a fix"); A4 doubted an arithmetic claim of their own that was
+correct once it was checked against the diffs. The coordinator catches the headline and inherits
+the generalisation, so the fix has to be on the author's side: every quantified word in a report —
+*exactly, all, every, the only, none, zero* — is a separate claim and needs its own command, run
+before the report goes out rather than after someone questions it.
+
 ## 7. Reproducing a run
 
 Spawn the four from `.claude/agents/` (or reuse the live ones via `SendMessage` — the cap means
