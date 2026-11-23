@@ -11,12 +11,12 @@ third one used to be only asserted. See [How CI regenerates it](#how-ci-regenera
 
 | File | Content |
 |---|---|
-| `go-dependencies.txt` | Every module in the module graph — 48 of them, 3 direct and 45 indirect — parsed from `go.mod`, plus this module itself with its Apache-2.0 license. |
+| `go-dependencies.txt` | Every module in the module graph — 56 of them, 5 direct and 51 indirect — parsed from `go.mod`, plus this module itself with its Apache-2.0 license. |
 | `web-dependencies.txt` | Every package in `web/package-lock.json` with its SPDX license — 176 packages, 0 without a license field. |
-| `go-licenses-report.csv` | `go-licenses report ./...` — 53 packages with their license URL and SPDX id, the columns the tool emits (`package`, `license_url`, `license`). |
+| `go-licenses-report.csv` | `go-licenses report ./...` — 61 packages with their license URL and SPDX id, the columns the tool emits (`package`, `license_url`, `license`). |
 
 R15.3 names both halves explicitly, and the numbers are the reason: the SPA is 176
-packages against the Go side's 48 modules, so a Go-only audit covers the smaller
+packages against the Go side's 56 modules, so a Go-only audit covers the smaller
 dependency surface while the UI carries the larger one.
 
 ## How CI regenerates it
@@ -63,11 +63,18 @@ of the failure instead of looking like an unrelated edit to a generated file. Th
 the optional-tool shape `lint-go` already uses for golangci-lint: a machine without the
 tool reports the gap rather than pretending the audit is complete.
 
-The tool reports *packages*, not modules, which is why the CSV has 53 rows against
-`go.mod`'s 48 modules — a module with several imported packages contributes one row
+The tool reports *packages*, not modules, which is why the CSV has 61 rows against
+`go.mod`'s 56 modules — a module with several imported packages contributes one row
 per package. Its own header line for this module reads `blob/HEAD/LICENSE` because the
 main module has no version in `go.mod`; the tool warns about that and the warning is
 correct and harmless.
+
+One row resolves to `Unknown,Unknown`: `modernc.org/mathutil`, pulled in by
+`modernc.org/sqlite` (Phase 2's store). It is the first unresolved license in this
+audit — the other 60 rows carry an SPDX id — and the file records it as `Unknown`
+rather than a hand-typed guess, which is what "generated, not curated" is for. The
+row is a fact about the tool's resolution, not a license change, and it is the one
+cell in `docs/licenses/` worth a human reading before the v0.1.0 license review.
 
 ## Images
 

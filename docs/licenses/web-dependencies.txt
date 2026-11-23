@@ -4,7 +4,7 @@
 # 176 packages, 0 without a license field.
 # R15.3 names this half explicitly ('the SPA's license set'): the Go audit
 # alone would miss every transitive npm dep — 176 packages here against
-# 48 Go modules, so the Go-only audit covers the smaller surface.
+# 56 Go modules, so the Go-only audit covers the smaller surface.
 #
 # <package> <version> <license>
 @adobe/css-tools 4.5.0 MIT
