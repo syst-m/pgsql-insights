@@ -200,7 +200,7 @@ Per cluster, on a configurable interval (default **60 s**, matching Cloud SQL's 
 | `io` | 60 s | S2 `pg_stat_io` (16+), `pg_stat_slru` (13+), `pg_stat_bgwriter`/`pg_stat_checkpointer` | Version-gated; S3 carries no `pg_stat_io` (§3.2 caveat) |
 | `replication` | 60 s | **S4 `replicationInfo[]`/`replicationSlotsInfo[]`** (preferred, no SQL, no creds); S2 `pg_stat_replication`, `pg_replication_slots`; S3 `cnpg_pg_replication_*` | Empty on single-instance clusters (R5.5) |
 | `locks` | 30 s | S2 `pg_locks` | Feeds the blocking chain |
-| `settings` | 15 min | S2 `pg_settings`, `pg_file_settings`, `pg_extensions` | Slow-changing; also gives `max_connections`, `shared_buffers`, `work_mem` for the gauge set |
+| `settings` | 15 min | S2 `pg_settings`, `pg_file_settings`, `pg_extension` | Slow-changing; also gives `max_connections`, `shared_buffers`, `work_mem` for the gauge set |
 | `progress` | 30 s | S2 `pg_stat_progress_*` | Vacuum/analyze/cluster/copy/create-index/basebackup progress |
 | `pooler` | 60 s | S5 + S6 | Only for clusters with a Pooler |
 | `instance-metrics` | 60 s | S3 (direct or `pods/proxy`) | Parses the `cnpg_*` exposition; the path that needs no SQL credentials |
