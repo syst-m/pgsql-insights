@@ -713,7 +713,7 @@ defect — two phases claiming one requirement with no statement of who is on th
 |---|---|---|
 | **owner** | `X → n` | phase `n` owns `X` |
 | **re-validation** | `X → n` *(also re-validated at m)* | `n` owns it; `m` re-tests it without owning it |
-| **scope-split** | `X *(scope a)* → n · *(scope b)* → m` | the requirement splits by scope, each half owned separately — the `(a)/(b)` form R10.5 uses |
+| **scope-split** | `X *(scope a)* → n · *(scope b)* → m` | the requirement splits by scope, each half owned separately — the form R10.4 uses (`10.4 *(inventory columns)* → **1b** · *(metric columns + top finding)* → **5**`); R10.5 was named here until A3's ruling below, and R10.5's index row carried no annotation at all — the generated list at the bottom of this section proved it |
 | **universal** | `X → every phase` | applies continuously rather than once (R14.2, R14.8) |
 
 The checker parses all four: ownership comes from the `→ n` part in every form, and the
@@ -724,6 +724,23 @@ parser silently dropped `1.9b`, `9.5b`, `9.7` and `10.16` (A3-Q1/D3: a greedy `[
 the `b` suffixes, and a comma inside `*(page, sort)*` cut the token before the asterisks were
 stripped). The script now prints the set — 25 IDs as of this commit, index 174 where the old parser
 found 170 — so the enumeration cannot rot on the next edit.
+
+**A3's ruling on R10.5's assignment (A2 routed it; the table named R10.5 as the scope-split
+exemplar while its index row was bare).** The cell at §4 R10.5 has three parts, not two: **(a)
+Query load**, **(b) Resource load**, and an unlettered *"Plus the R5.1 summary cards, a
+replication topology view sourced from S4 (R5.5), and instance chips with roles."* The phase
+boundary runs along the content, not the letters: (a) is the Query Insights page, whose data
+(S2/R9.4) already ships in the store, so **6b** owns it; (b) plus the R5.1 cards plus the S4
+topology are System Insights content, and R5.1, R5.3 and R5.5 are assigned to **7** by §7.2's own
+phase row. So the annotation is `10.5 *(Query load)* → **6b** · 10.5 *(Resource load, R5.1 cards,
+topology)* → **7**` — the id repeated in each part, which is the shape R10.4's row uses and the
+shape the parser needs, since it splits cell 2 on `·` and expands an id out of every part.
+A6's reading — `(a) → 6b · (b) → 7` — gets the boundary right and the spelling wrong: the letters
+label §4's cell, they do not name the scopes, and they cannot carry the unlettered *Plus* clauses.
+R5.3's degradation rule is what makes 6b's half renderable today: it ends "Never render a blank
+chart without saying why", so the Resource load panel's absence is itself specified work, and the
+graph fills in when 7 supplies the S7/`metrics.k8s.io` data rather than being built from scratch
+by it.
 
 **Standing re-validation rule (A3-Q1.3).** **Phase 9 re-validates every requirement shipped before
 it.** A release pass is therefore one rule, not one §7.3 edit per ID — which is how R11.6 ended up
@@ -741,7 +758,7 @@ specifically; the `at 9` half is now covered by this rule rather than by the row
 | R7 | 7.2, 7.4, 7.5, 7.6 → **8** · 7.1, 7.3 → **post-0.1** |
 | R8 | 8.1, 8.7 → **1a** *(partial)* · 8.2, 8.4, 8.5 → **3** *(partial)* · 8.1–8.9, 8.10, 8.11 → **5** *(full surface; re-validates the 1a and 3 partials)* · 8.1b, 8.1c → **5** *(the OpenAPI generation + CI clauses split out of 8.1 by D13)* |
 | R9 | 9.2–9.4, 9.7 (partial), 9.12 → **2** · 9.1, 9.6, 9.8–9.11 → **4** · 9.5, 9.5b → **3** · 9.7 (complete) → **7** · 9.13 → **6b** |
-| R10 | 10.1, 10.2, 10.4 *(inventory columns)*, 10.12, 10.16 *(page, sort)* → **1b** · 10.3, 10.4 *(metric columns + top finding)*, 10.13, 10.14, 10.15, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.10 → **7** · 10.11 → **8** |
+| R10 | 10.1, 10.2, 10.4 *(inventory columns)*, 10.12, 10.16 *(page, sort)* → **1b** · 10.3, 10.4 *(metric columns + top finding)*, 10.13, 10.14, 10.15, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5 *(Query load)*, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.5 *(Resource load, R5.1 cards, topology)*, 10.10 → **7** · 10.11 → **8** |
 | R11 | 11.1–11.7, 11.9–11.16 → **0** · **11.8 → 2** · (11.6 also re-validated at **5** and **9**) |
 | R12 | 12.1–12.3 → **0** *(also re-validated at **1a**)* · 12.4, 12.5 → **2** · 12.6–12.9 → **0** |
 | R13 | 13.9, 13.10 → **0** · 13.1, 13.2, 13.5, 13.11 → **2** · 13.7, 13.8 → **1a** · 13.4 → **4** · 13.3 → **4** · 13.6 → **9** |
