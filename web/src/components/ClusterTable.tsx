@@ -44,7 +44,7 @@ export interface ClusterTableProps {
 
 export function ClusterTable({ rows, state, onSort, onOpen }: ClusterTableProps) {
   return (
-    <div className="table-scroll">
+    <div className="table-wrap">
       <table className="data" data-testid="cluster-table">
         <caption className="sr-only">
           PostgreSQL clusters in the fleet, sorted by {state.sort} {state.dir === "asc" ? "ascending" : "descending"}
@@ -53,14 +53,20 @@ export function ClusterTable({ rows, state, onSort, onOpen }: ClusterTableProps)
           <tr>
             {COLUMNS.map((col) => {
               const active = state.sort === col.key;
+              // `sortable` belongs on the th, not on the button: base.css styles
+              // the header button through `th.sortable button`, so a th without it
+              // renders an unstyled UA button. The class list here used to be `num`
+              // alone, and the button carried a `sort-btn` class no rule ever
+              // defined — 14d4df0 shipped both spellings in one commit and only the
+              // CSS one was real.
               return (
                 <th
                   key={col.key}
                   scope="col"
-                  className={col.numeric ? "num" : undefined}
+                  className={col.numeric ? "sortable num" : "sortable"}
                   {...(active ? { "aria-sort": state.dir === "asc" ? ("ascending" as const) : ("descending" as const) } : {})}
                 >
-                  <button type="button" className="sort-btn" onClick={() => onSort(col.key)}>
+                  <button type="button" onClick={() => onSort(col.key)}>
                     <span>{col.label}</span>
                     {active && (
                       <span className="caret" aria-hidden>

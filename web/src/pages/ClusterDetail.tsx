@@ -205,7 +205,7 @@ function Certificates({ cluster }: { cluster: FleetRow }) {
             : "The secret names are set but CNPG has not reported their notAfter yet."}
         </p>
       ) : (
-        <div className="table-scroll">
+        <div className="table-wrap">
           <table className="data">
             <caption className="sr-only">Certificates on {cluster.name}</caption>
             <thead>
@@ -277,7 +277,7 @@ function Instances({
         <h2 className="card-title">Instances</h2>
         <span className="card-meta num">{cluster.instanceList.length}</span>
       </div>
-      <div className="table-scroll">
+      <div className="table-wrap">
         <table className="data">
           <caption className="sr-only">Pods belonging to {cluster.name}</caption>
           <thead>
@@ -350,7 +350,7 @@ function Storage({ cluster }: { cluster: FleetRow }) {
         <h2 className="card-title">Storage</h2>
         <span className="card-meta num">{cluster.pvcs.length}</span>
       </div>
-      <div className="table-scroll">
+      <div className="table-wrap">
         <table className="data">
           <caption className="sr-only">PersistentVolumeClaims attached to {cluster.name}</caption>
           <thead>
@@ -414,7 +414,7 @@ function Poolers({ cluster }: { cluster: FleetRow }) {
         <h2 className="card-title">Poolers</h2>
         <span className="card-meta num">{cluster.poolers.length}</span>
       </div>
-      <div className="table-scroll">
+      <div className="table-wrap">
         <table className="data">
           <caption className="sr-only">Poolers attached to {cluster.name}</caption>
           <thead>
@@ -490,7 +490,7 @@ function Services({ cluster }: { cluster: FleetRow }) {
         <h2 className="card-title">Services</h2>
         <span className="card-meta num">{cluster.services.length}</span>
       </div>
-      <div className="table-scroll">
+      <div className="table-wrap">
         <table className="data">
           <caption className="sr-only">Services attached to {cluster.name}</caption>
           <thead>
