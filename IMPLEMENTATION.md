@@ -121,7 +121,7 @@ owners and share one validation entry.
 | **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A2 | ⬜ | — |
 | **7** | System Insights: OS + DB families, summary cards, compare-5, PNG/CSV export + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | ⬜ | — |
 | **8** | Pooler insights + bloat/autovacuum/TXID recommenders + events timeline | R6.1–R6.5, R7.2, R7.4, R7.5, R7.6, R5.9, R10.11 | A1 | ⬜ | — |
-| **9** | Docs site, runbooks, README, screenshots, lab profile, v0.1.0 release | R11.6, R11.9, R13.6, R14.3–R14.7, R15.2, R15.3 | A4 | ⬜ | — |
+| **9** | Docs site, runbooks, README, screenshots, lab profile, v0.1.0 release | R11.6, R11.9, R13.6, R14.3–R14.7, R15.2, R15.3 | A4 | 🔄 | — **started at `0b440df`**: R14.3's README refreshed (its status line now carries all ten phases from this table, and its API table lists every route registered at HEAD — R14.7's route half) and R14.5's dev-loop half brought in line with the Makefile's four lint deps plus the `make openapi` target that `9794560` added; `b097882` closed the `.gitignore` gap that build exposed. Open: R14.4's `docs/` index (A3's ruling names it the Phase 9 artifact), R15.2's release automation, R15.3's go-licenses audit, R13.6's kind/minikube validation, and the release itself |
 
 **Post-0.1** (defined in spec §4, deliberately unscheduled in v1): **R7.1** index advisor and
 **R7.3** rightsizing. Both moved out of Phase 8 in v0.2.0 — R7.1 needs R3.15 executed on a real
@@ -279,7 +279,7 @@ sibling's staged files staged for their owner.
 | 1b.5 | **Fleet page**: header with the R10.22 refetch/partial banner, the health-distribution chart (legend table twin + hover), the sortable cluster table (health, cluster, namespace, instances serving/reported, PG major, age) with R10.21 timestamps | R10.4 | A4 | ✅ |
 | 1b.6 | Cluster detail page (instances, PVCs, services, poolers, conditions — every field the R1.5 contract carries) | R10.4 | A4 | ✅ |
 | 1b.7 | R10.12's named page states as URL-addressable fixtures (`?fixture=fleet\|empty\|partial\|unavailable`, `?delay=ms` for loading) | R10.12 | A4 | ✅ |
-| 1b.8 | R16.7 harness: Vitest (9 files, 149 tests) + Playwright (14 tests, 8 committed baselines), both in CI | R16.7, R16.8 | A4 | ✅ |
+| 1b.8 | R16.7 harness: Vitest (9 files, 149 tests at Phase 1b; **13 files, 227 tests at `2648f99`** — A6's Phase 6b component tests and `routes.test.tsx` landed after this row was written) + Playwright (14 tests, 8 committed baselines), both in CI | R16.7, R16.8 | A4 | ✅ |
 | 1b.9 | Build plumbing: Makefile `web` / `typecheck-web` / `test-web`, `Dockerfile` `COPY web/`, `.dockerignore`, CI `web` job, `scripts/image-size.py --spa-bundle` | R11.4, R11.11 | A4 | ✅ |
 
 ### 3.5 Phase 1 validation entry (R14.2)
@@ -560,7 +560,7 @@ this machine runs, and a floating `^4` would have let npm resolve a version whos
 
 **Typecheck + unit tests (R16.7)**
 - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean, zero errors.
-- `npx vitest run` — **9 files, 149 tests, all passing** (`api/client`, `api/health`,
+- `npx vitest run` — **9 files, 149 tests, all passing** at Phase 1b (`api/client`, `api/health`,
   `components/HealthBar`, `components/ThemeToggle`, `lib/format`, `lib/sort`, `pages/Fleet`,
   `state/urlState`, and since `af433cc` `routes`). The count is 105 → 129 → 149: 105 → 129
   because of §5-D12, `api/client.test.ts` gaining the
@@ -614,7 +614,7 @@ this machine runs, and a floating `^4` would have let npm resolve a version whos
 | R10.2 | Chart library chosen per the `dataviz` skill and recorded in §4 (D12) | `web/package.json` (`@visx/*` 4.0.0 + `d3-scale` 4.0.3), `web/src/styles/tokens.css`, `web/src/components/HealthBar.tsx` | **validated** — D12 unchanged and not re-opened; the chart uses one axis, 2 px marks with rounded data-ends, a legend table twin, direct labels in ink (never the series colour), and the palette validated in both modes (§4's palette note) |
 | R10.4 | Fleet page: health distribution + sortable table with phase, instances and PG major | `web/src/pages/Fleet.tsx`, `web/src/components/ClusterTable.tsx`, `web/src/components/HealthBar.tsx`, `web/src/lib/sort.ts` | **validated** — renders all four reference clusters from the R1.5 contract, `freeidp-pg` showing its §5-D7 classification; sorting is tested (numeric collation included) and screenshotted |
 | R10.16 | The URL is the single source of truth for view state | `web/src/state/urlState.ts`, `web/src/App.tsx` | **validated** — parse/format round-trip tests for every state field; Playwright asserts a sort click rewrites the URL and Back restores the previous view; `App` derives its data source from the same parsed URL (D14) |
-| R16.7 | Vitest + Playwright harness, ≥1 passing visual test per reachable R10.12 state, running in CI | `web/vite.config.ts` (`test` block), `web/playwright.config.ts`, `web/e2e/fleet.spec.ts`, `web/e2e/__snapshots__/`, `.github/workflows/ci.yml` (job `web`) | **validated** — 149 Vitest tests + 14 Playwright tests pass locally; the CI job runs install → build → bundle size → vitest → playwright and uploads the report |
+| R16.7 | Vitest + Playwright harness, ≥1 passing visual test per reachable R10.12 state, running in CI | `web/vite.config.ts` (`test` block), `web/playwright.config.ts`, `web/e2e/fleet.spec.ts`, `web/e2e/__snapshots__/`, `.github/workflows/ci.yml` (job `web`) | **validated** — 149 Vitest tests at Phase 1b, and 13 files / 227 tests at `2648f99` (the Phase 6b component suites plus `routes.test.tsx` landed after the Phase 1b count was struck), with 14 Playwright tests, all passing locally; the CI job runs install → build → bundle size → vitest → playwright and uploads the report |
 | R16.8 | The API contract has exactly one copy, consumed by both the Go golden test and the SPA's test suite | `testdata/api/clusters.json`, `web/src/api/types.ts`, `web/src/api/envelope.ts`, `web/src/api/fixtures.ts` | **validated** — see §5-D12. `fixtures.ts` imports the contract JSON and annotates it `Envelope<ClusterView>`, so the TS type and the Go fixture cannot disagree without `tsc` failing; the 386-line hand-transcribed duplicate is gone |
 
 ### 3.7 Requirement → file → status (Phase 5, R8.1–R8.11, R14.8)
@@ -881,7 +881,7 @@ make verify                      # port-forward 18080:8080, curl /healthz, /api/
 # Web (Phase 1b — R10.1, R16.7). Needs node >= 22.12; CI pins 22.
 make web                         # npm ci + tsc --noEmit + vite build -> web/dist (for go:embed)
 make typecheck-web               # tsc --noEmit only
-make test-web                    # build, then Vitest (149 tests) + Playwright (14 tests)
+make test-web                    # build, then Vitest (227 tests at 2648f99; 149 at Phase 1b) + Playwright (14 tests)
 cd web && npm run dev            # vite dev server, with the fixture source
 cd web && npx vite preview --host 127.0.0.1   # serve the built bundle exactly as Go does
 open "http://127.0.0.1:4173/?fixture=partial"  # any R10.12 state, by URL (D15)
