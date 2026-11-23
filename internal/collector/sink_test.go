@@ -104,7 +104,7 @@ func TestMemSinkSamplesIsCopy(t *testing.T) {
 	got := m.Samples(target, "wal")
 	got[0].Value = 999
 	got[0].Metric = "clobbered"
-	if again := m.Samples(target, "wal"); again[0].Value != 1 || again[0].Metric != "pg_stat_database_xact_commit" {
+	if again := m.Samples(target, "wal"); again[0].Value != 1 || again[0].Metric != "db_xact_commit_total" {
 		t.Errorf("mutating the returned slice changed the store: %v", again[0])
 	}
 	if m.Samples(target, "nosuchcollector") != nil {

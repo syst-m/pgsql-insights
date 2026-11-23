@@ -222,9 +222,9 @@ func TestCheckClockNilLogger(t *testing.T) {
 
 func TestSampleString(t *testing.T) {
 	src := time.Unix(1_700_000_000, 0).UTC()
-	withSrc := Sample{Metric: "pg_stat_database_xact_commit", Value: 42, SourceTime: src, IngestTime: src.Add(2 * time.Second)}
+	withSrc := Sample{Metric: "db_xact_commit_total", Value: 42, SourceTime: src, IngestTime: src.Add(2 * time.Second)}
 	got := withSrc.String()
-	for _, want := range []string{"pg_stat_database_xact_commit=42", "skew=2s", "source=", "ingested="} {
+	for _, want := range []string{"db_xact_commit_total=42", "skew=2s", "source=", "ingested="} {
 		if !strings.Contains(got, want) {
 			t.Errorf("String() = %q, want it to contain %q", got, want)
 		}

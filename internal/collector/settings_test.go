@@ -198,9 +198,9 @@ func TestSettingsCollectSamples(t *testing.T) {
 		{"pg_settings_max_connections", 100},
 		{"pg_settings_shared_buffers", 131072},
 		// The file-settings counts: three lines, two applied, one error.
-		{"pg_file_settings_count", 3},
-		{"pg_file_settings_applied_count", 2},
-		{"pg_file_settings_error_count", 1},
+		{"file_settings_count", 3},
+		{"file_settings_applied_count", 2},
+		{"file_settings_error_count", 1},
 		// Extensions are presence, valued 1.
 		{"pg_extension_postgis", 1},
 		{"pg_extension_pg_stat_statements", 1},

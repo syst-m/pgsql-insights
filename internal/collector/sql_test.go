@@ -126,12 +126,12 @@ func TestMetricName(t *testing.T) {
 		column string
 		want   string
 	}{
-		{pgversion.ViewStatDatabase, "xact_commit", "pg_stat_database_xact_commit"},
-		{pgversion.ViewStatDatabase, "blks_hit", "pg_stat_database_blks_hit"},
-		{pgversion.ViewDatabase, "size", "pg_database_size"},
-		{pgversion.ViewDatabase, "frozenxid_age", "pg_database_frozenxid_age"},
-		{pgversion.ViewDatabase, "minmxid_age", "pg_database_minmxid_age"},
-		{pgversion.ViewStatDatabaseConflicts, "confl_lock", "pg_stat_database_conflicts_confl_lock"},
+		{pgversion.ViewStatDatabase, "xact_commit", "db_xact_commit_total"},
+		{pgversion.ViewStatDatabase, "blks_hit", "db_blks_hit_total"},
+		{pgversion.ViewDatabase, "size", "db_size_bytes"},
+		{pgversion.ViewDatabase, "frozenxid_age", "db_txid_age"},
+		{pgversion.ViewDatabase, "minmxid_age", "db_mxid_age"},
+		{pgversion.ViewStatDatabaseConflicts, "confl_lock", "db_conflicts_lock_total"},
 	}
 	for _, tc := range cases {
 		if got := MetricName(tc.view, tc.column); got != tc.want {
@@ -313,10 +313,10 @@ func TestUnqualifiedCall(t *testing.T) {
 		want string
 	}{
 		{"pg_catalog.age(datfrozenxid)", ""},
-		{"pg_catalog.pg_database_size(oid)", ""},
+		{"pg_catalog.db_size_bytes(oid)", ""},
 		{"pg_catalog.has_database_privilege(oid, 'CONNECT')", ""},
 		{"age(datfrozenxid)", "age"},
-		{"pg_database_size(oid)", "pg_database_size"},
+		{"db_size_bytes(oid)", "db_size_bytes"},
 		{"f (x)", "f"}, // spaces between the callee and its "("
 		{"other_schema.f(x)", "other_schema.f"},
 		{"1 + 2", ""},

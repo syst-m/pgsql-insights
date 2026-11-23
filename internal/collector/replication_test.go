@@ -186,13 +186,13 @@ func TestReplicationCollectSamples(t *testing.T) {
 		metric string
 		value  float64
 	}{
-		{"pg_stat_replication_count", 2},
-		{"pg_stat_replication_write_lag_seconds_max", 1.5},
-		{"pg_stat_replication_flush_lag_seconds_max", 1.5},
-		{"pg_stat_replication_replay_lag_seconds_max", 2.25},
-		{"pg_replication_slots_count", 3},
-		{"pg_replication_slots_active_count", 2},
-		{"pg_replication_slots_lost_count", 1},
+		{"replication_streaming_count", 2},
+		{"replication_write_lag_seconds", 1.5},
+		{"replication_flush_lag_seconds", 1.5},
+		{"replication_replay_lag_seconds", 2.25},
+		{"replication_slots_count", 3},
+		{"replication_slots_active_count", 2},
+		{"replication_slots_lost_count", 1},
 	} {
 		s, ok := byMetric[tc.metric]
 		if !ok {
@@ -427,10 +427,10 @@ func TestStreamingSamples(t *testing.T) {
 			name: "one streaming, one connecting",
 			rows: []Row{repRow(t, "cnpg-1", "1.5", "1.5", "2.25"), repRow(t, "cnpg-2", "", "", "")},
 			want: map[string]float64{
-				"pg_stat_replication_count":                  2,
-				"pg_stat_replication_write_lag_seconds_max":  1.5,
-				"pg_stat_replication_flush_lag_seconds_max":  1.5,
-				"pg_stat_replication_replay_lag_seconds_max": 2.25,
+				"replication_streaming_count":    2,
+				"replication_write_lag_seconds":  1.5,
+				"replication_flush_lag_seconds":  1.5,
+				"replication_replay_lag_seconds": 2.25,
 			},
 		},
 		{
@@ -440,10 +440,10 @@ func TestStreamingSamples(t *testing.T) {
 			name: "two streaming, worst wins per plane",
 			rows: []Row{repRow(t, "cnpg-1", "1.5", "9", "2.25"), repRow(t, "cnpg-2", "3", "1", "1")},
 			want: map[string]float64{
-				"pg_stat_replication_count":                  2,
-				"pg_stat_replication_write_lag_seconds_max":  3,
-				"pg_stat_replication_flush_lag_seconds_max":  9,
-				"pg_stat_replication_replay_lag_seconds_max": 2.25,
+				"replication_streaming_count":    2,
+				"replication_write_lag_seconds":  3,
+				"replication_flush_lag_seconds":  9,
+				"replication_replay_lag_seconds": 2.25,
 			},
 		},
 		{
@@ -451,7 +451,7 @@ func TestStreamingSamples(t *testing.T) {
 			// would report "fully caught up" for a standby that has not streamed.
 			name: "connecting only",
 			rows: []Row{repRow(t, "cnpg-2", "", "", "")},
-			want: map[string]float64{"pg_stat_replication_count": 1},
+			want: map[string]float64{"replication_streaming_count": 1},
 		},
 		{
 			name: "no rows",
@@ -501,9 +501,9 @@ func TestSlotSamples(t *testing.T) {
 				slotRow(t, "cnpg_replica_3", "f", "extended"),
 			},
 			want: map[string]float64{
-				"pg_replication_slots_count":        3,
-				"pg_replication_slots_active_count": 2,
-				"pg_replication_slots_lost_count":   1,
+				"replication_slots_count":        3,
+				"replication_slots_active_count": 2,
+				"replication_slots_lost_count":   1,
 			},
 		},
 		{
@@ -513,9 +513,9 @@ func TestSlotSamples(t *testing.T) {
 			name: "true and a NULL status",
 			rows: []Row{slotRow(t, "cnpg_replica_1", "true", "")},
 			want: map[string]float64{
-				"pg_replication_slots_count":        1,
-				"pg_replication_slots_active_count": 1,
-				"pg_replication_slots_lost_count":   0,
+				"replication_slots_count":        1,
+				"replication_slots_active_count": 1,
+				"replication_slots_lost_count":   0,
 			},
 		},
 		{
@@ -525,9 +525,9 @@ func TestSlotSamples(t *testing.T) {
 				slotRow(t, "cnpg_replica_2", "f", "reserved"),
 			},
 			want: map[string]float64{
-				"pg_replication_slots_count":        2,
-				"pg_replication_slots_active_count": 0,
-				"pg_replication_slots_lost_count":   0,
+				"replication_slots_count":        2,
+				"replication_slots_active_count": 0,
+				"replication_slots_lost_count":   0,
 			},
 		},
 		{

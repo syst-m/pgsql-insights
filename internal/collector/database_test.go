@@ -120,7 +120,7 @@ func rowFor(p Projection, over map[string]string) Row {
 func databaseNames(view pgversion.View) []string {
 	names := []string{"app", "analytics"}
 	if view == pgversion.ViewStatDatabase {
-		// pg_database and pg_stat_database_conflicts have no shared-objects row:
+		// pg_database and db_conflicts_total have no shared-objects row:
 		// that row is a pg_stat_database artefact (datid 0), and the S8 filter is
 		// written per view, not per collector.
 		names = append(names, "")
@@ -235,7 +235,7 @@ func TestDatabaseQueriesAreSchemaQualified(t *testing.T) {
 			}
 			if pv.view == pgversion.ViewDatabase &&
 				!strings.Contains(pv.Where, "pg_catalog.has_database_privilege") {
-				t.Errorf("PG%d pg_database: WHERE %q has no has_database_privilege guard (D20's S7: pg_database_size(oid) needs CONNECT per database, and without the filter the whole SELECT throws on template0)",
+				t.Errorf("PG%d pg_database: WHERE %q has no has_database_privilege guard (D20's S7: db_size_bytes(oid) needs CONNECT per database, and without the filter the whole SELECT throws on template0)",
 					major, pv.Where)
 			}
 			cols, _ := pgversion.Columns(pv.view, major)
@@ -298,12 +298,12 @@ func TestDatabaseCollectSamples(t *testing.T) {
 		byMetric[s.Metric] = append(byMetric[s.Metric], s)
 	}
 	for _, name := range []string{
-		"pg_stat_database_xact_commit",
-		"pg_stat_database_blks_hit",
-		"pg_stat_database_conflicts_confl_lock",
-		"pg_database_size",
-		"pg_database_frozenxid_age",
-		"pg_database_minmxid_age",
+		"db_xact_commit_total",
+		"db_blks_hit_total",
+		"db_conflicts_lock_total",
+		"db_size_bytes",
+		"db_txid_age",
+		"db_mxid_age",
 	} {
 		got := byMetric[name]
 		if len(got) != 2 {
@@ -330,18 +330,18 @@ func TestDatabaseCollectSamples(t *testing.T) {
 
 	// The epoch lands on the samples that have one and not on the ones that do
 	// not: pg_stat_database has stats_reset, pg_database and
-	// pg_stat_database_conflicts do not, and a zero there is "no epoch" rather
+	// db_conflicts_total do not, and a zero there is "no epoch" rather
 	// than a missing value. Every row of each family is checked, not one of them.
 	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for _, s := range byMetric["pg_stat_database_xact_commit"] {
+	for _, s := range byMetric["db_xact_commit_total"] {
 		if !s.StatsReset.Equal(epoch) {
-			t.Errorf("pg_stat_database_xact_commit{%s} StatsReset = %s, want %s (R3.3's counter epoch)",
+			t.Errorf("db_xact_commit_total{%s} StatsReset = %s, want %s (R3.3's counter epoch)",
 				s.Labels["datname"], s.StatsReset, epoch)
 		}
 	}
-	for _, s := range byMetric["pg_database_size"] {
+	for _, s := range byMetric["db_size_bytes"] {
 		if !s.StatsReset.IsZero() {
-			t.Errorf("pg_database_size{%s} StatsReset = %s, want zero (pg_database has no stats_reset)",
+			t.Errorf("db_size_bytes{%s} StatsReset = %s, want zero (pg_database has no stats_reset)",
 				s.Labels["datname"], s.StatsReset)
 		}
 	}

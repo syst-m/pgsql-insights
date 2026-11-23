@@ -33,7 +33,7 @@ func samplesOf(value float64, n int) []Sample {
 	out := make([]Sample, 0, n)
 	for i := 0; i < n; i++ {
 		out = append(out, Sample{
-			Metric: "pg_stat_database_xact_commit",
+			Metric: "db_xact_commit_total",
 			Labels: map[string]string{"datname": "postgres"},
 			Value:  value,
 		})

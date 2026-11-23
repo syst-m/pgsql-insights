@@ -270,17 +270,17 @@ func TestWALCollectSamples(t *testing.T) {
 	}{
 		// The sums are 1000+2000+0, 50+10+0, 1234+2048+0, 3+1+0, 10+20+0, 5+10+0,
 		// 25+50+0, 12+20+0 — the three fixture rows, added.
-		{"pg_stat_wal_wal_records", 3000},
-		{"pg_stat_wal_wal_fpi", 60},
-		{"pg_stat_wal_wal_bytes", 3282},
-		{"pg_stat_wal_wal_buffers_full", 4},
-		{"pg_stat_wal_wal_write", 30},
-		{"pg_stat_wal_wal_sync", 15},
-		{"pg_stat_wal_wal_write_time", 75},
-		{"pg_stat_wal_wal_sync_time", 32},
+		{"wal_records_total", 3000},
+		{"wal_fpi_total", 60},
+		{"wal_generated_bytes_total", 3282},
+		{"wal_buffers_full_total", 4},
+		{"wal_write_total", 30},
+		{"wal_sync_total", 15},
+		{"wal_write_time_seconds_total", 75},
+		{"wal_sync_time_seconds_total", 32},
 		// The archiver's one row, unsummed because it is the only row the view has.
-		{"pg_stat_archiver_archived_count", 42},
-		{"pg_stat_archiver_failed_count", 3},
+		{"archiver_archived_count_total", 42},
+		{"archiver_failed_count_total", 3},
 	} {
 		s, ok := byMetric[tc.metric]
 		if !ok {
@@ -307,7 +307,7 @@ func TestWALCollectSamples(t *testing.T) {
 	}
 
 	// The epoch columns are R3.3's field, not families of their own.
-	for _, metric := range []string{"pg_stat_wal_stats_reset", "pg_stat_archiver_stats_reset"} {
+	for _, metric := range []string{"wal_stats_reset_timestamp_seconds", "archiver_stats_reset_timestamp_seconds"} {
 		if _, ok := byMetric[metric]; ok {
 			t.Errorf("%s exists, want stats_reset in Sample.StatsReset and not as a family", metric)
 		}
@@ -317,8 +317,8 @@ func TestWALCollectSamples(t *testing.T) {
 	for _, metric := range []string{
 		"pg_stat_archiver_last_archived_wal",
 		"pg_stat_archiver_last_failed_wal",
-		"pg_stat_archiver_last_archived_time",
-		"pg_stat_archiver_last_failed_time",
+		"archiver_last_archived_timestamp_seconds",
+		"archiver_last_failed_timestamp_seconds",
 	} {
 		if _, ok := byMetric[metric]; ok {
 			t.Errorf("%s exists, want a text column unexported (R9.1: the API carries the text)", metric)
@@ -532,10 +532,10 @@ func TestWALSamples(t *testing.T) {
 			name: "three rows summed on PG17",
 			pv:   pv17,
 			rows: walTestRows(t)[pgversion.ViewStatWAL],
-			want: map[string]float64{"pg_stat_wal_wal_records": 3000, "pg_stat_wal_wal_fpi": 60,
-				"pg_stat_wal_wal_bytes": 3282, "pg_stat_wal_wal_buffers_full": 4,
-				"pg_stat_wal_wal_write": 30, "pg_stat_wal_wal_sync": 15,
-				"pg_stat_wal_wal_write_time": 75, "pg_stat_wal_wal_sync_time": 32},
+			want: map[string]float64{"wal_records_total": 3000, "wal_fpi_total": 60,
+				"wal_generated_bytes_total": 3282, "wal_buffers_full_total": 4,
+				"wal_write_total": 30, "wal_sync_total": 15,
+				"wal_write_time_seconds_total": 75, "wal_sync_time_seconds_total": 32},
 			epoch:  walEpoch,
 			source: sourceNow,
 		},
@@ -549,8 +549,8 @@ func TestWALSamples(t *testing.T) {
 				"wal_records": "7", "wal_fpi": "1", "wal_bytes": "1024", "wal_buffers_full": "0",
 				"stats_reset": "2026-06-01 00:00:00+00", SourceNowColumn: fixedSourceNow,
 			}},
-			want: map[string]float64{"pg_stat_wal_wal_records": 7, "pg_stat_wal_wal_fpi": 1,
-				"pg_stat_wal_wal_bytes": 1024, "pg_stat_wal_wal_buffers_full": 0},
+			want: map[string]float64{"wal_records_total": 7, "wal_fpi_total": 1,
+				"wal_generated_bytes_total": 1024, "wal_buffers_full_total": 0},
 			epoch:  walEpoch,
 			source: sourceNow,
 		},
@@ -560,7 +560,7 @@ func TestWALSamples(t *testing.T) {
 			name:   "archiver, one row",
 			pv:     walProjectionFor(t, pgversion.ViewStatArchiver, 17),
 			rows:   []Row{archRow(t, "42", "3")},
-			want:   map[string]float64{"pg_stat_archiver_archived_count": 42, "pg_stat_archiver_failed_count": 3},
+			want:   map[string]float64{"archiver_archived_count_total": 42, "archiver_failed_count_total": 3},
 			epoch:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 			source: sourceNow,
 		},
@@ -576,9 +576,9 @@ func TestWALSamples(t *testing.T) {
 				"wal_write": "1", "wal_sync": "0", "wal_write_time": "0", "wal_sync_time": "0",
 				"stats_reset": "2026-01-01 00:00:00+00", SourceNowColumn: fixedSourceNow,
 			}},
-			want: map[string]float64{"pg_stat_wal_wal_records": 5, "pg_stat_wal_wal_bytes": 9,
-				"pg_stat_wal_wal_buffers_full": 0, "pg_stat_wal_wal_write": 1,
-				"pg_stat_wal_wal_sync": 0, "pg_stat_wal_wal_write_time": 0, "pg_stat_wal_wal_sync_time": 0},
+			want: map[string]float64{"wal_records_total": 5, "wal_generated_bytes_total": 9,
+				"wal_buffers_full_total": 0, "wal_write_total": 1,
+				"wal_sync_total": 0, "wal_write_time_seconds_total": 0, "wal_sync_time_seconds_total": 0},
 			epoch:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 			source: sourceNow,
 		},

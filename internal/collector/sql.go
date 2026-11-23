@@ -274,20 +274,13 @@ func Project(view pgversion.View, major int, spec QuerySpec) (Projection, bool) 
 	}, true
 }
 
-// MetricName is the family name one column's values belong to: the view name
-// plus the column name, without the R9.2 prefix.
+// MetricName lives in naming.go, not here.
 //
-// It is the convention clock.go's Sample.Metric documents — "pg_stat_database_xact_commit",
-// not "pgsi_pg_stat_database_xact_commit" — as a function, so that the four SQL
-// collectors share one naming rule instead of each inventing one, and so that
-// step 4's R9.4 work (which is the requirement that actually fixes the exported
-// names) is a change here rather than a sweep through every collector. R9.4's
-// prefix rule stays out: the prefix is applied at render time so it can stay
-// configurable (R9.2), and a collector that baked it in would make
-// metrics.prefix a lie.
-func MetricName(view pgversion.View, column string) string {
-	return string(view) + "_" + column
-}
+// It was this file's one-line `string(view) + "_" + column` through Phase 2
+// steps 1-3, with a doc comment promising that "step 4's R9.4 work ... is a
+// change here rather than a sweep through every collector". Step 4 kept that
+// promise by moving the function to naming.go, where the R9.4 table is, rather
+// than by editing the nine call sites that call it.
 
 // AppliesToViews is R2.1's PG-version applicability for a collector that reads
 // more than one view: the collector applies to a major only if *every* view it
