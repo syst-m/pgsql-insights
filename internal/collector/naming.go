@@ -38,10 +38,11 @@ import (
 //     nothing else, so a dashboard built against the pre-catalogue spelling
 //     survives everywhere the catalogue has not spoken. R9.7's D20 clause asks
 //     this function to *enumerate* the union of R5.2's families and R2.4's
-//     numeric columns; the table enumerates it for the eight views the four
-//     existing collectors read, and the remaining nine collectors' views gain
-//     their rows as those collectors land (each one is "R9.7 (partial)" in
-//     §3.10's row for step 4, which is the word the row uses).
+//     numeric columns; the table enumerates it for every (view, column) pair it
+//     has rows for — exportNames' own doc says which views those are and which
+//     are still on the fallback — and the views without rows gain theirs as their
+//     collectors land (each one is "R9.7 (partial)" in §3.10's row for step 4,
+//     which is the word the row uses).
 //
 // The prefix stays out. R9.2 makes it configurable (`metrics.prefix`), and
 // metrics.go's DefaultPrefix is applied at render time, so a collector that baked
@@ -99,10 +100,18 @@ type exportEntry struct {
 // produced all four would be a per-view exception list wearing a formula's
 // clothes, so the list is written out.
 //
-// The eight views covered are exactly the ones the four existing collectors read
-// (database.go's three, settings.go's three, replication.go's two — wal.go's two
-// are inside that eight). The other nine §3.3 collectors contribute their views
-// when they land.
+// Eleven view keys, not the eight this comment used to claim. Eight of them are
+// views the four existing collectors read — all three of database.go's, one of
+// settings.go's three (pg_file_settings; pg_settings and pg_extension have no
+// rows and keep the fallback spelling), both of replication.go's and both of
+// wal.go's. The old wording enumerated "database.go's three, settings.go's three,
+// replication.go's two" and then filed wal.go's two as "inside that eight", which
+// they are not: that list is eight views and pg_stat_wal and pg_stat_archiver are
+// two more. The remaining three keys — pg_stat_statements, pg_stat_bgwriter,
+// pg_stat_checkpointer — belong to collectors that have not landed, so the table
+// is ahead of §3.3's step list there rather than behind it, and those collectors
+// inherit names from rows already here when they do. The other §3.3 collectors
+// contribute their views when they land.
 var exportNames = map[pgversion.Source]exportEntry{
 	// ---- R9.4's aggregate family: the five members R9.4's own sentence names ----
 	//
