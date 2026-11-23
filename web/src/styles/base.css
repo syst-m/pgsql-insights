@@ -764,3 +764,528 @@ table.data[data-density="comfortable"] th.sortable button {
   align-items: center;
   gap: 8px;
 }
+/* --- R10.7 Query Detail --------------------------------------------------- */
+
+/* Everything the Detail page's five components draw. Classes used purely as
+   test handles (`plan-hash`, `plan-message`, `plans-empty`, `load-empty`,
+   `sampled-note`, `recommendations-empty`) get no rules here: they are selectors
+   the tests address, not surfaces. */
+
+/* The page body. `.main` (:171) pads the shell once and spaces its children; a
+   page is one flex column of cards so the 20px rhythm continues inside the page
+   as well as between pages. Four pages carry this class and it has never had a
+   rule — until now every page has been laid out by its children's own margins. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* The title is SQL text, which has no length limit (R3.6's truncation flag
+   exists because of it), so it gets the one-line ellipsis instead of wrapping to
+   six lines above four cards. */
+.page-title {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Shared with Fleet, ClusterDetail and Queries, which use these two and have
+   never had rules for them: the as-of line under a title, and the right-hand
+   action cluster of a page head. */
+.page-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* R10.24 names the trail "Fleet → Cluster → Query Detail". The separators are
+   markup and `aria-hidden`, so this rule only lays the row out; 12px muted keeps
+   it below the page title it introduces. The links themselves are styled by
+   `.cluster-link` (:508), which they all carry. */
+.breadcrumb {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The card head's left slot. `Fleet.tsx` spells it `.card-head .title` (:202);
+   the newer pages and every Detail component spell it `.card-title`. The two
+   spellings are the class-name drift already on A4's ask list — this rule
+   mirrors the existing one so both generations of pages render alike, and it is
+   the one-line delete when they are unified. */
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The count/meta slot inside `.card-actions` ("3,007 calls · 2m 08s total",
+   "2 captured"): the caption role's ink with the number role's figures. */
+.card-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Identifiers — fingerprints, plan hashes, queryids — are machine strings, not
+   prose: mono at 12px so a 64-char SHA-256 does not become the widest thing on
+   the page, and `break-all` because a hash has no word boundary to break at
+   (R3.4's fingerprint would otherwise push the header grid 64 characters wide). */
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* `QueryTable` styles its link as `.query-cell > .query-link` (:689), which
+   leaves every `.query-link` outside a query cell unstyled — the plan-change
+   hashes in `PlanList` and the evidence fingerprints in `RecommendationList`.
+   This is the base rule those two need; the cell variant keeps its own ellipsis
+   rule on top of it, and the properties match so nothing existing re-renders. */
+.query-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  text-underline-offset: 2px;
+}
+
+.query-link:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
+/* `.state-detail` exists scoped to `.state-panel` (:421). `PlanViewer` renders
+   R3.10(c)'s privilege message as a state detail without the panel wrapper — the
+   card is already the panel — so the base rule carries the same ink and measure. */
+.state-detail {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 60ch;
+}
+
+/* R10.7's header fields (fingerprint, database, user, first-seen, queryid,
+   truncated) in the same `max-content 1fr` label/value grid as `.not-implemented-meta`
+   (:148) and `.plan-meta` below. Three uses of one grid; it should become a single
+   `.kv-grid` the next time this file is reorganised. */
+.detail-header {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.detail-header dt {
+  color: var(--text-secondary);
+}
+
+.detail-header dd {
+  margin: 0;
+}
+
+/* --- chart frames, lines, bars -------------------------------------------- */
+
+/* The plot container. `.viz-tooltip` (:364) has `pointer-events: none` but no
+   `position`, so the inline `left`/`top` every chart sets on its tooltip were
+   inert — an offset only applies to a positioned element. The frame is the
+   positioning context and the tooltip is the positioned element, which is also
+   what scopes a tooltip to the chart it belongs to. `min-width: 0` so a 720px
+   svg inside a flex card shrinks instead of stretching the card. */
+.chart-frame {
+  position: relative;
+  min-width: 0;
+}
+
+.chart-frame .viz-tooltip {
+  position: absolute;
+}
+
+/* R10.13: "no chart renders as a blank box without a one-line explanation."
+   Deliberately not a box — a bordered empty rectangle is the thing the rule
+   complains about; the sentence is the fix. */
+.chart-empty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* The unframed variant: a sparkline inside an R10.6 table cell. Fixed-width and
+   right-aligned so the column scans as a column of marks, the same shape
+   `.load-cell` (:613) gives the bar variant. */
+.sparkline-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 96px;
+}
+
+/* `display: block` removes the inline baseline gap that otherwise adds ~4px
+   under every svg; the width comes from the `width` attribute the component
+   sets, and `max-width` keeps it inside a narrower card. */
+.sparkline,
+.histogram {
+  display: block;
+  max-width: 100%;
+}
+
+/* Mark spec: a 2px line with round join and cap, in the first slot of the fixed
+   categorical order. One series, so no legend — the title names it. */
+.spark-line {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* The hovered point: surface-coloured fill with a series-coloured stroke, which
+   is the 2px surface ring the mark spec asks for on a mark that sits on the line
+   it belongs to. */
+.spark-marker {
+  fill: var(--surface-1);
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+
+/* Recessive grid: hairlines in the grid token, the baseline in the darker axis
+   rule, both 1px and never dashed (tokens.css:31 says so in its own comment).
+   The group rule covers the lines; the per-line rules let the baseline differ. */
+.spark-grid-group,
+.spark-grid {
+  stroke: var(--gridline);
+  stroke-width: 1;
+}
+
+.spark-baseline {
+  stroke: var(--baseline);
+  stroke-width: 1;
+}
+
+/* The hit target: a transparent rect per point, wider than the mark so the
+   tooltip is reachable from near a point (R10.19's ≥24px target — the component
+   sizes these rects). `fill: none` would not hit-test; `transparent` does. */
+.spark-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.spark-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+}
+
+/* Axis text. SVG text takes `fill`, not `color` — the usual reason a chart's
+   labels render in the default black instead of the muted ink. */
+.spark-y-labels,
+.spark-x-labels,
+.spark-axis-label {
+  fill: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- R3.9 latency histogram ---------------------------------------------- */
+
+/* Bars are drawn by `barPath`, which puts the 4px radius on the data end and
+   leaves the baseline end square — CSS cannot round one end of a `<path>`, which
+   is why the shape lives in the path data and this rule is only the fill. One
+   measure (calls per bucket), so one hue, and it is `--series-1`. */
+.hist-bar {
+  fill: var(--series-1);
+}
+
+/* The one direct label, on the modal bucket. "Selective direct labels (never a
+   number on every point)" — nine numbers on nine bars is a table, and the table
+   twin below is where the full set lives. `pointer-events: none` so a label never
+   swallows the hover of the bar under it. */
+.mark-label {
+  fill: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* R3.9's four always-present statistics (min/mean/max/stddev) plus the three
+   optional percentiles. Tiles, not a chart: the skill's answer for a single
+   number is a tile, not a plot. `auto-fit` so the row reads the same with four
+   tiles and with seven. */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* A tile inside a card gets the house's subtle fill, not a second bordered
+   surface: a bordered box inside a bordered card reads as a nested card and
+   costs the card its hierarchy. */
+.stat-tile {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Text ink, never the data colour: the mark carries identity, the number stays
+   readable. */
+.stat-value {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* R3.9's labelling duty: when the histogram is sampled the UI must say
+   "sampled, biased toward long queries". Not a status chip — R10.23 reserves the
+   four status colours for states, and "this sample skews long" is a property of
+   the data, not a health verdict. */
+.latency-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* R10.23's table twin of the histogram. `table.data` (:213) styles the table;
+   this rule only separates it from the plot above it. */
+.latency-table {
+  margin-top: 12px;
+}
+
+/* --- R10.7 load chart: small multiples ----------------------------------- */
+
+/* One column. Four metrics on three different scales is the dual-axis case the
+   skill calls the #1 chart mistake, and the fix it names is small multiples —
+   which only read as a family when they stack and share the x-domain, not when
+   they tile into a grid whose columns imply a shared y. */
+.small-multiples {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+/* `<figure>` ships with a `1em 40px` UA margin; the gap owns the spacing. */
+.small-multiple {
+  margin: 0;
+}
+
+.small-multiple-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+/* The two halves of a small multiple's caption. The metric name is mono because
+   it is a machine identifier (`execution_time`), and it is shown beside the
+   human label rather than instead of it, so a reader can tie the panel to the
+   DTO field and the PromQL query it came from. */
+.small-multiple-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.small-multiple-metric {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* --- R10.7 plan samples and viewer --------------------------------------- */
+
+/* The samples list and the change log are two tables in one card; the second one
+   gets a wrapper class for spacing and a `<caption>` for naming. */
+.plan-changes {
+  margin-top: 16px;
+}
+
+/* The house marks a selected row with `[aria-selected="true"]` (:246) — right
+   for a grid row, wrong here: these rows are not selectable options, they are
+   table rows whose button is the control. So the selection is a class the
+   component owns, reusing the house's selected fill. */
+.plan-table tbody tr.selected {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+/* A plan tree is code-shaped output: mono at 12px keeps the indent columns
+   aligned, and the indent is the only syntax a tree rendered as rows has. The
+   nodes are text ink, not series colours — the hierarchy carries the identity,
+   and colouring nodes would spend categorical hues on structure. */
+.plan-tree {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.plan-node {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.plan-node-type {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* The relation or index the node touches — the second half of `Index Scan on
+   users_pkey`, which is the answer the viewer exists to surface. */
+.plan-node-target {
+  color: var(--text-secondary);
+}
+
+/* Cost and rows pushed to the trailing edge, so they line up in a column down
+   the tree instead of floating after a variable-width label. */
+.plan-node-metrics {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+/* The evidence view: verbatim, scrollable, and `pre` because JSON's indentation
+   is part of its structure. Capped so a 400-line plan does not make the page
+   unscrollable. */
+.plan-json {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre;
+}
+
+/* The sample's identity block: same label/value grid as `.detail-header`. */
+.plan-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.plan-meta dt {
+  color: var(--text-secondary);
+}
+
+.plan-meta dd {
+  margin: 0;
+}
+
+/* SQL is unbounded and mono: it is code, and R3.10(a) makes the first-seen raw
+   text the thing that was explained, so the viewer shows it verbatim. */
+.plan-sql {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+/* --- R7.6 recommendations ------------------------------------------------- */
+
+/* `<ul>` with the UA list markers off: each item is a card, and a bullet in
+   front of a card is decoration on a container. */
+.recommendation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recommendation {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.recommendation-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recommendation-finding {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* R7.6 never names the confidence vocabulary (`dto/queries.go:636` flags it), so
+   this is text and not a chip: a chip would freeze an undefined scale and spend
+   one of the four reserved status colours on it. */
+.recommendation-confidence {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.recommendation-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* A labelled row inside a recommendation — `Evidence  …`, `Action  …`. The label
+   is a caption, the value is content, and the label column is fixed so the two
+   rows' values line up. */
+.recommendation-field {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.recommendation-label {
+  flex: none;
+  min-width: 64px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.recommendation-action {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* The UA's 40px `padding-left` on a `<ul>` is sized for prose; this list already
+   sits behind a label column. */
+.recommendation-evidence {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
