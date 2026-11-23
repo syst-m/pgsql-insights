@@ -1,0 +1,257 @@
+{
+  "description": "R3.5's normalizer fixture corpus \u2014 Phase 3's acceptance criterion is \"normalizer output matches the fixture corpus\". R16.3 names exactly seven fixture files (the four testdata/cnpg-metrics/*.txt and the three testdata/pg-status/*.json) and none of them is a normalizer fixture, so this file is Phase 3's own corpus. Each case pins the input statement, the template R3.5 produces, the R3.4 fingerprint of that template, and \u2014 where the case is about R3.6's length cap \u2014 the length, the truncated display text and the truncation flag. The one case checked against Google's documentation rather than against this implementation is update-set-demo-customer: docs/research/cloud-sql-insights.md \u00a73.5's UPDATE of \"demo_customer\" is the only normalization output the source doc shows.",
+  "cases": [
+    {
+      "name": "select-star-int",
+      "input": "SELECT * FROM users WHERE id = 42",
+      "template": "SELECT * FROM users WHERE id = $1",
+      "fingerprint": "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
+    },
+    {
+      "name": "select-star-string",
+      "input": "SELECT * FROM users WHERE name = 'bob'",
+      "template": "SELECT * FROM users WHERE name = $1",
+      "fingerprint": "d08992cf2c132fedbed21b94d545e154fa2a7a2a2bf79fd033341d1bb5a6c0f2"
+    },
+    {
+      "name": "update-set-demo-customer",
+      "input": "UPDATE customers SET name = 'demo_customer' WHERE id = 7",
+      "template": "UPDATE customers SET name = $1 WHERE id = $2",
+      "fingerprint": "16f40dfa87b8ed58dbd080ef6fb5dd75ce0e241a769324801abf9e782c0ae001"
+    },
+    {
+      "name": "whitespace-collapse",
+      "input": "SELECT   *\n\t FROM   users\n WHERE id = 1",
+      "template": "SELECT * FROM users WHERE id = $1",
+      "fingerprint": "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
+    },
+    {
+      "name": "keyword-casing",
+      "input": "select ID from Users where id=1",
+      "template": "SELECT ID FROM Users WHERE id=$1",
+      "fingerprint": "31eeb7b06ca4e2c2c0971e09029149ec790fc17e588062d5d1bb61b0c064ddaf"
+    },
+    {
+      "name": "function-name-not-keyword",
+      "input": "SELECT count(*) AS \"count\" FROM t",
+      "template": "SELECT count(*) AS \"count\" FROM t",
+      "fingerprint": "446c5dc78cf3e58eb8902823e11b9774e2cabc307644fe9d91c767c0fc8d7684"
+    },
+    {
+      "name": "quoted-identifier-case",
+      "input": "SELECT \"MixedCase\" FROM \"Schema\".\"Table\"",
+      "template": "SELECT \"MixedCase\" FROM \"Schema\".\"Table\"",
+      "fingerprint": "398c7f024ac7a0cc8c5db1573197d907245f7abb5a10cfe4b4263208cdb7513f"
+    },
+    {
+      "name": "escaped-quote",
+      "input": "SELECT 'it''s' AS x",
+      "template": "SELECT $1 AS x",
+      "fingerprint": "423b9646fe49670a3b9cbd63d12ddae9649e8a6562f7c5441bd90d9daa41693c"
+    },
+    {
+      "name": "in-list",
+      "input": "SELECT id FROM t WHERE id IN (1, 2, 3)",
+      "template": "SELECT id FROM t WHERE id IN ($1, $2, $3)",
+      "fingerprint": "f5d82ef8702ea01d7a77b8d29653d951f6e06eeae443f57b037972c5784372c1"
+    },
+    {
+      "name": "type-cast",
+      "input": "SELECT '5'::int",
+      "template": "SELECT $1::INT",
+      "fingerprint": "f75c4cf6a5965e3e9636c078a67086ed391935d9ba63ea31721f1b2a2483042e"
+    },
+    {
+      "name": "array-cast",
+      "input": "SELECT '{1,2,3}'::int[]",
+      "template": "SELECT $1::INT[]",
+      "fingerprint": "d54571397473d986dd0dcf414656862987047b6dd4eb78af22a238734caee663"
+    },
+    {
+      "name": "dollar-quote-empty",
+      "input": "SELECT $$hello world$$",
+      "template": "SELECT $1",
+      "fingerprint": "165a22d8eabe300a7430a1c63e8bd81b6fbc45f42f099dcb508a64eba90c80c1"
+    },
+    {
+      "name": "dollar-quote-tagged",
+      "input": "SELECT $tag$hi there$tag$ AS x",
+      "template": "SELECT $1 AS x",
+      "fingerprint": "423b9646fe49670a3b9cbd63d12ddae9649e8a6562f7c5441bd90d9daa41693c"
+    },
+    {
+      "name": "existing-params-preserved",
+      "input": "SELECT * FROM t WHERE a = $1 AND b = $2",
+      "template": "SELECT * FROM t WHERE a = $1 AND b = $2",
+      "fingerprint": "5d3ea5c114b21c2745ac37588383d4ea37d639bc85ee751537efaf5d4aa12f55"
+    },
+    {
+      "name": "existing-param-then-literal",
+      "input": "SELECT * FROM t WHERE a = $1 AND b = 5",
+      "template": "SELECT * FROM t WHERE a = $1 AND b = $2",
+      "fingerprint": "5d3ea5c114b21c2745ac37588383d4ea37d639bc85ee751537efaf5d4aa12f55"
+    },
+    {
+      "name": "float-exponent",
+      "input": "SELECT 1.5, 2e10",
+      "template": "SELECT $1, $2",
+      "fingerprint": "6096b3b47b56a626573c4d210479f65a1f47ae474e96ae8252b3cd81dd32d75c"
+    },
+    {
+      "name": "signed-literal",
+      "input": "SELECT -1",
+      "template": "SELECT $1",
+      "fingerprint": "165a22d8eabe300a7430a1c63e8bd81b6fbc45f42f099dcb508a64eba90c80c1"
+    },
+    {
+      "name": "binary-minus-not-swallowed",
+      "input": "SELECT a - 1",
+      "template": "SELECT a - $1",
+      "fingerprint": "672aeb33afa1696a435cd9be1e3c6ec5054eb53b6eb34770873f277237c26566"
+    },
+    {
+      "name": "signed-in-arg-list",
+      "input": "SELECT id FROM t WHERE id IN (1, -2)",
+      "template": "SELECT id FROM t WHERE id IN ($1, $2)",
+      "fingerprint": "8a75a437e22f565948106bd67df2d0ad5508336c9cf49c49523574cd7b8dc912"
+    },
+    {
+      "name": "interval-literal",
+      "input": "SELECT interval '1 day'",
+      "template": "SELECT INTERVAL $1",
+      "fingerprint": "1b1f21fa8b24ab23014634eba1d042dd4485eba9b6bceb4b45a4d29aa3d167a7"
+    },
+    {
+      "name": "jsonb-arrow",
+      "input": "SELECT data->'k' FROM t WHERE id = 7",
+      "template": "SELECT data->$1 FROM t WHERE id = $2",
+      "fingerprint": "af5c7966f37582b0bd7098f2fc34af05b613c6655ff61474a582c5011ffc5675"
+    },
+    {
+      "name": "comparison-operators",
+      "input": "SELECT 1 WHERE a >= 1 AND b <> 2 AND c <= 3 AND d != 4",
+      "template": "SELECT $1 WHERE a >= $2 AND b <> $3 AND c <= $4 AND d != $5",
+      "fingerprint": "cee471e6f5f2bc27783371bd5bdaf4c9817fbb58bcfe22e643b905f70b4719d6"
+    },
+    {
+      "name": "insert-values-multi-row",
+      "input": "INSERT INTO t (a, b) VALUES (1, 2), (3, 4)",
+      "template": "INSERT INTO t (a, b) VALUES ($1, $2), ($3, $4)",
+      "fingerprint": "a15a717bd96b183f6b85492f3a65118504427badc1fca7b4673f87e3605624a7"
+    },
+    {
+      "name": "case-expression",
+      "input": "SELECT CASE WHEN a = 1 THEN 'x' ELSE 'y' END FROM t",
+      "template": "SELECT CASE WHEN a = $1 THEN $2 ELSE $3 END FROM t",
+      "fingerprint": "721b2c9cd36944887b69e2c9fa76b4529ab87ca193abc43dd41aabc23de66f89"
+    },
+    {
+      "name": "cte",
+      "input": "WITH x AS (SELECT 1) SELECT * FROM x",
+      "template": "WITH x AS (SELECT $1) SELECT * FROM x",
+      "fingerprint": "019a2995dc4aab00d62b91766689708e926f25d678a8cf9a32d9e2b0a7980831"
+    },
+    {
+      "name": "having-count",
+      "input": "SELECT a, count(*) FROM t GROUP BY a HAVING count(*) > 3",
+      "template": "SELECT a, count(*) FROM t GROUP BY a HAVING count(*) > $1",
+      "fingerprint": "9491d639860ea69722b84b1ad20ba0f8c6ca19a888123cc8df323d9ed640427f"
+    },
+    {
+      "name": "schema-qualified",
+      "input": "SELECT * FROM pg_catalog.pg_stat_activity x",
+      "template": "SELECT * FROM pg_catalog.pg_stat_activity x",
+      "fingerprint": "a615c7e522e65cc4e994046cca1ce5e82abcdc940b2ba35d54f644bb98e0fc66"
+    },
+    {
+      "name": "pg-stat-statements-self",
+      "input": "SELECT * FROM pg_stat_statements WHERE calls > 10",
+      "template": "SELECT * FROM pg_stat_statements WHERE calls > $1",
+      "fingerprint": "7a4540c2e301e2b3636cfd2dd9dcfefb9c86cdacabf9915e5413dfe2e025042d"
+    },
+    {
+      "name": "trailing-semicolon",
+      "input": "SELECT 1;",
+      "template": "SELECT $1;",
+      "fingerprint": "d0819a5cb145c07cbab9b7250c011b0f4d1e44c5af4eef3cc9cd1a04bd5c670f"
+    },
+    {
+      "name": "two-statements",
+      "input": "SELECT 1; SELECT 2;",
+      "template": "SELECT $1; SELECT $2;",
+      "fingerprint": "67edb71e6c09a00b6a0a1a4ffe5b128ab9f144ae59c90c883a390f79dc861faf"
+    },
+    {
+      "name": "explain-analyze",
+      "input": "EXPLAIN ANALYZE SELECT * FROM t WHERE x = 1",
+      "template": "EXPLAIN ANALYZE SELECT * FROM t WHERE x = $1",
+      "fingerprint": "d1ef919c7e45c5cac26091098fe6db807b4ed37150bbe27446bd7628dc7b3359"
+    },
+    {
+      "name": "utility-begin",
+      "input": "BEGIN",
+      "template": "BEGIN",
+      "fingerprint": "a8402858d4f1e1d27afee976520485ebb4b96a5387355b823f0d0b8079729032"
+    },
+    {
+      "name": "utility-commit",
+      "input": "COMMIT",
+      "template": "COMMIT",
+      "fingerprint": "79663c1d3b43ceaf9ee728e501c64b57ae2e4d6cb36ff5c65eddcda1de27342f"
+    },
+    {
+      "name": "line-comment-stripped",
+      "input": "-- audit trail\nSELECT 1",
+      "template": "SELECT $1",
+      "fingerprint": "165a22d8eabe300a7430a1c63e8bd81b6fbc45f42f099dcb508a64eba90c80c1"
+    },
+    {
+      "name": "block-comment-stripped-nested",
+      "input": "SELECT /* a /* b */ c */ 1",
+      "template": "SELECT $1",
+      "fingerprint": "165a22d8eabe300a7430a1c63e8bd81b6fbc45f42f099dcb508a64eba90c80c1"
+    },
+    {
+      "name": "block-comment-unterminated",
+      "input": "SELECT 1 /* never closed",
+      "template": "SELECT $1",
+      "fingerprint": "165a22d8eabe300a7430a1c63e8bd81b6fbc45f42f099dcb508a64eba90c80c1"
+    },
+    {
+      "name": "empty-statement",
+      "input": "",
+      "template": "",
+      "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "whitespace-only",
+      "input": "   \n\t  ",
+      "template": "",
+      "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "truncated-below-min-for-inspectable-math",
+      "input": "SELECT a, b, c FROM sales.orders WHERE x = 1 AND y = 2 AND z = 3",
+      "template": "SELECT a, b, c FROM sales.orders WHERE x = $1 AND y = $2 AND z = $3",
+      "length": 20,
+      "display": "SELECT a, b, c FROM ",
+      "truncated": true,
+      "fingerprint": "89a16c137bc1db9030412bf07a7492a92496fb2cbf2405cf46456aaf379d88a8"
+    },
+    {
+      "name": "multibyte-cut-lands-on-rune-boundary",
+      "input": "SELECT caf\u00e9",
+      "template": "SELECT caf\u00e9",
+      "length": 10,
+      "display": "SELECT caf",
+      "truncated": true,
+      "fingerprint": "032fd2d96e106b9abdabba2f67956189da3ec261306bde866229278415d7b5b2"
+    },
+    {
+      "name": "not-truncated-at-default-length",
+      "input": "SELECT * FROM t WHERE a = 1",
+      "template": "SELECT * FROM t WHERE a = $1",
+      "fingerprint": "522a736e60590fea90c321ce6398ba0cb87181e057f6473ae39b965d6f08d7ca"
+    }
+  ]
+}
