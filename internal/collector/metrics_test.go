@@ -161,6 +161,63 @@ func TestRenderIsTheTwoFamilies(t *testing.T) {
 	}
 }
 
+// TestRenderExact is the byte-for-byte golden for the third renderer, the one
+// the MetricHub actually calls. TestRenderIsTheTwoFamilies above pins Render()
+// *relationally* (it equals RenderDuration()+RenderErrors()), which catches a
+// dropped family but not the seam: a future edit that joins the two blocks with
+// "\n", or that emits errors before durations, satisfies the relational test and
+// changes every scrape. This is the same standard the API applies to
+// testdata/api/clusters.json via TestGoldenFixtureIsCanonical — the exported
+// text is a contract with a consumer, so it is asserted as a whole string — and
+// it is the standard the coordinator asked be applied to every renderer in this
+// file rather than kept as a one-off on RenderDuration.
+func TestRenderExact(t *testing.T) {
+	s := NewStats()
+	s.ObserveDuration("database", 0.02)
+	s.ObserveDuration("wal", 0.2)
+	s.IncError("database", "pg", "db")
+	s.IncError("wal", "pg", "db")
+
+	want := `# HELP pgsi_collector_duration_seconds Wall duration of one collection round (R2.2).
+# TYPE pgsi_collector_duration_seconds histogram
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.005"} 0
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.01"} 0
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.025"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.05"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.1"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.25"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="0.5"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="1"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="2.5"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="5"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="10"} 1
+pgsi_collector_duration_seconds_bucket{collector="database",le="+Inf"} 1
+pgsi_collector_duration_seconds_sum{collector="database"} 0.02
+pgsi_collector_duration_seconds_count{collector="database"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.005"} 0
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.01"} 0
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.025"} 0
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.05"} 0
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.1"} 0
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.25"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="0.5"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="1"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="2.5"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="5"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="10"} 1
+pgsi_collector_duration_seconds_bucket{collector="wal",le="+Inf"} 1
+pgsi_collector_duration_seconds_sum{collector="wal"} 0.2
+pgsi_collector_duration_seconds_count{collector="wal"} 1
+# HELP pgsi_collector_errors_total Failed collection rounds (R2.2).
+# TYPE pgsi_collector_errors_total counter
+pgsi_collector_errors_total{cluster="pg",collector="database",namespace="db"} 1
+pgsi_collector_errors_total{cluster="pg",collector="wal",namespace="db"} 1
+`
+	if got := s.Render(); got != want {
+		t.Errorf("Render() =\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestPrefix(t *testing.T) {
 	tests := []struct {
 		in   string
