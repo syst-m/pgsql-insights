@@ -35,9 +35,10 @@
 #      `x-planned-paths` are disjoint by construction: a route that lands moves
 #      out of the manifest automatically, which is R8.1c's invariant.
 #
-# x-status is derived from the route table; /metrics's "implemented
-# (pgsi_build_info only; the R9.2 catalogue is Phase 2)" is the one string the
-# route table cannot say and is an authored override (R8.1b).
+# x-status is derived from the route table; /metrics's "implemented (4 of
+# R9.8's 8 named families — build_info, the collector duration/errors pair,
+# scrape_target_up; the other four need the store and the HTTP middleware)" is
+# the one string the route table cannot say and is an authored override (R8.1b).
 #
 # YAML note: every scalar whose text contains ": " (or starts with a backtick) is
 # double-quoted in the annotation table. Seven were not at the first commit -- two
@@ -552,6 +553,122 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /api/v1/insights/queries:
+    get:
+      tags: [insights]
+      operationId: listQueries
+      summary: R3.2's Queries table over HTTP
+      description: |
+        R8.2's query list — R3.2's Queries table, R10.4's page. Ranked by
+        `total_exec_time`, which is R3.2's own ranking and the answer
+        `clusters.go:36` gave for this route before the route existed ("a
+        cluster list sorts by phase and pgMajor, a query list by
+        total_exec_time"): `?sort=-totalExecTimeMs` is the default, and the
+        `-` is R8.4's direction marker.
+
+        The row is `dto.QueryView` and the eight load columns are inline on it
+        (`loadByTotalTime` … `loadByIOWaitMs`) because Go embeds `LoadColumns`
+        and an embedded struct is flat on the wire. `testdata/api/queries.json`
+        is the authority for that shape and `web/src/api/types.ts` imports it
+        (R16.8), so this entry describes a projection that already exists rather
+        than authoring a third spelling of it.
+
+        Served today by an empty source — the interface-plus-empty-default shape
+        the series entry below documents, for the same reason: R3.2's rows come
+        from the Phase 3 query store and R14.7 forbids a documented route that
+        404s. The store replaces the default by assigning `Config.Queries`; the
+        handler, the path, the DTO and this entry do not change when it does.
+
+        Sort keys are the eight column names plus `fingerprint`, `query`,
+        `database`, `namespace`, `cluster` and `pgMajor` — every one of them a
+        `QueryView` json tag, which is the rule that stops a sort key naming a
+        field the response does not have. Paging is R8.10's shared keyset pager
+        (`pageRows`), so `meta.nextCursor` appears only on a partial page and two
+        consecutive pages cannot overlap or drop a row.
+
+        R8.7's single readiness signal gates it exactly as `/api/v1/clusters` is
+        gated: 503 `NotReady` before the first sync, not 200 with an empty
+        `data` — "this cluster has run no queries" and "nothing has been
+        collected yet" are different facts, and only the second is true here.
+      x-status: implemented
+      parameters:
+        - $ref: '#/components/parameters/Namespace'
+        - $ref: '#/components/parameters/Cluster'
+        - $ref: '#/components/parameters/DB'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of query rows, plus the envelope metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueriesEnvelope'
+              example:
+                # Two of the fixture's seven rows, verbatim, so the example and
+                # testdata/api/queries.json cannot disagree about the row shape.
+                data:
+                  - fingerprint: "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
+                    queryid: "4459823716093821447"
+                    query: SELECT * FROM users WHERE id = $1
+                    truncated: false
+                    database: openwebui
+                    namespace: open-webui
+                    cluster: open-webui-pg
+                    pgMajor: 16
+                    recommendations: []
+                    loadByTotalTime: 60
+                    pctLoadByQueries: 60
+                    avgExecTimeMs: 42.7
+                    totalExecTimeMs: 128410.5
+                    avgRowsReturned: 1
+                    timesCalled: 3007
+                    loadByCPUMs: 118905.2
+                    loadByIOWaitMs: 9505.3
+                  - fingerprint: "16f40dfa87b8ed58dbd080ef6fb5dd75ce0e241a769324801abf9e782c0ae001"
+                    queryid: "8102393847562019384"
+                    query: UPDATE customers SET name = $1 WHERE id = $2
+                    truncated: false
+                    database: openwebui
+                    namespace: open-webui
+                    cluster: open-webui-pg
+                    pgMajor: 16
+                    recommendations: []
+                    loadByTotalTime: 20.7
+                    pctLoadByQueries: 20.7
+                    avgExecTimeMs: 36.8
+                    totalExecTimeMs: 44318.9
+                    avgRowsReturned: 1
+                    timesCalled: 1204
+                    loadByCPUMs: 40400.5
+                    loadByIOWaitMs: 3918.4
+                # total 7 with two rows on the page, so the invariant dto.Meta
+                # states (truncated ⟺ len(data) < total) forces truncated true and a
+                # non-empty cursor; the cursor is the real encoding of the second
+                # row's sort key, not a placeholder — base64url of
+                # {"s":"totalExecTimeMs","k":"0000000000044318.900000|…"}.
+                meta:
+                  total: 7
+                  truncated: true
+                  generatedAt: "2026-11-20T09:12:00Z"
+                  nextCursor: "eyJzIjoidG90YWxFeGVjVGltZU1zIiwiayI6IjAwMDAwMDAwMDAwNDQzMTguOTAwMDAwfG9wZW4td2VidWkvb3Blbi13ZWJ1aS1wZy8xNmY0MGRmYTg3YjhlZDU4ZGJkMDgwZWY2ZmI1ZGQ3NWNlMGUyNDFhNzY5MzI0ODAxYWJmOWU3ODJjMGFlMDAxIn0="
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        # Two 503 bodies in code, one response key in OpenAPI, exactly the
+        # limitation the series entry below spells out: the readiness gate
+        # answers NotReady and a store read that errors answers Unavailable, and
+        # a path item maps a status code to exactly one response. NotReady is the
+        # one reachable today, because the default source cannot error.
+        '503':
+          $ref: '#/components/responses/NotReady'
+
   /api/v1/insights/queries/series:
     get:
       tags: [insights]
@@ -741,16 +858,25 @@ paths:
       operationId: getMetrics
       summary: Prometheus exposition (R9.1, R11.3)
       description: |
-        In code today (`Server.handleMetrics`), serving `pgsi_build_info` only.
-        The full R9.2–R9.8 catalogue lands in Phase 2; R9.11's PrometheusRule
-        in the chart is authored from those names and marked provisional until
-        they exist.
+        In code today (`Server.handleMetrics`), rendering the R9.8
+        self-observability families this process can compute:
+        `pgsi_build_info` always, and — when a collector scheduler is
+        configured — the R2.2 pair `pgsi_collector_duration_seconds` and
+        `pgsi_collector_errors_total` plus `pgsi_scrape_target_up`. The four
+        remaining R9.8 names (`pgsi_store_size_bytes`,
+        `pgsi_http_request_duration_seconds`, `pgsi_scheduler_queue_depth`,
+        `pgsi_scheduler_shed_total`) need the store and the HTTP
+        instrumentation middleware, which is the rest of Phase 2's metrics
+        hub. The R9.2–R9.7 catalogue itself is served by the PromQL pair and
+        enumerated there as `x-promql-catalogue`; R9.11's PrometheusRule in
+        the chart is authored from those names and marked provisional until
+        they all exist.
 
         `security: []` — this is R8.9's actual subject: `--auth-metrics=none`
         exists so a Prometheus scrape needs no token while `/` and `/api/v1/*`
         do (R8.8). Serving metrics from the same port as the API, rather than a
         second `--metrics-listen`, is R9.1's requirement.
-      x-status: implemented (pgsi_build_info only; the R9.2 catalogue is Phase 2)
+      x-status: implemented (4 of R9.8's 8 named families — build_info, the collector duration/errors pair, scrape_target_up; the other four need the store and the HTTP middleware)
       security: []
       responses:
         '200':
@@ -928,8 +1054,14 @@ x-planned-paths:
   # a route that exists, and R14.7 counts one. `paths` and `x-planned-paths`
   # being disjoint is what makes that checkable, and it is the invariant
   # scripts/check-openapi.py owns.
+  #
+  # /api/v1/insights/queries (R8.2, R10.4) was the second route from this list to
+  # be written: internal/api/queries.go registered it and it moved up to `paths`
+  # in the same commit, so the entry is deleted rather than marked, same rule. Its
+  # sibling two lines below — /api/v1/insights/queries/{fingerprint}, R10.7's
+  # detail route — is a separate catalogue entry and is still planned: the list
+  # and the detail are two routes, and landing one does not land the other.
   r8.2-catalogue:
-    - /api/v1/insights/queries              # R8.2, R10.4
     - /api/v1/insights/queries/{fingerprint}
     - /api/v1/insights/queries/{fingerprint}/plans
     - /api/v1/insights/wait-events          # R4, R10.7
@@ -2248,3 +2380,197 @@ components:
         sharedBlocksHit: 48200
         sharedBlocksRead: 12
         lockTimeSeconds: 0.0031
+
+    # ---- Query list (R8.2, R10.4) ------------------------------------------
+
+    QueriesEnvelope:
+      type: object
+      description: |
+        `dto.Envelope[QueryView]` — the third projection of the Go generic
+        `Envelope[T any]`, named the way `FleetEnvelope` names the clusters one
+        and `QuerySeriesEnvelope` the series one.
+
+        Declared in Go as a type *alias*
+        (`type QueriesEnvelope = dto.Envelope[dto.QueryView]`), not as a struct
+        with the same fields: R8.4's envelope has exactly one definition in this
+        codebase and an alias creates no second type for the two names to
+        disagree about. The name exists so this document has something to `$ref`.
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          description: |
+            The page of query rows. `[]`, never null, when there are none — the
+            house rule `FleetEnvelope.data` states for its own array.
+          items:
+            $ref: '#/components/schemas/QueryView'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    QueryView:
+      type: object
+      description: |
+        One row of R3.2's Queries table. The eight load columns are inline on
+        this object rather than nested under a `load` key, because Go embeds
+        `dto.LoadColumns` in `dto.QueryView` and an embedded struct is flat on
+        the wire — the shape is `testdata/api/queries.json`, which
+        `web/src/api/types.ts` imports (R16.8), not a spelling this document
+        gets to choose.
+
+        `namespace` and `cluster` are on every row for the reason the Go doc
+        gives: an unfiltered request returns rows from every cluster, so a row
+        that does not say which cluster it belongs to cannot be rendered, linked
+        to a detail page, or paged stably.
+      required:
+        - fingerprint
+        - query
+        - truncated
+        - database
+        - namespace
+        - cluster
+        - pgMajor
+        - recommendations
+        - loadByTotalTime
+        - pctLoadByQueries
+        - avgExecTimeMs
+        - totalExecTimeMs
+        - avgRowsReturned
+        - timesCalled
+        - loadByCPUMs
+        - loadByIOWaitMs
+      properties:
+        fingerprint:
+          type: string
+          description: |
+            R3.4's normalized fingerprint — the canonical key of the query store
+            (R9.5b), and the key R8.2's `/insights/queries/{fingerprint}` route
+            takes.
+        queryid:
+          type: string
+          description: |
+            PostgreSQL's `queryid`, informational (R9.5b — R3.4 is why: the id
+            can change for an unchanged query, so it is a display field and never
+            the key). Absent when the store has no id for the fingerprint.
+        query:
+          type: string
+          description: |
+            The normalized query text, truncated to R3.6's cap. `truncated` says
+            whether this is the whole statement or the first part of it.
+        truncated:
+          type: boolean
+          description: |
+            True when `query` is R3.6's truncation of a longer statement, false
+            when it is the whole one. R3.2's column renders the distinction; the
+            field exists so a client does not have to re-derive it from length.
+        database:
+          type: string
+          description: The database the query ran in (R9.3's `datname`).
+        namespace:
+          type: string
+          description: The namespace the cluster is in (R9.3).
+        cluster:
+          type: string
+          description: The CloudNativePG Cluster it ran on (R9.3).
+        pgMajor:
+          type: integer
+          description: |
+            The cluster's PostgreSQL major. Not nullable here the way
+            `ClusterView.pgMajor` is: the load columns are derived by a per-major
+            rule (R3.2), so a query row exists only where the version was
+            resolved.
+        recommendations:
+          type: array
+          description: |
+            R7's recommendations for this query, suppressed-when-unsupported
+            rather than guessed. `[]` when there are none, never null.
+          items:
+            $ref: '#/components/schemas/RecommendationView'
+        loadByTotalTime:
+          type: number
+          description: 'R3.2''s `Load by total time` column: this query''s share of the cluster''s total execution time, percent.'
+        pctLoadByQueries:
+          type: number
+          description: 'R3.2''s `% Load by queries` column: its share of the total query count, percent.'
+        avgExecTimeMs:
+          type: number
+          description: 'R3.2''s `Avg execution time` column, in milliseconds.'
+        totalExecTimeMs:
+          type: number
+          description: |
+            R3.2's `Total execution time`, in milliseconds — the column the table
+            is ranked by (R3.2), and the route's default sort.
+        avgRowsReturned:
+          type: number
+          description: |
+            R3.2's `Avg rows returned`. A number rather than an integer because it
+            is an average of `pg_stat_statements`' integral counter (R3.3).
+        timesCalled:
+          type: integer
+          description: 'R3.2''s `Times called` — `calls` (R3.3).'
+        loadByCPUMs:
+          type: number
+          description: |
+            R3.2's `Load by CPU`, in milliseconds. R3.2 §5 records that PG16+ is
+            where `pg_stat_statements` gained `total_exec_time` versus PG15's
+            `total_time`, and the collector's per-major rule is what fills this.
+        loadByIOWaitMs:
+          type: number
+          description: |
+            R3.2's `Load by IO wait`, in milliseconds, from the same per-major
+            column set.
+      example:
+        fingerprint: "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
+        queryid: "4459823716093821447"
+        query: SELECT * FROM users WHERE id = $1
+        truncated: false
+        database: openwebui
+        namespace: open-webui
+        cluster: open-webui-pg
+        pgMajor: 16
+        recommendations: []
+        loadByTotalTime: 60
+        pctLoadByQueries: 60
+        avgExecTimeMs: 42.7
+        totalExecTimeMs: 128410.5
+        avgRowsReturned: 1
+        timesCalled: 3007
+        loadByCPUMs: 118905.2
+        loadByIOWaitMs: 9505.3
+
+    RecommendationView:
+      type: object
+      description: |
+        One recommendation, shaped by R7.6 — the requirement that makes a
+        recommendation a contract rather than a string: it carries the finding,
+        the evidence, the suggested action, and a confidence, and a
+        recommendation the data cannot support is suppressed rather than
+        guessed. A string cannot be suppressed on that test, because there is
+        nothing to check; four fields can.
+      required: [finding, evidence, action, confidence]
+      properties:
+        finding:
+          type: string
+          description: |
+            What was observed, e.g. `sequential scan on orders for a predicate
+            with no matching index`.
+        evidence:
+          type: array
+          description: |
+            R7.6's "the evidence (metrics + query fingerprints)": the numbers the
+            finding rests on, each one a metric name with its value or a query
+            fingerprint. The fingerprints are in the payload so a client can
+            follow one back to R8.2's `/insights/queries/{fingerprint}`.
+          items:
+            type: string
+        action:
+          type: string
+          description: |
+            R7.6's suggested action, e.g. `CREATE INDEX ON orders (customer_id)`.
+        confidence:
+          type: string
+          description: |
+            R7.6's `confidence` field. A string with no enum, and that is a
+            flagged gap rather than a decision: R7.6 requires the field and never
+            names its values, and R7.1 — the recommender that would populate it —
+            is post-0.1, so there is no implementation to derive a vocabulary from
+            yet. The Go type says the same thing (dto/queries.go).

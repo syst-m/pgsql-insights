@@ -83,6 +83,7 @@ func TestRouteTable(t *testing.T) {
 		"GET /",
 		"GET /api/v1/clusters",
 		"GET /api/v1/clusters/{namespace}/{name}",
+		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
@@ -105,10 +106,11 @@ func TestRouteTable(t *testing.T) {
 	}
 
 	// The constant-resolution case, called out separately because it is the one
-	// a grep-based generator gets wrong: three of these paths exist only as
+	// a grep-based generator gets wrong: four of these paths exist only as
 	// constants concatenated onto the method.
 	for _, s := range []string{
 		"GET /api/v1/clusters/{namespace}/{name}",
+		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/metrics/query",
 	} {
@@ -121,5 +123,50 @@ func TestRouteTable(t *testing.T) {
 		if !found {
 			t.Errorf("RouteTable() lost %q — a path registered as \"GET \"+Const must resolve through the constant", s)
 		}
+	}
+}
+
+// TestRoutesInDirFixture runs the generator's engine against
+// testdata/routes/ instead of against this package.
+//
+// routesInDir's own header advertises the capability — "RouteTable with the
+// directory as an argument, so the test can run it against a fixture as well as
+// against the real package" — and for two commits the test only ever passed ".".
+// The argument existed without the test that used it, which is the same gap
+// openapi_annotations.go:33 used to be: a capability named in prose and not
+// exercised, so it cannot fail.
+//
+// The fixture's six cases (their numbered comments are in testdata/routes/) are
+// the ones the real package cannot pin by themselves, because server.go happens
+// to declare its consts in dependency order and to contain exactly one
+// registration per shape:
+//
+//  1. a plain literal,
+//  2. a literal concatenated onto a const (server.go's shape),
+//  3. a const that needs a two-hop chain to resolve — the case the single-pass
+//     collector dropped, and the reason the fixture's consts are in reverse
+//     dependency order,
+//  4. a duplicate registration (the table dedupes),
+//  5. a pattern that is a function call (skipped: not statically knowable),
+//  6. mux.Handle instead of mux.HandleFunc (skipped: the generator matches
+//     HandleFunc).
+//
+// Cases 5 and 6 are asserted by their absence from `want`, which is why `want` is
+// an exact slice rather than a contains-check: an exact comparison is the only
+// form in which a skipped case can fail. A contains-check passes whether or not
+// the skip happens.
+func TestRoutesInDirFixture(t *testing.T) {
+	got, err := routesInDir("testdata/routes")
+	if err != nil {
+		t.Fatalf("routesInDir(testdata/routes): %v", err)
+	}
+	want := []string{
+		"GET /api/v1/deep2",   // case 3, via Deep3 -> Deep2 -> Deep1
+		"GET /api/v1/literal", // cases 1 and 4, deduped
+		"GET /api/v1/plain",   // case 2, via "GET " + Plain
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("routesInDir(testdata/routes)\ngot:\n  %s\nwant:\n  %s",
+			strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
 }

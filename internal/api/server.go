@@ -36,6 +36,7 @@ import (
 	"net/http/pprof"
 	"time"
 
+	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/discovery"
 	"github.com/frankellis/pgsql-insights/internal/version"
 )
@@ -87,6 +88,47 @@ type Config struct {
 	// by assigning this field; nothing else in the wiring changes when it does.
 	Series QuerySeriesSource
 
+	// Queries is R8.2's query list (GET /api/v1/insights/queries, implemented in
+	// queries.go). Nil selects the empty source, so the route answers an empty
+	// page instead of 404 — the same rule Series follows and for the same reason:
+	// the document lists the path, and R14.7 forbids a documented route that 404s.
+	// Phase 3's query store replaces the default by assigning this field.
+	Queries QueryListSource
+
+	// Metrics is the collector self-observability state whose two R2.2 families
+	// (pgsi_collector_duration_seconds, pgsi_collector_errors_total) /metrics
+	// renders alongside pgsi_build_info — R9.8's composition, and the call
+	// BuildInfoMetric's own comment was written for ("Exported so the Phase 2
+	// MetricHub renders the same line rather than a second copy of it").
+	//
+	// New defaults it to collector.NewStats(), which is not the same as leaving
+	// it nil and letting the handler cope: (*Stats).Render locks s.mu, so a nil
+	// *Stats panics where the zero value answers "". It is also not
+	// &collector.Stats{} — the zero value's prefix is empty, so it would render
+	// `collector_duration_seconds`, and R9.4's prefix rule names `pgsi_` as the
+	// only correct spelling. NewStats sets it; that is why the default is the
+	// constructor and not the literal.
+	//
+	// A process that does run a scheduler assigns that scheduler's own *Stats
+	// here, so /metrics and the collection loop read one value — the same
+	// single-source rule R8.7(i) states for readiness. The import itself is the
+	// one internal/collector/conn.go:115
+	// predicts ("internal/api … will import the collectors at step 4"), and
+	// naming the type here rather than an interface is deliberate: Stats has no
+	// second implementation to plan for, and an interface with one implementation
+	// and no test double is a second name for a concrete type.
+	Metrics *collector.Stats
+	// Scheduler is the Phase 2 collection loop, and the only source of
+	// pgsi_scrape_target_up (R9.4, R9.12) — the metric is per-target state, so it
+	// lives with the loop that observes it and is read through Scheduler.Up().
+	//
+	// Unlike Metrics, nil needs no default: (*Scheduler).Up is defined on a nil
+	// receiver and returns nil, and (*UpTracker).Render is defined on a nil
+	// tracker and returns "". A server with no scheduler therefore renders the
+	// family as absent rather than panicking or emitting an empty HELP/TYPE pair
+	// for a set of targets it has never seen.
+	Scheduler *collector.Scheduler
+
 	// Fleet is the inventory /api/v1/clusters serves (R8.2) and, through
 	// Readiness below, the thing /readyz reports on. In `pgsi serve` it is the
 	// *discovery.Discoverer; nil means this process runs no discovery — Phase 0's
@@ -114,6 +156,10 @@ type Server struct {
 	readiness *Readiness
 	// log is cfg.Log (never nil after New).
 	log *slog.Logger
+	// metrics is cfg.Metrics (never nil after New, for the reason its Config doc
+	// gives), kept as a field for the same reason readiness is: the handler reads
+	// the defaulted value instead of re-deriving it on every request.
+	metrics *collector.Stats
 }
 
 // New builds a Server without binding the socket.
@@ -139,7 +185,13 @@ func New(cfg Config) *Server {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
-	s := &Server{cfg: cfg, readiness: cfg.Readiness, log: cfg.Log}
+	// The R9.8 default, applied here rather than at the handler for the reason
+	// cfg.Metrics documents: the type is not nil-safe, and a default that lives
+	// in one place cannot be forgotten by the next caller.
+	if cfg.Metrics == nil {
+		cfg.Metrics = collector.NewStats()
+	}
+	s := &Server{cfg: cfg, readiness: cfg.Readiness, log: cfg.Log, metrics: cfg.Metrics}
 	s.http = &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           s.Handler(),
@@ -160,6 +212,12 @@ func (s *Server) Handler() http.Handler {
 	// comes from ClusterDetailPath so the registration and api/openapi.yaml
 	// cannot spell it two ways (R14.7).
 	mux.HandleFunc("GET "+ClusterDetailPath, s.handleClusterDetail)
+	// R8.2's query list (queries.go). Listed inline for the same reason as the two
+	// routes above it — one pattern, one dependency — and listed *before* the
+	// series route so the two `/insights/queries` patterns read in path order.
+	// The path comes from QueriesPath, which is also the string A4's
+	// web/src/routes.ts:182 carries as its endpoint.
+	mux.HandleFunc("GET "+QueriesPath, s.handleQueries)
 	// R8.11's batched series route (series.go). Listed inline rather than mounted
 	// through a subsystem like PromQL/CORS, because it is one pattern with one
 	// dependency — and the path comes from the package's QuerySeriesPath const so
@@ -320,8 +378,41 @@ func BuildInfoMetric() string {
 		fmt.Sprintf("pgsi_build_info{version=%q,commit=%q} 1\n", version.Version, version.Commit)
 }
 
+// handleMetrics is R9.1's exposition surface, and the body is R9.8's Phase 2
+// composition rather than one family: pgsi_build_info (R11.3), the collector's
+// two R2.2 families, and pgsi_scrape_target_up when a scheduler exists.
+//
+// It used to write BuildInfoMetric() alone, which is what BuildInfoMetric's own
+// comment predicted — "Exported so the Phase 2 MetricHub renders the same line
+// rather than a second copy of it" — and for a phase nothing outside this
+// handler called the export. Composing here is the smaller half of that hub: the
+// three families a running process actually has, concatenated in the order R9.8
+// lists them. When internal/metrics/ lands as the hub proper (R9.8's row names
+// it, and the remaining self-metrics need a store and an HTTP middleware to have
+// values at all), this handler delegates to it and the composition moves with it
+// — the Config fields stay, which is the part that stops the move being a
+// rewrite.
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(BuildInfoMetric()))
+	_, _ = w.Write([]byte(s.metricsBody()))
+}
+
+// metricsBody concatenates the families this process can render.
+//
+// Each source returns "" when it has nothing to say — a Stats with no recorded
+// collectors emits no lines, a nil UpTracker emits no lines — so a server
+// running nothing but itself emits exactly BuildInfoMetric(), which is what
+// TestBuildInfoMetricMatchesHandler pins. It is also the exposition format's own
+// rule, the one collector/metrics.go:186 and collector/up.go:178 both
+// implement: a family with no series is absent, not a HELP/TYPE pair beside a
+// value the process never measured — and promtool reports the latter.
+//
+// The empty prefix on the Up render selects collector.DefaultPrefix rather than
+// being an unset field: R9.2's `metrics.prefix` is configurable, and the
+// UpTracker's own Render applies the default when the caller has no config, so
+// passing "" here is the documented way to say "use the default" and not an
+// accident of there being no prefix on api.Config.
+func (s *Server) metricsBody() string {
+	return BuildInfoMetric() + s.metrics.Render() + s.cfg.Scheduler.Up().Render("")
 }

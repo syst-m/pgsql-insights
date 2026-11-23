@@ -16,8 +16,14 @@ x-planned-paths:
   # a route that exists, and R14.7 counts one. `paths` and `x-planned-paths`
   # being disjoint is what makes that checkable, and it is the invariant
   # scripts/check-openapi.py owns.
+  #
+  # /api/v1/insights/queries (R8.2, R10.4) was the second route from this list to
+  # be written: internal/api/queries.go registered it and it moved up to `paths`
+  # in the same commit, so the entry is deleted rather than marked, same rule. Its
+  # sibling two lines below — /api/v1/insights/queries/{fingerprint}, R10.7's
+  # detail route — is a separate catalogue entry and is still planned: the list
+  # and the detail are two routes, and landing one does not land the other.
   r8.2-catalogue:
-    - /api/v1/insights/queries              # R8.2, R10.4
     - /api/v1/insights/queries/{fingerprint}
     - /api/v1/insights/queries/{fingerprint}/plans
     - /api/v1/insights/wait-events          # R4, R10.7

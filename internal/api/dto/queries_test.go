@@ -446,12 +446,14 @@ func TestQueryDetailIsR107sFieldSet(t *testing.T) {
 	if !slices.Equal(want, got) {
 		t.Errorf("QueryDetailView's wire properties do not match R10.7.\ngot  %v\nwant %v", got, want)
 	}
-	// The per-minute load chart is R10.7's one element with no field here, and
-	// the reason is the import cycle on this file's header: the point type is
-	// api.QuerySeriesPoint and dto cannot import api.
+	// The per-minute load chart is R10.7's one element with no field here. The
+	// point type now lives in this package (dto/series.go), so the reason is no
+	// longer an import direction — it is that the chart is served by R8.11's
+	// route, and a copy inlined here would be a second answer to a question the
+	// client can already ask.
 	if slices.Contains(got, "points") || slices.Contains(got, "series") {
-		t.Error("QueryDetailView inlines a series field; api.QuerySeriesPoint lives in " +
-			"package api, which imports dto — the detail chart is served by R8.11's route")
+		t.Error("QueryDetailView inlines a series field; the detail chart is served by " +
+			"R8.11's route (dto/series.go) — see this file's header")
 	}
 }
 

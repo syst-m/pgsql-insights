@@ -146,6 +146,17 @@ type QuerySpec struct {
 	// Sorts; a spec that violates that is a programming error, not a runtime
 	// condition, so parseListQuery answers it rather than defaulting quietly.
 	Default string
+	// DefaultDesc is the direction that default sorts in — true means the
+	// default is the `-` form of Default.
+	//
+	// It exists because direction is per-route, not global. R3.1 orders the
+	// cluster list by phase ascending (not-started first), so clusters' default
+	// needs no direction and got none; R3.2 ranks the Queries table by
+	// *most* expensive first, so a query list whose default sorted ascending
+	// would answer with the cheapest queries on page one. A spec that could only
+	// name the key could express one route's default and not the other's, and
+	// the route that lost was the one added second.
+	DefaultDesc bool
 }
 
 // parseListQuery validates R8.4's parameters against a route's vocabulary.
@@ -167,7 +178,12 @@ func parseListQuery(q url.Values, spec QuerySpec) (ListQuery, error) {
 		Cluster:   q.Get("cluster"),
 		DB:        q.Get("db"),
 		Sort:      spec.Default,
-		Limit:     DefaultLimit,
+		// The spec's default direction, not a hardcoded false: see QuerySpec's
+		// DefaultDesc for why the direction is per-route. An explicit `?sort=`
+		// below overwrites both fields, so this only applies when the parameter
+		// is absent.
+		Desc:  spec.DefaultDesc,
+		Limit: DefaultLimit,
 	}
 
 	// limit: R8.10's default/max pair, and the spec is explicit that a value
@@ -255,6 +271,17 @@ func pageRows[T any](
 	key func(T, string) string,
 	base dto.Meta,
 ) dto.Envelope[T] {
+	// A nil result set renders `data: []`, not `data: null`. R8.4's envelope
+	// always carries an array and dto.Envelope's Data field has no omitempty, so
+	// a nil slice is the one case where the JSON says something the Go type does
+	// not: a client doing `data.length` gets undefined. clusters.go dodges it by
+	// building rows with make(); every empty fallback source in this package
+	// returns `nil, nil`, so the normalisation belongs here, once, rather than in
+	// each route's wrapper — which is the whole argument for pageRows existing.
+	if rows == nil {
+		rows = []T{}
+	}
+
 	total := len(rows)
 
 	sortRowsBy(rows, key, q.Sort, q.Desc)

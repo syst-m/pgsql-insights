@@ -8,22 +8,23 @@
 //	GET /api/v1/insights/queries/{fingerprint}/plans → Envelope[PlanSampleView]  (R3.10)
 //	GET /api/v1/insights/tags                        → Envelope[TagView]         (R3.12)
 //
-// The fifth query route is deliberately not here. R8.2's
-// `/insights/queries/series` is R8.11's batched endpoint and its shapes —
-// `api.QuerySeries` and `api.QuerySeriesPoint` — already exist in
-// internal/api/series.go, published in api/openapi.yaml as `QuerySeries` and
-// `QuerySeriesPoint` with `x-status: implemented`. This package cannot import
-// them: `internal/api` imports `dto`, so the dependency edge only runs one way,
-// and a `dto.QueryDetailView` holding `[]api.QuerySeriesPoint` closes the cycle
-// into a compile error. That is why QueryDetailView has no `points` field, and
-// it is the right answer rather than a workaround — series.go's own doc states
-// that carrying all five values per point "is what lets one response serve both
-// R10.6's row sparkline and R10.7's Query Detail chart", so the detail page's
-// chart is served by the route that already exists (a batch of one fingerprint
-// is legal, and `MaxBatchFingerprints` is 50) rather than by a second copy of
-// the point type in a package that cannot reference the first one. The
-// alternative — moving the series types into dto — is a change to A2's file and
-// is flagged as such rather than made here.
+// The fifth query route's shapes are in this package, but in series.go rather
+// than here. R8.2's `/insights/queries/series` is R8.11's batched endpoint; its
+// `QuerySeries` and `QuerySeriesPoint` were written in internal/api/series.go,
+// published in api/openapi.yaml with `x-status: implemented`, and moved to
+// dto/series.go once the Phase 3 store needed to name them to implement
+// `api.QuerySeriesSource` — a store cannot import internal/api, its own
+// consumer, and internal/api keeps both names as aliases, so nothing that
+// spelled `api.QuerySeries` had to change.
+//
+// QueryDetailView still has no `points` field, and the reason is no longer the
+// import direction. It is that the detail chart is served by the route that
+// already exists: series.go's own doc states that carrying all five values per
+// point "is what lets one response serve both R10.6's row sparkline and R10.7's
+// Query Detail chart", and a batch of one fingerprint is legal
+// (`MaxBatchFingerprints` is 50). Inlining the array into the detail body would
+// duplicate an answer the client can ask for — the second-copy failure this
+// project keeps hitting, in a file whose header exists to prevent exactly that.
 //
 // The same rule clusters.go sets for ClusterView applies throughout: the
 // requirement that defines a column set names its fields. So QueryView's fields

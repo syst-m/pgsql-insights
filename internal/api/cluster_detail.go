@@ -20,11 +20,14 @@
 // name; the doc already has the type, and the route points at it.
 //
 // The route is registered in server.go (A1's file) as
-// `mux.HandleFunc("GET /api/v1/clusters/{namespace}/{name}", …)`, and
-// server_test.go's TestUnknownRoutesAndMethods currently lists
-// `/api/v1/clusters/default/pg1` as a route that must 404 — that test names
-// this URL as the *planned* one it expects to disappear from its 404 list when
-// Phase 5 lands it, which is the case here.
+// `mux.HandleFunc("GET /api/v1/clusters/{namespace}/{name}", …)`. Registering it
+// moved `/api/v1/clusters/default/pg1` out of server_test.go's 404 list and into
+// its 503 list in the same commit; the test had named the URL as the *planned*
+// one it expected to disappear from the 404 list when Phase 5 landed it, and
+// that is what happened. The rule the two lists encode is worth stating because
+// every future route in `x-planned-paths` repeats the move: a path in `paths`
+// belongs in the 503 list (registered, so it answers), and a path only in
+// `x-planned-paths` belongs in the 404 list (documented, so it is not the SPA).
 
 package api
 

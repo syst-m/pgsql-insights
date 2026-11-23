@@ -56,8 +56,14 @@ import (
 // CommittedDocumentRelPath is the generated document's path relative to this
 // package's directory. go:embed cannot reach it from here (`..` is not allowed
 // in an embed path, and the document lives in a different package's directory),
-// which is why the bytes come from openapipkg.OpenAPIDocument() and only the
-// -update write needs a path at all.
+// which is why the -update write takes a path and TestGeneratedOpenAPI reads the
+// file with os.ReadFile rather than through the embed.
+//
+// The two are the same bytes within one build — api/embed.go embeds this file and
+// openapipkg.OpenAPIDocument() returns the embedded copy — so the test could read
+// either. It reads the path because the thing under test is *this file's content*
+// versus the generator's output, and reading the embed would compare the
+// generator against a snapshot the build took of the same file.
 const CommittedDocumentRelPath = "../../api/openapi.yaml"
 
 // GenerateOpenAPI assembles the R8.1 document from the generator's inputs and
@@ -159,6 +165,14 @@ func WriteDocument(path string) error {
 // route: that is what `x-planned-paths` is for, and the manifest is checked for
 // disjointness separately (by scripts/check-openapi.py and, now, by this file
 // emitting the manifest as its own section rather than duplicating it).
+//
+// The comparison is per *method*, not per path. Keying `registered` by the path
+// alone — which is what this function did — makes a second verb invisible in both
+// directions at once: register `DELETE /api/v1/clusters/{ns}/{name}` without
+// documenting a `delete:` operation and the phantom check finds the path already
+// registered via the GET, the undocumented check finds the path documented, and
+// the byte-compare passes because Lines is emitted verbatim. The document then
+// advertises one method and the binary serves two, and every gate agrees.
 func checkRouteTable(routes []string) error {
 	registered := map[string]bool{}
 	for _, r := range routes {
@@ -166,36 +180,53 @@ func checkRouteTable(routes []string) error {
 		if !ok || method == "" || path == "" {
 			return fmt.Errorf("openapi_gen: malformed route registration %q (want \"METHOD /path\")", r)
 		}
-		registered[path] = true
+		registered[strings.ToUpper(method)+" "+path] = true
 	}
 
-	var undocumented, phantom []string
+	// Every documented "METHOD /path" pair. Two entries documenting the same pair
+	// is not an error the way two entries with the same Path would be — the
+	// PromQL pair is one entry with two keys — so the set is a set, not a
+	// multiset.
+	documented := map[string]bool{}
+	var noMethod, badStatus []string
 	for _, e := range openAPIPaths {
 		if e.Path == "" {
 			return fmt.Errorf("openapi_gen: an openAPIPaths entry has no Path")
 		}
-		if strings.HasPrefix(e.Status, "implemented") {
-			if !registered[e.Path] {
-				phantom = append(phantom, e.Path)
+		if _, ok := knownStatusTokens[statusToken(e.Status)]; !ok {
+			badStatus = append(badStatus, fmt.Sprintf("%s: unrecognised x-status %q", e.Path, e.Status))
+		}
+		methods := documentedMethods(e.Lines)
+		if len(methods) == 0 {
+			noMethod = append(noMethod, e.Path)
+		}
+		for _, m := range methods {
+			documented[m+" "+e.Path] = true
+		}
+	}
+
+	var phantom []string
+	for _, e := range openAPIPaths {
+		if statusToken(e.Status) != "implemented" {
+			continue
+		}
+		for _, m := range documentedMethods(e.Lines) {
+			if !registered[m+" "+e.Path] {
+				phantom = append(phantom, m+" "+e.Path)
 			}
 		}
 	}
-	for path := range registered {
-		found := false
-		for _, e := range openAPIPaths {
-			if e.Path == path {
-				found = true
-				break
-			}
-		}
-		if !found {
-			undocumented = append(undocumented, path)
+	statusLines := mismatchedStatusLines()
+	var undocumented []string
+	for k := range registered {
+		if !documented[k] {
+			undocumented = append(undocumented, k)
 		}
 	}
 	sort.Strings(undocumented)
 	sort.Strings(phantom)
 
-	if len(undocumented) > 0 || len(phantom) > 0 {
+	if len(undocumented) > 0 || len(phantom) > 0 || len(noMethod) > 0 || len(badStatus) > 0 || len(statusLines) > 0 {
 		var msgs []string
 		if len(undocumented) > 0 {
 			msgs = append(msgs, fmt.Sprintf("registered in code, absent from the document (R14.7): %s",
@@ -205,9 +236,133 @@ func checkRouteTable(routes []string) error {
 			msgs = append(msgs, fmt.Sprintf("documented as implemented, not registered in code (R14.7): %s",
 				strings.Join(phantom, ", ")))
 		}
+		if len(noMethod) > 0 {
+			// An entry with no operation key documents nothing, so it cannot make
+			// any route implemented — the check used to accept it as documentation
+			// of its Path.
+			msgs = append(msgs, fmt.Sprintf("paths entries with no HTTP method key in their lines: %s",
+				strings.Join(noMethod, ", ")))
+		}
+		if len(badStatus) > 0 {
+			msgs = append(msgs, fmt.Sprintf("%s", strings.Join(badStatus, "; ")))
+		}
+		if len(statusLines) > 0 {
+			msgs = append(msgs, fmt.Sprintf("x-status lines that do not spell their entry's Status: %s",
+				strings.Join(statusLines, "; ")))
+		}
 		return fmt.Errorf("openapi_gen: route table and document disagree: %s", strings.Join(msgs, "; "))
 	}
 	return nil
+}
+
+// openAPIOperationKeys are the HTTP methods OpenAPI spells as a lowercase
+// operation key under a path item. It is the complete set the spec allows rather
+// than the two this API uses, so a `delete:` added to an entry is recognised as
+// an operation instead of failing to match anything.
+var openAPIOperationKeys = []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+
+// documentedMethods returns the methods one path entry declares, uppercased to
+// the spelling RouteTable uses.
+//
+// It is derived from Lines rather than stored in a `Methods` field because the
+// alternative is a second copy of a fact the same entry already states: the
+// `get:` and `post:` keys *are* the documented method set, and an authored field
+// would need its own check that it agrees with Lines — R16.8's failure
+// reproduced inside the fix for it. Deriving it also stops an entry whose Lines
+// contain no operation key from counting as documentation of anything.
+func documentedMethods(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		// Operation keys sit at exactly four spaces of indent — the path key is
+		// at two and an operation's fields at six — so the indent is what tells
+		// `    get:` apart from `      '200':`, from `  /path:`, and from a
+		// comment line at the same depth.
+		if !strings.HasPrefix(l, "    ") || strings.HasPrefix(l, "     ") {
+			continue
+		}
+		key := strings.TrimSuffix(strings.TrimSpace(l), ":")
+		for _, m := range openAPIOperationKeys {
+			if key == m {
+				out = append(out, strings.ToUpper(m))
+			}
+		}
+	}
+	return out
+}
+
+// knownStatusTokens is the closed set of leading tokens an x-status may start
+// with. The full value is not a closed enum — the generator accepts a qualified
+// string, "implemented (pgsi_build_info only; the R9.2 catalogue is Phase 2)",
+// as the per-route annotation R8.1b requires for /metrics, the one partial a
+// boolean cannot hold — but the first word is a fixed vocabulary.
+//
+// Without validating it, the old `strings.HasPrefix(status, "implemented")` test
+// classed a typo ("implmented") as not-implemented, which exempts the entry from
+// the phantom check, and the document ships a status that asserts nothing.
+var knownStatusTokens = map[string]bool{
+	"implemented": true,
+	"planned":     true,
+	"deprecated":  true,
+}
+
+// statusToken returns the leading word of an x-status value, or "" when the
+// value has no word at all.
+func statusToken(status string) string {
+	fields := strings.Fields(status)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// mismatchedStatusLines is R16.8 applied to a duplication inside the annotation
+// table itself. A path entry states its status twice: in the Status field, which
+// is what checkRouteTable reads to decide implemented-vs-planned, and as the
+// `x-status:` line inside Lines, which is the string the document actually shows.
+// Lines are emitted verbatim, so nothing compared the two — and the first time a
+// status changed, only the field moved: /metrics's Status became the four-family
+// string while the document went on advertising "pgsi_build_info only", with
+// `make openapi`, `make openapi-check` and the test suite all green.
+//
+// It also enforces the banner's quoting rule, because the value's spelling and
+// the value's quoting are one contract: a qualified status containing ": " has to
+// be double-quoted, and an unquoted one is a line the parser refuses — the
+// seven-bug class the banner records, caught in Go instead of only in Python.
+//
+// The banner's prose quote of the string is a third copy and stays prose (it
+// documents *that* an override exists, not what it says), so it is not checked
+// here; the two machine-readable copies are.
+func mismatchedStatusLines() []string {
+	const prefix = "      x-status: "
+	var out []string
+	for _, e := range openAPIPaths {
+		for _, l := range e.Lines {
+			// Six spaces is the operation-field indent — the same rule
+			// documentedMethods uses to tell `    get:` from `      '200':`. A
+			// deeper indent or a comment line cannot match this prefix, so no
+			// extra indent check is needed: the seventh character has to be the
+			// `x`, and on a seven-space line it is a space.
+			if !strings.HasPrefix(l, prefix) {
+				continue
+			}
+			if got := strings.TrimPrefix(l, prefix); got != yamlScalar(e.Status) {
+				out = append(out, fmt.Sprintf("%s: got %q, Status is %q", e.Path, got, e.Status))
+			}
+		}
+	}
+	return out
+}
+
+// yamlScalar renders a string the way the document writes plain scalars: bare
+// when it can be, double-quoted when the banner's rule requires it (text
+// containing ": ", or a leading backtick). Escaping is the subset the annotation
+// table actually uses — an embedded double quote — which is also what Go's own
+// quoting does, so the two never disagree about a value's bytes.
+func yamlScalar(s string) string {
+	if strings.Contains(s, ": ") || strings.HasPrefix(s, "`") {
+		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	}
+	return s
 }
 
 // RouteTable returns every `mux.HandleFunc("METHOD /path", h)` registration in
@@ -287,26 +442,55 @@ func routesInDir(dir string) ([]string, error) {
 // collectStringConsts records every package-level `const X = "..."` (and
 // `var X = "..."`, which some packages use where a const would do) so that a
 // registration written as `"GET " + X` can be resolved. Only string-typed
-// single-name declarations are recorded; anything else is left unset so that a
-// registration using it fails the caller's ok check rather than silently
-// resolving to "".
+// single-name declarations are recorded; anything else is left unset, which the
+// caller at routesInDir handles by skipping that registration.
+//
+// It iterates to a fixed point rather than walking the declarations once. A
+// single pass in file order can only resolve `const B = "GET " + A` when A is
+// declared *earlier in the same file*: stringValue reports ok=false for the
+// unknown ident, B is never recorded, and every registration using B is dropped
+// by the caller with no diagnostic — so `mux.HandleFunc("GET "+RouteX, h)`
+// silently vanishes from the route table the moment someone hoists a pattern into
+// a named const, which is the refactor the annotation table's `Go:` fields
+// invite. Repeating the pass until nothing new resolves resolves chains of any
+// depth in any order, and the loop terminates because each iteration either adds
+// at least one name to a finite set or returns.
+//
+// The caller's silence is worth naming: skipping an unresolvable registration is
+// correct for `mux.HandleFunc(computed(), h)` and was a bug for every other case
+// this function used to miss. TestRoutesInDirFixture in openapi_gen_test.go is
+// the fixture that pins which cases are which — the fixture routesInDir's own
+// header promised ("so the test can run it against a fixture as well as against
+// the real package") and that the test did not have until that file existed.
 func collectStringConsts(f *ast.File, consts map[string]string) {
-	for _, d := range f.Decls {
-		gen, ok := d.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			vs, ok := spec.(*ast.ValueSpec)
-			if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
+	for {
+		added := false
+		for _, d := range f.Decls {
+			gen, ok := d.(*ast.GenDecl)
+			if !ok {
 				continue
 			}
-			if vs.Names[0].Name == "_" {
-				continue
-			}
-			if s, ok := stringValue(vs.Values[0], consts); ok {
+			for _, spec := range gen.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
+					continue
+				}
+				if vs.Names[0].Name == "_" {
+					continue
+				}
+				s, ok := stringValue(vs.Values[0], consts)
+				if !ok {
+					continue
+				}
+				if prev, exists := consts[vs.Names[0].Name]; exists && prev == s {
+					continue // already recorded; not progress
+				}
 				consts[vs.Names[0].Name] = s
+				added = true
 			}
+		}
+		if !added {
+			return
 		}
 	}
 }

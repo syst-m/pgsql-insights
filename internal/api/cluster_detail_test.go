@@ -248,7 +248,27 @@ func TestClusterDetailRejectsEncodedSegments(t *testing.T) {
 	// "%2F" is not a valid namespace name, and the handler refuses it rather
 	// than answering 404 about a cluster it cannot name.
 	rec := do(t, s, http.MethodGet, "/api/v1/clusters/a%2Fb/c")
-	if rec.Code == http.StatusOK {
-		t.Fatalf("GET with an encoded namespace returned 200: %s", rec.Body.String())
+	// The assertion has to name 400, not merely rule out 200. This server's
+	// Fleet has an empty inventory, so with the guard deleted the request falls
+	// through to lookupCluster, matches nothing, and answers 404 — and 404 is
+	// not 200, so a test that only forbids 200 passes with the guard removed and
+	// so tests nothing. Asserting the guard's own code and body is what makes the
+	// test fail when the guard goes away; it is the shape the four sibling tests
+	// in this file use for the same reason.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET = %d, want 400 (body %s)", rec.Code, rec.Body.String())
+	}
+	var body dto.ErrorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != dto.ErrInvalidRequest {
+		t.Errorf("code = %q, want %q", body.Error.Code, dto.ErrInvalidRequest)
+	}
+	// The guard's message, verbatim: the same argument the readiness test makes
+	// about the list route's message — two places describing one condition in two
+	// ways is how a client learns to distrust both.
+	if body.Error.Message != "namespace and name must not be percent-encoded" {
+		t.Errorf("message = %q, want the guard's message verbatim", body.Error.Message)
 	}
 }

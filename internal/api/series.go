@@ -95,62 +95,18 @@ var presetRanges = slices.Sorted(maps.Keys(rangeWindows))
 // $ref it the way it $refs FleetEnvelope for dto.Envelope[ClusterView].
 type QuerySeriesEnvelope = dto.Envelope[QuerySeries]
 
-// QuerySeriesPoint is one minute of one fingerprint's series. The five values
-// are R9.4's aggregate family members, named from the member list in
-// promql_catalogue.go rather than re-invented here: execution_time, rows,
-// shared_blocks_hit, shared_blocks_read, lock_time.
-//
-// Carrying all five per point is what lets one response serve both R10.6's row
-// sparkline and R10.7's Query Detail chart, and it is why the route takes no
-// `metric=` parameter — R8.11's signature does not name one, and a per-metric
-// request would need five requests per page to fill one table of sparklines,
-// which is the R10.14 budget spent on the wrong thing.
-//
-// float64 for all five because that is the type the R9.4 metric family carries
-// (a Prometheus sample value); a per-minute delta derived from a counter is not
-// necessarily integral even when the underlying count is.
-type QuerySeriesPoint struct {
-	// Timestamp is the start of the minute, RFC 3339 in UTC (R10.21: every
-	// timestamp the API emits is RFC 3339 UTC, and R8.4's meta.generatedAt is
-	// the same type for the same reason).
-	Timestamp time.Time `json:"timestamp"`
+// QuerySeriesPoint is an alias for dto.QuerySeriesPoint. The struct itself moved
+// to internal/api/dto/series.go — that file's header states the reason (the
+// Phase 3 store has to name this type to implement QuerySeriesSource, and it
+// cannot import internal/api to do it). An alias creates no second type, so
+// every existing `api.QuerySeriesPoint` spelling — the interface below, the
+// empty source, series_test.go's byte-pinned fixture, the OpenAPI annotation
+// table's `Go:` field — keeps compiling and keeps naming one definition.
+type QuerySeriesPoint = dto.QuerySeriesPoint
 
-	ExecutionTimeSeconds float64 `json:"executionTimeSeconds"`
-	Rows                 float64 `json:"rows"`
-	SharedBlocksHit      float64 `json:"sharedBlocksHit"`
-	SharedBlocksRead     float64 `json:"sharedBlocksRead"`
-	LockTimeSeconds      float64 `json:"lockTimeSeconds"`
-}
-
-// QuerySeries is one requested fingerprint's answer.
-//
-// The label set is R9.3's contract. namespace and cluster are always present
-// because the request is scoped to them. pod and instanceRole are present only
-// when the answer is a single instance's — R5.7's compare-up-to-5 needs the
-// (namespace, cluster, pod) triple to label a per-instance series — and empty
-// when the points aggregate across the cluster's instances, which is what
-// R10.6's table row asks for and why one entry per fingerprint is possible at
-// all. datname and usename are R9.3's database/user additions and the other
-// half of R9.4's row identity (per cluster, db, user). queryid is R9.5b's
-// secondary, informational identifier: R3.4 is why it is optional and why it is
-// never the key — `fingerprint` is.
-//
-// Points is `[]`, never null, for a fingerprint the store has never seen: an
-// absent array and an empty one mean the same thing to the UI, and R8.3's house
-// rule (and clusters_test.go's TestEmptyFleetRendersArrayNotNull) is that the
-// API says "none" with `[]`.
-type QuerySeries struct {
-	Fingerprint  string `json:"fingerprint"`
-	QueryID      string `json:"queryid,omitempty"`
-	Namespace    string `json:"namespace"`
-	Cluster      string `json:"cluster"`
-	Pod          string `json:"pod,omitempty"`
-	InstanceRole string `json:"instanceRole,omitempty"`
-	Datname      string `json:"datname,omitempty"`
-	Usename      string `json:"usename,omitempty"`
-
-	Points []QuerySeriesPoint `json:"points"`
-}
+// QuerySeries is an alias for dto.QuerySeries, for the same reason and with the
+// same non-duplication guarantee as QuerySeriesPoint above.
+type QuerySeries = dto.QuerySeries
 
 // SeriesQuery is the parsed, validated query string of an R8.11 request: what
 // the client asked for, with the range already resolved to a concrete window so

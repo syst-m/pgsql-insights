@@ -131,7 +131,6 @@ func DefaultCatalogue() *Catalogue {
 
 	entries := make([]CatalogueEntry, 0, len(aggregates))
 	for _, a := range aggregates {
-		implemented := a.metric != "pgsi_query_rows_total"
 		entries = append(entries, CatalogueEntry{
 			Name:   FamilyAggregate + "." + a.name,
 			Family: FamilyAggregate,
@@ -145,7 +144,13 @@ func DefaultCatalogue() *Catalogue {
 			ResultType:  ResultTypeVector,
 			Endpoint:    QueryMetricsPath,
 			Description: "R9.4 aggregate: " + strings.ReplaceAll(a.name, "_", " ") + " per (cluster, db, user), 5m rate.",
-			Implemented: implemented,
+			// All five are exported by the collector now. The loop used to carry
+			// one exception — `a.metric != "pgsi_query_rows_total"` — written
+			// while that family was a name with nothing behind it, and the
+			// exception is gone because the name now has one:
+			// collector.ExportedMetricNames() lists query_rows_total, which is
+			// what the field's doc means by "exists in the committed surface".
+			Implemented: true,
 		})
 	}
 
@@ -164,8 +169,44 @@ func DefaultCatalogue() *Catalogue {
 			ResultType:  ResultTypeVector,
 			Endpoint:    QueryMetricsPath,
 			Description: "R9.5 per-query (top-N=50 per cluster): " + strings.ReplaceAll(a.name, "_", " ") + ", labelled by fingerprint (R9.5b).",
-			Implemented: a.metric != "pgsi_query_rows_total",
+			// The same five metrics as the aggregate family, so the same answer
+			// and the same note: all five are in the collector's table.
+			Implemented: true,
 		})
+	}
+
+	// provisionalSystem names the system metrics with no family behind them yet,
+	// and so the only system entries this catalogue marks Implemented: false.
+	//
+	// It is a list of exceptions rather than a bool on each of the 25 rows
+	// because the claim being made is "this name has no family", and the smallest
+	// form of that claim is the list of names that lack one — the same reason the
+	// aggregates loop above wrote its one exception inline. The list is verified
+	// against collector.ExportedMetricNames() rather than against R5.2's prose,
+	// and it is the half of the answer the prose cannot give: R5.2 names 25
+	// families, the collector's naming table exports 18 of them by name, and
+	// these seven are the difference.
+	//
+	// Where a name's absence has a reason in the file itself, it is here:
+	// db_tps is a rate Cloud SQL synthesises from xact_commit + xact_rollback
+	// (its own Description says so) and both counters are exported while the
+	// derived rate is not a family; the three cnpg_* rows exist on the pod as
+	// cnpg_* but not yet under the pgsi_ prefix R9.7's re-export requires. The
+	// other three (backends by state, by application_name, wal_size_bytes) are
+	// named by R5.2 and absent from the table with no further story worth
+	// inventing.
+	//
+	// When Phase 2 ships one of these, the fix is to delete its line: the entry
+	// flips to implemented and no other entry changes, which is D13's bounded
+	// blast radius applied to the catalogue instead of to the rule set.
+	provisionalSystem := map[string]bool{
+		"pgsi_db_tps":                          true,
+		"pgsi_db_backends_by_state":            true,
+		"pgsi_db_backends_by_application_name": true,
+		"pgsi_wal_size_bytes":                  true,
+		"pgsi_pg_status":                       true,
+		"pgsi_pg_is_in_recovery":               true,
+		"pgsi_pg_replication_lag_seconds":      true,
 	}
 
 	// R9.7's system family = the full R5.2 set. R5.2 names the families; the
@@ -211,10 +252,10 @@ func DefaultCatalogue() *Catalogue {
 			ResultType:  ResultTypeVector,
 			Endpoint:    SystemMetricsPath,
 			Description: s.desc,
-			// None of the R5.2 set is exported yet (Phase 2), so every system
-			// entry is provisional — including the cnpg re-exports, which exist
-			// as cnpg_* but not yet under the pgsi_ prefix R9.7 requires.
-			Implemented: false,
+			// Everything but the seven names in provisionalSystem is exported by
+			// the collector now, so the loop's answer is the exception list, not
+			// the blanket false it carried while none of the set existed.
+			Implemented: !provisionalSystem[s.metric],
 		})
 	}
 
