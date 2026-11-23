@@ -134,6 +134,18 @@ func (c *SettingsCollector) Collect(ctx context.Context, tgt Target) (Result, er
 	}
 
 	if cerr := tx.Commit(); cerr != nil {
+		// The data was read; the transaction just failed to close. That is still a
+		// failed round — a connection that cannot commit is a connection whose next
+		// query is suspect — so the samples come back with the error and the
+		// scheduler keeps serving the previous round.
+		//
+		// D20's S9, filed against database.go and applied here by S16: sql.go's Tx
+		// doc says "Rollback on every error path", and a failed Commit is an error
+		// path. A driver that failed the COMMIT may still hold the transaction open
+		// on a connection the pooler hands to the next round, and the rollback that
+		// closes it is best-effort — its error is the commit's, which is why the
+		// result is discarded here exactly as it is in the query path above.
+		_ = tx.Rollback()
 		return Result{Samples: samples, RoundTrips: trips},
 			fmt.Errorf("collector %s: commit: %w", CollectorSettings, cerr)
 	}

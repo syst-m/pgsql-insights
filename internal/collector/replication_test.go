@@ -324,6 +324,10 @@ func TestReplicationCollectCommitError(t *testing.T) {
 	if len(res.Samples) == 0 {
 		t.Error("Samples empty, want the read samples returned alongside the error")
 	}
+	if tx.commits != 1 || tx.rollbacks != 1 {
+		t.Errorf("commits/rollbacks = %d/%d, want 1/1 (a failed COMMIT may leave the transaction open on a pooled connection; the best-effort Rollback is what closes it)",
+			tx.commits, tx.rollbacks)
+	}
 }
 
 func TestReplicationCollectBeginError(t *testing.T) {
