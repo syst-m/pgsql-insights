@@ -64,6 +64,7 @@ var declaredViews = []View{
 	ViewStatioAllIndexes,
 	ViewStatioAllSequences,
 	ViewStatioAllTables,
+	ViewWaitEvents,
 }
 
 func TestValidate(t *testing.T) {
@@ -100,8 +101,8 @@ func TestSixMajorCoverage(t *testing.T) {
 		{Major14, 27, 331},
 		{Major15, 29, 358},
 		{Major16, 30, 385},
-		{Major17, 31, 399},
-		{Major18, 31, 416},
+		{Major17, 32, 402},
+		{Major18, 32, 419},
 	}
 	for _, tc := range cases {
 		if got := Majors(); !containsInt(got, tc.major) {

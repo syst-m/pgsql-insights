@@ -67,6 +67,7 @@ const (
 	ViewStatioAllIndexes      View = "pg_statio_all_indexes"
 	ViewStatioAllSequences    View = "pg_statio_all_sequences"
 	ViewStatioAllTables       View = "pg_statio_all_tables"
+	ViewWaitEvents            View = "pg_wait_events"
 )
 
 // Column sets: one constant per distinct set, named <View>PG<majors>; a set
@@ -492,6 +493,27 @@ const StatioAllSequencesPG13to18 = `
 	relid schemaname relname blks_read blks_hit
 `
 
+// WaitEventsPG17to18 is pg_wait_events's 3 columns on PostgreSQL 17 and 18.
+//
+// R4.3 is the requirement that names this view: "Use `pg_wait_events` (PG17+) to
+// validate and label event names on versions that have it." The parenthetical is
+// the reason the row is keyed 17 and 18 and not 13–18 — the view does not exist
+// before PG17 — and it is why the activity collector reads it conditionally
+// rather than declaring it in the set that drives its applicability:
+// AppliesToViews is the all-views rule, so a view that exists on two majors would
+// make the collector inapplicable on the four majors where pg_stat_activity is
+// perfectly readable.
+//
+// The view is a catalogue, not a statistic: it lists the event names the running
+// server can report, so its rows are the legal values of pg_stat_activity's
+// wait_event_type and wait_event columns. That is what makes it a validator — an
+// event string on a session row that is not in this catalogue came from a server
+// this matrix does not agree with, which is the producer/consumer disagreement
+// R16.8 files and R4.3 names a use for.
+const WaitEventsPG17to18 = `
+	event_type event description
+`
+
 // StatioAllTablesPG13to18 is pg_statio_all_tables's 11 columns on PostgreSQL 13–18.
 const StatioAllTablesPG13to18 = `
 	relid schemaname relname heap_blks_read heap_blks_hit idx_blks_read
@@ -535,4 +557,5 @@ var columnsByMajor = map[View]map[int]string{
 	ViewStatioAllIndexes:      {13: StatioAllIndexesPG13to18, 14: StatioAllIndexesPG13to18, 15: StatioAllIndexesPG13to18, 16: StatioAllIndexesPG13to18, 17: StatioAllIndexesPG13to18, 18: StatioAllIndexesPG13to18},
 	ViewStatioAllSequences:    {13: StatioAllSequencesPG13to18, 14: StatioAllSequencesPG13to18, 15: StatioAllSequencesPG13to18, 16: StatioAllSequencesPG13to18, 17: StatioAllSequencesPG13to18, 18: StatioAllSequencesPG13to18},
 	ViewStatioAllTables:       {13: StatioAllTablesPG13to18, 14: StatioAllTablesPG13to18, 15: StatioAllTablesPG13to18, 16: StatioAllTablesPG13to18, 17: StatioAllTablesPG13to18, 18: StatioAllTablesPG13to18},
+	ViewWaitEvents:            {17: WaitEventsPG17to18, 18: WaitEventsPG17to18},
 }
