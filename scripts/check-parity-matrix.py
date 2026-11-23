@@ -199,13 +199,23 @@ cited = cited_tokens(files_all)
 if not cited:
     print("GUARD: citation check found 0 ids — file discovery broke, not a pass")
     sys.exit(2)
+cited_ids = {t for _, _, t in cited}
 cite_bad = sorted({(f, n, t) for f, n, t in cited if t not in defined and t not in EXEMPT})
-print(f"citations: {len({t for _, _, t in cited})} distinct ids across "
-      f"{len({f for f, _, _ in cited})} files · {len(cite_bad)} not defined by §4")
+# An EXEMPT id that nobody cites is a dead exemption. The table is read at exactly one site —
+# the filter above — so a key matching nothing is otherwise invisible and the table still looks
+# populated while the check it performs has quietly stopped running. Failing here is the
+# assertion form of the rule check_paths applies to PATH_EXEMPT: an exemption that would expire
+# silently now leaves a red line saying so.
+id_orphans = sorted(set(EXEMPT) - cited_ids)
+print(f"citations: {len(cited_ids)} distinct ids across "
+      f"{len({f for f, _, _ in cited})} files · {len(cite_bad)} not defined by §4 · "
+      f"{len(id_orphans)} orphan exemptions")
 for f, n, t in cite_bad[:40]:
     print(f"  {f}:{n}: {t}")
 if len(cite_bad) > 40:
     print(f"  … {len(cite_bad) - 40} more")
+for k in id_orphans[:20]:
+    print(f"  orphan exemption: {k} — {EXEMPT[k]}")
 
 # --- path citations (A4's chart/README.md find, generalised) -------------------------
 # A `path:N` citation is only as durable as the file's line count. `ed58452` inserted 65
@@ -279,8 +289,10 @@ def path_citations(root, tracked):
 
 def check_paths(root, tracked):
     checked, bad, unresolved, exempt = 0, [], [], 0
+    pairs = set()                                  # every (citing file, cited path) it found
     tset = set(tracked)
     for rel, n, kind, path, s, e, head in path_citations(root, tracked):
+        pairs.add((rel, path))
         r = resolve_path(tracked, tset, rel, path)
         if not r and (rel, path) in PATH_EXEMPT:
             exempt += 1; continue              # exempt only while it still fails to resolve
@@ -296,18 +308,31 @@ def check_paths(root, tracked):
                 bad.append((rel, n, kind, f"{path}:{s} is not a heading ({actual[:48]!r})"))
             elif actual != head.strip():
                 bad.append((rel, n, kind, f"quotes {head!r}, {path}:{s} reads {actual!r}"))
-    return checked, bad, unresolved, exempt
+    return checked, bad, unresolved, exempt, pairs
 
-checked_path, path_bad, unresolved, exempt_path = check_paths(root, files_all)
-if not checked_path and not exempt_path:
-    print("GUARD: path-citation check resolved 0 citations — file discovery broke, not a pass")
+# A4's L1, applied to this half too: gate on the file set, not on the per-half count. A repo
+# with markdown but zero path citations is legal, and "file discovery broke" is false when
+# discovery worked and simply found nothing to check.
+scanned_md = sum(1 for rel in files_all
+                 if rel.endswith(".md") and not rel.startswith(PATH_SKIP_DIRS))
+if not scanned_md:
+    print("GUARD: no scannable markdown — file discovery broke, not a pass")
     sys.exit(2)
+checked_path, path_bad, unresolved, exempt_path, cited_pairs = check_paths(root, files_all)
+# A PATH_EXEMPT key that matches no citation is a dead exemption — the table is read at one
+# site, so an orphan key is invisible and the check it performs has quietly stopped running.
+# Unlike an external path (reported, not failed: external/deleted/typo aren't separable), an
+# orphan key is unambiguous, so it fails.
+path_orphans = sorted(set(PATH_EXEMPT) - cited_pairs)
 print(f"path citations: {checked_path} resolved · {len(path_bad)} wrong · "
-      f"{len(unresolved)} unresolvable (reported, not failed) · {exempt_path} exempt")
+      f"{len(unresolved)} unresolvable (reported, not failed) · {exempt_path} exempt · "
+      f"{len(path_orphans)} orphan exemptions")
 for f, n, kind, msg in path_bad[:20]:
     print(f"  {f}:{n} [{kind}] {msg}")
 for f, n, kind, path, n_alt in unresolved[:10]:
     print(f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})")
+for k in path_orphans[:20]:
+    print(f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
 
 # --- relative markdown links (A4's docs/README.md find, generalised) ---
 # The half above validates `path:N` citations and says nothing about `[text](path)` links,
@@ -342,5 +367,6 @@ print(f"markdown links: {checked_links} checked \u00b7 {len(links_bad)} broken")
 for f, n, tgt in links_bad[:20]:
     print(f"  {f}:{n} -> {tgt}")
 
-sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad) else 0)
+sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
+              or id_orphans or path_orphans) else 0)
 
