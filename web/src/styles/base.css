@@ -671,3 +671,96 @@ a.cluster-link:focus-visible {
   padding: 0 4px;
   white-space: nowrap;
 }
+
+/* --- R10.6 the queries table (components/QueryTable.tsx) ------------------ */
+
+/* The Query cell: the row's only link (R10.19 — the row is the hit target, so
+   no other cell renders an <a>). The template is long and this column is not,
+   so the link is a block that ellipsises and the full text lives in its title;
+   a cell that wraps turns one row into six and breaks the row height the
+   density toggle just set. The max-width is a hint in an auto-layout table
+   (browsers widen a td to fit its content), which is why the truncation rules
+   are on the child rather than on the td. */
+.query-cell {
+  max-width: 420px;
+  min-width: 200px;
+}
+
+.query-cell > .query-link {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  text-underline-offset: 2px;
+}
+
+.query-cell > .query-link:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
+/* The R3.6 truncation flag rides after the text. Muted and 11px: it is a note
+   about the value, not a second value, so it must not compete with the number
+   columns for attention. `cursor: help` because the note is in the title. */
+.trunc-flag {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: help;
+}
+
+/* The virtualization spacers are layout, not content. `table.data th, td`
+   gives every cell a bottom hairline, and a spacer that inherits one renders as
+   an empty row in the middle of the table — so the border and the hover both
+   have to be turned off here, not just the padding (which the component also
+   sets inline, because the height has to be inline too). */
+table.data tr.virtual-spacer,
+table.data tr.virtual-spacer:hover {
+  background: none;
+}
+
+table.data tr.virtual-spacer > td {
+  padding: 0;
+  border-bottom: 0;
+}
+
+/* R10.18's two densities, for the table form. The row height itself is inline
+   on the <tr> — it comes from ROW_HEIGHT, the same number `windowFor` windows
+   with — so what lives here is the padding that has to shrink with it: 8px
+   vertical inside a 24px compact row leaves an 8px text box and the numbers
+   clip. `th.sortable` has its own padding rule, so the header button needs its
+   own override rather than inheriting one. */
+table.data[data-density="compact"] th,
+table.data[data-density="compact"] td {
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+table.data[data-density="compact"] th.sortable button {
+  padding: 2px 10px;
+}
+
+table.data[data-density="comfortable"] th,
+table.data[data-density="comfortable"] td {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+table.data[data-density="comfortable"] th.sortable button {
+  padding: 8px 12px;
+}
+
+/* The right-hand cluster of a card head: the shown-count, the column menu, the
+   density toggle. `.card-head` is a flex row with `justify-content:
+   space-between`, so three loose children would each take a share of the
+   space-between and drift apart; as one flex item with its own 8px gap they
+   stay a group. `Fleet.tsx`'s head has two children and needs no wrapper, which
+   is why this class is new here rather than an existing one. */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
