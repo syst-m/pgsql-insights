@@ -258,6 +258,35 @@ var successionsByFrom = func() map[Source]Succession {
 	return m
 }()
 
+// successionsByTo is the mirror index: every successor pair → the successions
+// that produced it.
+//
+// It exists because the From index alone answers only the forward question —
+// "what did this column become?" — so a pair that exists only as a successor
+// answers "never was a thing". Resolve asking for
+// pg_stat_statements.shared_blk_read_time on PG16 gets nothing from the From
+// index (PG17 renamed blk_read_time *to* it), when the answer on PG16 is
+// blk_read_time. Same shape for the move (pg_stat_checkpointer.num_timed on
+// PG16 is pg_stat_bgwriter.checkpoints_timed) and the split
+// (pg_stat_io.read_bytes on PG17 is op_bytes).
+//
+// The value is a []Succession and not the []Source the mirror suggests, because
+// the answer needs the succession, not just the pair: the split case is lossy
+// and only the row's Kind says so (see Resolution). A slice because a chain —
+// A renamed to B, B later renamed to C — puts B in the index as the To of one
+// row and the From of another, and the correct back-answer on a major before the
+// first rename is A, which means choosing the earliest Since, not the first
+// entry the map happens to keep.
+var successionsByTo = func() map[Source][]Succession {
+	m := make(map[Source][]Succession)
+	for _, s := range successions {
+		for _, to := range s.To {
+			m[to] = append(m[to], s)
+		}
+	}
+	return m
+}()
+
 // Successions returns the table itself, for the R9.4 naming review and for
 // tests. The slice is a copy of the rows (the To slices are shared, being
 // read-only by convention) so a caller cannot append into the package's table.
@@ -275,12 +304,40 @@ func SuccessorOf(view View, col string) (Succession, bool) {
 	return s, ok
 }
 
+// Resolution is Resolve's answer: the sources to read for one measurement on one
+// major, and how much the caller can trust the pairing.
+//
+// The second half is why Resolve does not return a bare []Source. Most answers
+// are exact and there is nothing to say about them; the ones that come from the
+// history table have to say *how* they were arrived at, and the one case where
+// the answer is not the measurement asked for — a back-resolved split — has to
+// say so, because a caller that reads pg_stat_io.op_bytes on PG17 in place of
+// read_bytes is reading a number that also contains write and extend. Presenting
+// that pair silently is worse than presenting nothing: it is a plausible wrong
+// number, which is the failure class R2.4 exists to remove.
+type Resolution struct {
+	// Sources are the concrete (view, column) pairs to SELECT. One most of the
+	// time, several on a split, and empty exactly for a retire — the honest "this
+	// measurement no longer exists", which renders as n/a rather than as a zero.
+	Sources []Source
+	// Kind classifies the change that produced Sources, and is "" when the answer
+	// was the column exactly as asked for (no change had happened on this major).
+	Kind Kind
+	// Faithful reports whether Sources measures the measurement that was asked
+	// about, and not something that contains it. False in exactly one case: a
+	// back-resolved split, where the pre-image is the sum of several successors
+	// and the question named one of them.
+	Faithful bool
+	// Note carries the succession's note whenever the answer came from the table,
+	// so the explanation of the pairing travels with the pairing instead of
+	// having to be looked up a second time.
+	Note string
+}
+
 // Resolve answers the question a collector actually asks: "I want this logical
 // measurement, on this major — what do I SELECT?"
 //
-// It returns the concrete sources to read, which is one source most of the time
-// and several on a split. The three cases it has to get right are the reason
-// the two files exist together:
+// The four cases it has to get right are the reason the two files exist together:
 //
 //   - The column exists as-named on major → that one source. (The overwhelmingly
 //     common case, and the one that must not be slowed down by the history table.)
@@ -289,31 +346,95 @@ func SuccessorOf(view View, col string) (Succession, bool) {
 //     shared_blk_read_time; asking for pg_stat_io.op_bytes on PG18 yields three
 //     columns; asking for pg_stat_bgwriter.checkpoints_timed on PG17 yields
 //     pg_stat_checkpointer.num_timed — a different view, which is why a
-//     collector cannot just qualify the name out of matrix_data.go.
-//   - The column was retired at or before major → no sources and ok=true, the
-//     honest "this measurement no longer exists", which renders as n/a rather
-//     than as a zero. ok=false means the pair was never a thing at all.
-func Resolve(view View, col string, major int) ([]Source, bool) {
-	cols, exists := Columns(view, major)
-	if exists {
+//     collector cannot just qualify the name out of matrix_data.go. A retire
+//     lands here too: no sources, ok=true.
+//   - The column is the *successor* half of a change that happens after major →
+//     the pre-image. Asking for pg_stat_statements.shared_blk_read_time on PG16
+//     yields blk_read_time, and asking for pg_stat_checkpointer.num_timed on PG16
+//     yields pg_stat_bgwriter.checkpoints_timed. This direction is the one the
+//     first version of Resolve could not answer, because the From index has no
+//     entry for a pair that has only ever been a successor — so the honest answer
+//     ("PG16 spells this blk_read_time") came out as ok=false ("never was a
+//     thing"), which is how a PG16 cluster loses a metric step 4 is about to
+//     mint a name for.
+//   - Neither → ok=false, the pair was never a thing on this major. A pre-image
+//     that predates the table (PG12's total_time) is out of scope by the same
+//     argument it always was.
+func Resolve(view View, col string, major int) (Resolution, bool) {
+	src := Source{View: view, Column: col}
+
+	// The exact answer, and the common one: the column is right there on this
+	// major, so the history table has nothing to say about it.
+	if cols, exists := Columns(view, major); exists {
 		for _, c := range cols {
 			if c == col {
-				return []Source{{view, col}}, true
+				return Resolution{Sources: []Source{src}, Faithful: true}, true
 			}
 		}
 	}
-	s, ok := SuccessorOf(view, col)
+
+	// Forward: the pair existed before this major and changed at or before it, so
+	// what it became is the answer.
+	if s, ok := SuccessorOf(view, col); ok && s.Since <= major {
+		// A split's To set is the whole successor set, so the old name still gets
+		// everything the old name measured — faithful, even though the answer is
+		// three sources for a question about one.
+		return Resolution{Sources: s.To, Kind: s.Kind, Faithful: true, Note: s.Note}, true
+	}
+
+	// Backward: the pair is somebody's successor on a later major, so on this
+	// major the measurement is spelled by that succession's From.
+	if s, ok := predecessor(src, major); ok {
+		return Resolution{
+			Sources: []Source{s.From},
+			Kind:    s.Kind,
+			// The one unfaithful answer: back-resolving one arm of a split yields
+			// the sum of all three arms. A rename and a move are 1:1 by definition,
+			// and a retire has no To entry so it can never be reached from here.
+			Faithful: s.Kind != KindSplit,
+			Note:     s.Note,
+		}, true
+	}
+
+	return Resolution{}, false
+}
+
+// predecessor returns the succession whose To contains src and whose change has
+// not happened yet on major, preferring the earliest such Since.
+//
+// Earliest-first is what makes a rename chain answer correctly: with A→B at 15
+// and B→C at 17, asking for B on 14 must yield A (the spelling 14 used), not C's
+// predecessor row and not nothing. A candidate whose From does not exist on
+// major is skipped — back-resolving to a column that is not there either is the
+// same "never was a thing" error the index exists to fix, and it is what keeps
+// pg_stat_io.read_bytes on PG13 from answering pg_stat_io.op_bytes, which
+// pg_stat_io does not have on 13 either.
+func predecessor(src Source, major int) (Succession, bool) {
+	var (
+		best Succession
+		have bool
+	)
+	for _, s := range successionsByTo[src] {
+		if s.Since <= major {
+			continue // the forward path already answered this one
+		}
+		if !exists(s.From, major) {
+			continue
+		}
+		if !have || s.Since < best.Since {
+			best, have = s, true
+		}
+	}
+	return best, have
+}
+
+// exists reports whether one source pair is a real column of its view on major.
+func exists(src Source, major int) bool {
+	cols, ok := Columns(src.View, major)
 	if !ok {
-		return nil, false
+		return false
 	}
-	if s.Since > major {
-		// The change hasn't happened yet on this major, and the column isn't
-		// there (the loop above already said so) — so this pair is not a thing
-		// on this major. A pre-image that predates the table (PG12's
-		// total_time) is out of scope by the same argument.
-		return nil, false
-	}
-	return s.To, true
+	return contains(cols, src.Column)
 }
 
 // ValidateSuccessions cross-checks the succession table against the column
@@ -333,6 +454,24 @@ func ValidateSuccessions() error {
 	if len(successionsByFrom) != len(successions) {
 		add("%d successions but %d distinct sources: a column has two history rows",
 			len(successions), len(successionsByFrom))
+	}
+
+	// The mirror half of the same invariant: the From index is injective above,
+	// and the To index must be too. The count that matters is the number of To
+	// *entries* (a split contributes three), compared against the number of
+	// distinct keys the index built — a pair that two successions both name as
+	// their successor collapses to one key holding two rows, which Resolve's
+	// back-direction copes with by taking the earliest, but which the table should
+	// not contain in the first place. It also catches the failure the index exists
+	// to fix: an entry the index lost is a pair Resolve would answer "never was a
+	// thing" on every major before its rename.
+	var toEntries int
+	for _, s := range successions {
+		toEntries += len(s.To)
+	}
+	if len(successionsByTo) != toEntries {
+		add("%d successor entries across the table but %d distinct in the To index: a pair has two predecessors",
+			toEntries, len(successionsByTo))
 	}
 
 	for _, s := range successions {

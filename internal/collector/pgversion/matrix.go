@@ -79,7 +79,10 @@ func CNPGSupported() []int { return append([]int(nil), cnpgSupported...) }
 
 // IsSupported reports whether major is one CNPG 1.30 can run (R13.9's axis).
 // It is Exists-for-majors, not Exists-for-views: a major with no data at all
-// must never answer true here, which is why it checks majors, not the table.
+// must never answer true here. It checks cnpgSupported, not majors — 13 and 14
+// have full column sets in the table and are out of scope for the fleet, so a
+// check against the matrix's own list would call PG13 supported
+// (matrix_test.go's TestMajors asserts 13 and 14 are not).
 func IsSupported(major int) bool {
 	for _, m := range cnpgSupported {
 		if m == major {

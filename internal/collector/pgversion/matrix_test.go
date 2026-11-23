@@ -3,7 +3,7 @@ package pgversion
 // matrix_test.go is R16.1's "unit tests for the PG version matrix (R2.4) across
 // all six majors". It was written in the same commit as the table rather than
 // after it, because a table with no tests is a transcription nobody checks — and
-// the file's own argument for existing is that a hand-written 1,100-name table
+// the file's own argument for existing is that a hand-written 2,189-name table
 // is exactly where transcription errors live.
 //
 // Three kinds of assertion, each catching a different failure:
