@@ -192,6 +192,24 @@ These apply to every slot.
    bit". Every §4 requirement maps to exactly one phase (spec §7.3), and
    `scripts/check-parity-matrix.sh` enforces it — a spec edit that breaks the parity check is a
    defect, and CI runs it.
+
+   The rule has a citation half, enforced by the same script as of `88929b3`. **An id cited
+   anywhere in the repo must be an id §4 defines, and a `file:line` citation must point at what
+   it claims.** Both classes shipped defects this week: phantom ids (`R15.4`/`R15.5` in the
+   licenses README, and `coverage gate (R14.5)` in `ci.yml:100` — the gate is R11.11) and stale
+   numbers (`ed58452` inserted 65 lines at `chart/README.md:93` and invalidated every number
+   below it, three of which survived two rounds of reading, because a wrong number is still a
+   plausible number). The script now checks every `R…` mention in tracked markdown, yaml, Go and
+   the Makefile against §4's set — twelve ids are exempted with a named reason, each one a
+   documented alias rather than an invention — and checks path citations in three forms:
+   `path:N`, `path:N-M`, the durable `file § "Heading" (:N)`, and the bare `` `:N` `` that
+   inherits its file from the line's first citation. **Prefer the durable form.** A range cite
+   rots twice (an insertion inside moves the end, an insertion above moves the start); a
+   heading-start cite rots once, and because the number is compared against the heading text, a
+   rotted one fails the build instead of reading plausibly. The half CI cannot replicate is
+   catching it *in the diff*: reviewing a commit that inserts lines into a file means grepping
+   for citations pointing past the insertion. The checker catches the result one commit later;
+   the reviewer can catch it before the merge, and that is the only version that costs nothing.
 5. **Never add a metric or route that isn't in the docs** (R14.7). If a phase needs a name the
    spec doesn't have, mark it provisional and say so — don't invent it silently.
 6. **Stay out of files another slot owns while they're mid-flight.** Write the change and flag it,
