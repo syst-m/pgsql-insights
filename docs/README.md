@@ -28,7 +28,7 @@ repository layout — this file links and does not restate.
 | the live probe | [`research/live-probe.md`](research/live-probe.md) |
 | `ENVIRONMENT.md` | [`ENVIRONMENT.md`](ENVIRONMENT.md) |
 | `reviews/` | [`reviews/`](reviews/) — 3 files |
-| per-feature runbooks | [`runbooks/`](runbooks/) — 27 files, indexed by [`runbooks/README.md`](runbooks/README.md) |
+| per-feature runbooks | [`runbooks/`](runbooks/) — 28 files, indexed by [`runbooks/README.md`](runbooks/README.md) |
 | an architecture doc with the diagram from §3.1 | [`architecture.md`](architecture.md) |
 
 Two of those seven account for all three files in `research/`: the requirement counts the
@@ -39,7 +39,7 @@ separately, so the directory holds exactly what the row asks for and nothing ext
 
 | File | What it is |
 |---|---|
-| [`agents.md`](agents.md) | The agent specification — the four-slot roster, the cap and saturation rules, each slot's charter, and the §5.1 commit-and-citation rules that are shared contract |
+| [`agents.md`](agents.md) | The agent specification — the six-slot roster (the cap the brief set at four, amended by the user on 2026-11-22), the saturation rules, each slot's charter, and the §5.1 commit-and-citation rules that are shared contract |
 | [`compatibility-matrix.md`](compatibility-matrix.md) | R13.9's artifact: the compatibility claims as per-cell states (`tested \| fixture \| impossible \| untested`) on two separate axes, PostgreSQL and Kubernetes, instead of one prose sentence |
 | [`licenses/`](licenses/) | R15.3's third-party license audit — 4 files, listed below; regenerated in CI |
 | [`runbooks/README.md`](runbooks/README.md) | The runbook directory's own index, which explains why there are two sets of runbooks and how the naming scheme works |
@@ -67,9 +67,9 @@ docs/
     round-1-architecture.md     round-1 architecture review
     round-1-product.md          round-1 product review
     v0.3.0-architecture-review.md
-  runbooks/                     27 files — see runbooks/README.md for the index
+  runbooks/                     28 files — see runbooks/README.md for the index
     README.md                   the two-set naming scheme
-    pgsi-*.md                   14 files — runbooks for the rules chart/templates/prometheusrule.yaml ships
+    pgsi-*.md                   15 files — runbooks for the rules chart/templates/prometheusrule.yaml ships
     pg-*.md                     12 files — runbooks for the Postgres/CNPG alerts an operator already has
 ```
 
