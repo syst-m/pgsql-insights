@@ -1422,3 +1422,65 @@ table.data[data-density="comfortable"] th.sortable button {
 .ext-cli-note {
   color: var(--text-muted);
 }
+/* --- R10.5(b) Resource load panel (components/ResourceLoadPanel.tsx) ------ *
+ *
+ * Reuses `.card` (:187), `.card-head` (:194), `.card-title` (:829),
+ * `.card-meta` (:836) and `.chart-empty` (:926); the rules below are the only
+ * shapes the panel needs that the file does not already have. No colour is
+ * introduced — R10.23 reserves the status palette for status and an
+ * unconfigured OS-metrics source is not an incident, it is R5.3's expected
+ * degradation.
+ *
+ * `.rl-grid` is the fourth use of the max-content/1fr dt-dd grid that :883
+ * wants folded into a single `.kv-grid`. It is spelled its own way here for the
+ * same reason `.ext-cost` is: a component should not depend on a class the
+ * file does not define, and a sixth variant is cheaper to fold in later than a
+ * pre-empted unification. */
+
+.rl-cluster {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.rl-scope,
+.rl-detail {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+.rl-scope {
+  margin-bottom: 8px;
+}
+
+.rl-sources {
+  margin-top: 12px;
+}
+
+.rl-sources-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rl-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.rl-grid dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.rl-grid dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}

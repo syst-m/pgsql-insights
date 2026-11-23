@@ -14,6 +14,11 @@
  * entry per secret, and a cluster with a custom server cert or a pooler client
  * cert has more than the three named ones. The three named secret fields say
  * which entry is which; the map is the source of truth for how many exist.
+ *
+ * The Overview tab also carries R10.5(b)'s Resource load panel — 6b's frame
+ * around a chart Phase 7 builds — because the ruling that split R10.5 assigns
+ * the panel and the graph to different phases, and this tab is where the frame
+ * lives.
  */
 
 import type { FleetRow, PoolerView, ServiceView } from "../api/types";
@@ -23,6 +28,7 @@ import type { PageProps } from "../routes";
 import { StatusChip } from "../components/StatusGlyph";
 import { daysUntil, formatNumber, formatSize, formatTimestamp, NULL_VALUE } from "../lib/format";
 import { StatePanel } from "../components/StatePanel";
+import { ResourceLoadPanel } from "../components/ResourceLoadPanel";
 
 const TABS: readonly { key: ClusterTab; label: string }[] = [
   { key: "overview", label: "Overview" },
@@ -168,6 +174,14 @@ function Overview({ cluster }: { cluster: FleetRow }) {
           ))}
         </dl>
       </section>
+      {/* R10.5(b)'s slot: the panel is 6b's, the graph is Phase 7's (see
+          components/ResourceLoadPanel.tsx). `source={null}` is the honest
+          value, not a placeholder — client.ts has no OS-metrics fetcher yet,
+          so the page has not asked, which is the panel's "not queried" answer. */}
+      <ResourceLoadPanel
+        cluster={`${cluster.namespace}/${cluster.name}`}
+        source={null}
+      />
       <Certificates cluster={cluster} />
     </>
   );
