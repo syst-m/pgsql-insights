@@ -169,48 +169,132 @@ paths:
               schema:
                 $ref: '#/components/schemas/FleetEnvelope'
               example:
+                # The fixture's four clusters and its meta, verbatim, so this example
+                # and testdata/api/clusters.json cannot disagree about the shape of a
+                # ClusterView -- the promise the series route's example now makes about
+                # its own fixture. Rendered from the JSON rather than typed out for the
+                # same reason the emitter renders schemas from the dto structs (R16.8):
+                # TestClustersServesTheFrozenFixture byte-compares this route's body to
+                # that file, so a hand-copied example can drift from the body the handler
+                # returns and both still look plausible. The example before this one was
+                # a single invented cluster, postgres/onepg, in a fleet the fixture says
+                # has four.
+                #
+                # The meta is the fixture's too, which is three keys where the schema has
+                # six: nextCursor, failed and loading are omitempty on dto.Meta and the
+                # fixture omits them, because an empty cursor means "this page is the
+                # whole fleet" and there is no failed or loading namespace to report.
                 data:
-                  - namespace: postgres
-                    name: onepg
+                  - namespace: ai-api-gateway
+                    name: rev-proxy-pg
                     phase: Cluster in healthy state
-                    instances: 3
-                    readyInstances: 3
-                    servingInstances: 3
-                    currentPrimary: onepg-1
+                    instances: 2
+                    readyInstances: 2
+                    servingInstances: 2
+                    currentPrimary: rev-proxy-pg-2
                     pgMajor: 17
-                    pgImage: ghcr.io/cloudnative-pg/postgresql:17.6
-                    pgVersionDetail: "17.6"
+                    pgImage: ghcr.io/cloudnative-pg/postgresql:17
+                    pgVersionDetail: "17.11"
                     instanceList:
-                      - name: onepg-1
+                      - name: rev-proxy-pg-1
+                        role: replica
+                        node: dmaf5-2
+                        ready: true
+                        serving: true
+                        phase: Running
+                        containerStatus: running
+                        restartCount: 1
+                        podIP: 10.42.3.96
+                        startedAt: "2026-11-15T07:54:04Z"
+                        endpoints:
+                          postgres: 10.42.3.96:5432
+                          metrics: http://10.42.3.96:9187
+                          status: https://10.42.3.96:8000
+                      - name: rev-proxy-pg-2
                         role: primary
-                        node: k3s-control-1
+                        node: um760-1
                         ready: true
                         serving: true
                         phase: Running
                         containerStatus: running
                         restartCount: 0
-                        podIP: 10.42.1.31
+                        podIP: 10.42.2.39
+                        startedAt: "2026-11-15T07:55:45Z"
                         endpoints:
-                          postgres: 10.42.1.31:5432
-                          metrics: https://10.42.1.31:9187/metrics
-                          status: https://10.42.1.31:8000/status
-                    conditions: []
+                          postgres: 10.42.2.39:5432
+                          metrics: http://10.42.2.39:9187
+                          status: https://10.42.2.39:8000
+                    conditions:
+                      - type: Initialized
+                        status: "True"
+                        reason: BootstrapCompleted
+                        message: Cluster has been bootstrapped
+                        lastTransitionTime: "2026-09-23T08:44:51Z"
+                      - type: ConsistentSystemID
+                        status: "True"
+                        reason: Unique
+                        message: A single, unique system ID was found across reporting instances.
+                        lastTransitionTime: "2026-11-15T07:54:19Z"
+                      - type: Ready
+                        status: "True"
+                        reason: ClusterIsReady
+                        message: Cluster is Ready
+                        lastTransitionTime: "2026-11-17T11:39:42Z"
+                      - type: ContinuousArchiving
+                        status: "True"
+                        reason: ContinuousArchivingSuccess
+                        message: Continuous archiving is working
+                        lastTransitionTime: "2026-11-17T11:40:43Z"
                     certificates:
-                      clientCA: onepg-client-ca-1735689600
-                      serverTLSSecret: onepg-server
-                      replicationTLSSecret: onepg-replication
+                      clientCA: rev-proxy-pg-ca
+                      serverTLSSecret: rev-proxy-pg-server
+                      replicationTLSSecret: rev-proxy-pg-replication
                       expirations:
-                        onepg-client-ca-1735689600: "2026-12-22T08:39:48Z"
-                        onepg-server: "2026-12-22T08:39:48Z"
+                        rev-proxy-pg-ca: "2026-12-22T08:39:48Z"
+                        rev-proxy-pg-replication: "2026-12-22T08:39:48Z"
+                        rev-proxy-pg-server: "2026-12-22T08:39:48Z"
                     pvcs:
-                      - name: onepg-1
-                        instance: onepg-1
-                        size: 1Gi
-                        storageClass: local-path
+                      - name: rev-proxy-pg-1
+                        instance: rev-proxy-pg-1
+                        size: 10Gi
+                        storageClass: iscsi-ext4
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                      - name: rev-proxy-pg-2
+                        instance: rev-proxy-pg-2
+                        size: 10Gi
+                        storageClass: iscsi-ext4
                         accessModes: [ReadWriteOnce]
                         phase: Bound
                     services:
-                      - name: onepg-rw
+                      - name: rev-proxy-pg-pooler
+                        type: ClusterIP
+                        role: pooler
+                        ports:
+                          - name: pgbouncer
+                            protocol: TCP
+                            port: 5432
+                            targetPort: pgbouncer
+                        clusterIP: 10.43.3.42
+                      - name: rev-proxy-pg-r
+                        type: ClusterIP
+                        role: r
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.171.218
+                      - name: rev-proxy-pg-ro
+                        type: ClusterIP
+                        role: ro
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.142.130
+                      - name: rev-proxy-pg-rw
                         type: ClusterIP
                         role: rw
                         ports:
@@ -218,17 +302,352 @@ paths:
                             protocol: TCP
                             port: 5432
                             targetPort: "5432"
-                        clusterIP: 10.43.10.11
+                        clusterIP: 10.43.142.86
+                    poolers:
+                      - name: rev-proxy-pg-pooler
+                        namespace: ai-api-gateway
+                        cluster: rev-proxy-pg
+                        type: rw
+                        poolMode: transaction
+                        instances: 2
+                        readyInstances: 2
+                        phase: active
+                        image: ghcr.io/cloudnative-pg/pgbouncer:1.25.1
+                        service: rev-proxy-pg-pooler
+                        parameters:
+                          default_pool_size: "20"
+                          max_client_conn: "400"
+                          min_pool_size: "4"
+                        pods:
+                          - name: rev-proxy-pg-pooler-86b4bdd84d-n9vlv
+                            node: dmaf5-1
+                            phase: Running
+                            ready: true
+                            ip: 10.42.1.222
+                          - name: rev-proxy-pg-pooler-86b4bdd84d-xg6sg
+                            node: k8s-wrk-1
+                            phase: Running
+                            ready: true
+                            ip: 10.42.4.92
+                        metricsURL: http://10.42.1.222:9127
+                    credentialSource: secret-cluster
+                    createdAt: "2026-09-23T08:44:48Z"
+                  - namespace: cookbook
+                    name: cookbook-pg
+                    phase: Cluster in healthy state
+                    instances: 1
+                    readyInstances: 1
+                    servingInstances: 1
+                    currentPrimary: cookbook-pg-1
+                    pgMajor: 17
+                    pgImage: ghcr.io/cloudnative-pg/postgresql:17
+                    pgVersionDetail: "17.11"
+                    instanceList:
+                      - name: cookbook-pg-1
+                        role: primary
+                        node: um760-1
+                        ready: true
+                        serving: true
+                        phase: Running
+                        containerStatus: running
+                        restartCount: 0
+                        podIP: 10.42.2.226
+                        startedAt: "2026-09-10T07:58:10Z"
+                        endpoints:
+                          postgres: 10.42.2.226:5432
+                          metrics: http://10.42.2.226:9187
+                          status: https://10.42.2.226:8000
+                    conditions:
+                      - type: Initialized
+                        status: "True"
+                        reason: BootstrapCompleted
+                        message: Cluster has been bootstrapped
+                        lastTransitionTime: "2026-09-10T07:57:41Z"
+                      - type: ConsistentSystemID
+                        status: "True"
+                        reason: Unique
+                        message: A single, unique system ID was found across reporting instances.
+                        lastTransitionTime: "2026-09-10T08:56:03Z"
+                      - type: Ready
+                        status: "True"
+                        reason: ClusterIsReady
+                        message: Cluster is Ready
+                        lastTransitionTime: "2026-09-10T08:56:03Z"
+                      - type: ContinuousArchiving
+                        status: "True"
+                        reason: ContinuousArchivingSuccess
+                        message: Continuous archiving is working
+                        lastTransitionTime: "2026-09-10T07:58:18Z"
+                    certificates:
+                      clientCA: cookbook-pg-ca
+                      serverTLSSecret: cookbook-pg-server
+                      replicationTLSSecret: cookbook-pg-replication
+                      expirations:
+                        cookbook-pg-ca: "2026-12-09T07:52:38Z"
+                        cookbook-pg-replication: "2026-12-09T07:52:38Z"
+                        cookbook-pg-server: "2026-12-09T07:52:38Z"
+                    pvcs:
+                      - name: cookbook-pg-1
+                        instance: cookbook-pg-1
+                        size: 10Gi
+                        storageClass: iscsi-ext4
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                    services:
+                      - name: cookbook-pg-r
+                        type: ClusterIP
+                        role: r
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.246.58
+                      - name: cookbook-pg-ro
+                        type: ClusterIP
+                        role: ro
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.185.56
+                      - name: cookbook-pg-rw
+                        type: ClusterIP
+                        role: rw
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.130.218
                     poolers: []
                     credentialSource: secret-cluster
-                    createdAt: "2025-12-22T08:00:00Z"
+                    createdAt: "2026-09-10T07:57:38Z"
+                  - namespace: freeidp
+                    name: freeidp-pg
+                    phase: Not enough disk space
+                    phaseReason: Insufficient disk space detected in one or more pods is preventing PostgreSQL from running.Please verify your storage settings. Further information inside .status.instancesReportedState
+                    instances: 2
+                    readyInstances: 0
+                    servingInstances: 0
+                    currentPrimary: freeidp-pg-1
+                    pgMajor: 17
+                    pgImage: ghcr.io/cloudnative-pg/postgresql:17
+                    instanceList:
+                      - name: freeidp-pg-1
+                        role: primary
+                        node: k8s-ctrl
+                        ready: false
+                        serving: false
+                        phase: Running
+                        containerStatus: CrashLoopBackOff
+                        restartCount: 1551
+                        podIP: 10.42.0.198
+                        startedAt: "2026-10-09T07:56:21Z"
+                        endpoints:
+                          postgres: 10.42.0.198:5432
+                          metrics: http://10.42.0.198:9187
+                          status: https://10.42.0.198:8000
+                      - name: freeidp-pg-2
+                        node: um760-1
+                        ready: false
+                        serving: false
+                        phase: Pending
+                        containerStatus: PodInitializing
+                        restartCount: 0
+                        startedAt: "2026-11-15T09:28:56Z"
+                        endpoints: {}
+                    conditions:
+                      - type: Initialized
+                        status: "True"
+                        reason: BootstrapCompleted
+                        message: Cluster has been bootstrapped
+                        lastTransitionTime: "2026-10-09T07:56:05Z"
+                      - type: ConsistentSystemID
+                        status: "False"
+                        reason: NotFound
+                        message: Instances are present, but none have reported a system ID.
+                        lastTransitionTime: "2026-11-16T11:39:44Z"
+                      - type: Ready
+                        status: "False"
+                        reason: ClusterIsNotReady
+                        message: Cluster Is Not Ready
+                        lastTransitionTime: "2026-11-14T13:20:02Z"
+                      - type: ContinuousArchiving
+                        status: "True"
+                        reason: ContinuousArchivingSuccess
+                        message: Continuous archiving is working
+                        lastTransitionTime: "2026-11-04T17:18:56Z"
+                    certificates:
+                      clientCA: freeidp-pg-ca
+                      serverTLSSecret: freeidp-pg-server
+                      replicationTLSSecret: freeidp-pg-replication
+                      expirations:
+                        freeidp-pg-ca: "2027-01-07T07:51:05Z"
+                        freeidp-pg-replication: "2027-01-07T07:51:05Z"
+                        freeidp-pg-server: "2027-01-07T07:51:05Z"
+                    pvcs:
+                      - name: freeidp-pg-1
+                        instance: freeidp-pg-1
+                        size: 10Gi
+                        storageClass: iscsi-ext4
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                      - name: freeidp-pg-2
+                        instance: freeidp-pg-2
+                        size: 10Gi
+                        storageClass: iscsi-ext4
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                    services:
+                      - name: freeidp-pg-r
+                        type: ClusterIP
+                        role: r
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.239.26
+                      - name: freeidp-pg-ro
+                        type: ClusterIP
+                        role: ro
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.23.177
+                      - name: freeidp-pg-rw
+                        type: ClusterIP
+                        role: rw
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.156.212
+                    poolers: []
+                    credentialSource: secret-cluster
+                    createdAt: "2026-10-09T07:56:05Z"
+                  - namespace: open-webui
+                    name: open-webui-pg
+                    phase: Cluster in healthy state
+                    instances: 2
+                    readyInstances: 2
+                    servingInstances: 2
+                    currentPrimary: open-webui-pg-2
+                    pgMajor: 16
+                    pgImage: ghcr.io/cloudnative-pg/postgresql:16
+                    pgVersionDetail: "16.11"
+                    instanceList:
+                      - name: open-webui-pg-1
+                        role: replica
+                        node: dmaf5-1
+                        ready: true
+                        serving: true
+                        phase: Running
+                        containerStatus: running
+                        restartCount: 0
+                        podIP: 10.42.1.27
+                        startedAt: "2026-11-15T08:03:59Z"
+                        endpoints:
+                          postgres: 10.42.1.27:5432
+                          metrics: http://10.42.1.27:9187
+                          status: https://10.42.1.27:8000
+                      - name: open-webui-pg-2
+                        role: primary
+                        node: um760-1
+                        ready: true
+                        serving: true
+                        phase: Running
+                        containerStatus: running
+                        restartCount: 0
+                        podIP: 10.42.2.41
+                        startedAt: "2026-11-15T08:03:24Z"
+                        endpoints:
+                          postgres: 10.42.2.41:5432
+                          metrics: http://10.42.2.41:9187
+                          status: https://10.42.2.41:8000
+                    conditions:
+                      - type: Initialized
+                        status: "True"
+                        reason: BootstrapCompleted
+                        message: Cluster has been bootstrapped
+                        lastTransitionTime: "2026-10-18T05:57:24Z"
+                      - type: ConsistentSystemID
+                        status: "True"
+                        reason: Unique
+                        message: A single, unique system ID was found across reporting instances.
+                        lastTransitionTime: "2026-11-15T08:03:34Z"
+                      - type: Ready
+                        status: "True"
+                        reason: ClusterIsReady
+                        message: Cluster is Ready
+                        lastTransitionTime: "2026-11-15T08:04:25Z"
+                      - type: ContinuousArchiving
+                        status: "True"
+                        reason: ContinuousArchivingSuccess
+                        message: Continuous archiving is working
+                        lastTransitionTime: "2026-11-15T08:03:47Z"
+                    certificates:
+                      clientCA: open-webui-pg-ca
+                      serverTLSSecret: open-webui-pg-server
+                      replicationTLSSecret: open-webui-pg-replication
+                      expirations:
+                        open-webui-pg-ca: "2027-01-16T05:52:23Z"
+                        open-webui-pg-replication: "2027-01-16T05:52:23Z"
+                        open-webui-pg-server: "2027-01-16T05:52:23Z"
+                    pvcs:
+                      - name: open-webui-pg-1
+                        instance: open-webui-pg-1
+                        size: 2Gi
+                        storageClass: iscsi-ext4
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                      - name: open-webui-pg-2
+                        instance: open-webui-pg-2
+                        size: 2Gi
+                        storageClass: iscsi-ext4
+                        accessModes: [ReadWriteOnce]
+                        phase: Bound
+                    services:
+                      - name: open-webui-pg-r
+                        type: ClusterIP
+                        role: r
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.253.227
+                      - name: open-webui-pg-ro
+                        type: ClusterIP
+                        role: ro
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.72.104
+                      - name: open-webui-pg-rw
+                        type: ClusterIP
+                        role: rw
+                        ports:
+                          - name: postgres
+                            protocol: TCP
+                            port: 5432
+                            targetPort: "5432"
+                        clusterIP: 10.43.219.137
+                    poolers: []
+                    credentialSource: secret-cluster
+                    createdAt: "2026-10-18T05:57:23Z"
                 meta:
-                  total: 1
+                  total: 4
                   truncated: false
-                  generatedAt: "2026-11-21T09:12:03Z"
-                  nextCursor: ""
-                  failed: []
-                  loading: []
+                  generatedAt: "2026-11-20T09:12:00Z"
+
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
@@ -2034,8 +2453,11 @@ components:
           additionalProperties:
             type: string
           example:
-            onepg-client-ca-1735689600: "2026-12-22T08:39:48Z"
-            onepg-server: "2026-12-22T08:39:48Z"
+            # The open-webui-pg entry of testdata/api/clusters.json, verbatim -- the
+            # same three secrets the /api/v1/clusters example renders for that cluster.
+            open-webui-pg-ca: "2027-01-16T05:52:23Z"
+            open-webui-pg-replication: "2027-01-16T05:52:23Z"
+            open-webui-pg-server: "2027-01-16T05:52:23Z"
 
     PVCView:
       type: object
