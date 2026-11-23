@@ -32,6 +32,14 @@
  * `SavedView` in `api/types.ts`, so the control is the same kind of ask as the
  * two chips. `QueryUrlPatch.view` is the field it will write to.
  *
+ * ── the not-installed screen ───────────────────────────────────────────────
+ *
+ * R10.27's "first-class screen … not an empty table with a tooltip" is
+ * `components/ExtensionNotInstalled.tsx`. The page's part is to pick it for
+ * `panel === "unavailable"` and hand it the cluster the URL names; how the page
+ * tells *not installed* from *installed and quiet* is the `extensionInstalled`
+ * prop's story, below.
+ *
  * ── the URL ────────────────────────────────────────────────────────────────
  *
  * `PageProps<QueryResponse>` is A4's generic (commit 033919a) and exists for
@@ -62,6 +70,7 @@ import { buildPath, type PageProps } from "../routes";
 import type { SortDir, SortKey, TimeRange, UrlState } from "../state/urlState";
 import { formatTimestamp } from "../lib/format";
 import { ColumnMenu, useColumnVisibility } from "../components/ColumnMenu";
+import { ExtensionNotInstalled } from "../components/ExtensionNotInstalled";
 import { QUERY_COLUMNS, QueryTable, isQuerySortKey, type QuerySortKey } from "../components/QueryTable";
 import { DensityToggle, type Density } from "../components/VirtualList";
 import {
@@ -155,7 +164,9 @@ export function nextDir(current: QuerySortKey, dir: SortDir, key: QuerySortKey):
  *
  *  Every one of them points at something this page does not have yet: `Retry`
  *  needs `fetchQueries` (`api/client.ts` has `fetchFleet` only — the ask on
- *  A4), `Enable pg_stat_statements` is R3.15's product flow with no UI owner,
+ *  A4), `Enable pg_stat_statements` is R3.15's patch-and-verify half, which is
+ *  Phase 2's backend work rather than a page action (the screen that offers it
+ *  is `components/ExtensionNotInstalled.tsx`, and it takes this same no-op),
  *  and `Widen the range` is a header control whose effect needs the same
  *  missing fetch. The button renders because the copy names an action; wiring
  *  it to a no-op is what keeps it from being a dead control that looks wired,
@@ -253,11 +264,21 @@ export function QueriesPage(props: QueriesPageProps) {
   // tooltip". A banner over a zero-row table is exactly the tooltip-shaped
   // answer that sentence rules out, and with the extension absent there is no
   // table to put a banner over anyway.
+  //
+  // `unavailable` renders its own component rather than the generic panel
+  // because R10.27 asks for a screen and `StatePanel` is a title, a sentence and
+  // a button. The other three states keep the generic renderer, and the
+  // replacement keeps `state-panel` + `data-state="unavailable"` so R16.7's
+  // suite still keys the screen by state name.
   if (panel === "loading" || panel === "empty" || panel === "error" || panel === "unavailable") {
     return (
       <div className="page" data-page="queries">
         <PageHeader state={state} resp={resp} patch={patch} />
-        <StatePanel state={panel} copy={QUERY_COPY} onAction={NO_ACTION} />
+        {panel === "unavailable" ? (
+          <ExtensionNotInstalled cluster={state.cluster} onEnable={NO_ACTION} />
+        ) : (
+          <StatePanel state={panel} copy={QUERY_COPY} onAction={NO_ACTION} />
+        )}
       </div>
     );
   }

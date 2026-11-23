@@ -312,13 +312,22 @@ describe("the page's states (R10.12, in the queries' nouns)", () => {
     // it as a full panel — the one state that is full-panel here and a banner on
     // Fleet — because a banner over a zero-row table is the tooltip-shaped
     // answer that sentence rules out.
+    // The page renders `ExtensionNotInstalled` here rather than the generic
+    // `StatePanel` it uses for the other three full-panel states, and the test
+    // says so by asserting the screen's own class and the cluster it names — the
+    // heading and button alone would pass with the old three-string answer.
     const { container } = renderPage({ fixtureOverride: EMPTY, extensionInstalled: false });
     const panel = container.querySelector(".state-panel") as HTMLElement;
+    expect(panel.classList.contains("ext-screen")).toBe(true);
     expect(panel.getAttribute("data-state")).toBe("unavailable");
     expect(
       within(panel).getByRole("heading", { name: "pg_stat_statements is not installed" }),
     ).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Enable pg_stat_statements" })).toBeInTheDocument();
+    // The cluster comes from the URL, which is the only identity the page has
+    // before a fetch: `state.cluster`, the same string the breadcrumb is built
+    // from a few lines above in the render.
+    expect(within(panel).getByText("open-webui/open-webui-pg", { exact: true })).toBeInTheDocument();
   });
 
   it("an unknown extension presence is the plain empty, not the R10.27 screen", () => {

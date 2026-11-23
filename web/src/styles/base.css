@@ -1289,3 +1289,136 @@ table.data[data-density="comfortable"] th.sortable button {
   font-size: 13px;
   color: var(--text-secondary);
 }
+
+/* --- R10.27's not-installed screen (components/ExtensionNotInstalled.tsx) -- *
+ *
+ * `.state-panel` (:403) gives the screen its card, so this block styles only what
+ * the generic panel does not have: the flow list, the cost table, the action row.
+ * Deliberately not a centred hero — an empty state that centres its text and
+ * drops its type reads as a 404, and R10.27 asks for "the same design effort as
+ * the Queries page", which is a left-aligned information layout.
+ *
+ * No colour is introduced here, which is the point: the thing a screen like this
+ * reaches for is a status hue, and R10.23 reserves the status palette for
+ * status. This state is not an incident — K2 measured the extension absent on all
+ * three reachable clusters — so it wears ink, and the one tint below is the
+ * documented `color-mix(text-primary 4%)` row tint used at :131/:247/:302. */
+
+.ext-screen {
+  gap: 20px;
+  max-width: 88ch;
+}
+
+.ext-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ext-subtitle {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ext-body,
+.ext-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+.ext-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ext-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* R3.15's four steps as a table, not a wizard: the order is the requirement's,
+   the states are the point, and a horizontal stepper would imply the user can
+   click through them. The UA's `padding-left` on an `<ol>` is removed because the
+   marker column is the first grid column, not a bullet. */
+.ext-flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ext-step {
+  display: grid;
+  grid-template-columns: 64px 72px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.ext-flow .ext-step:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+.ext-step-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ext-step-state {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ext-step-detail {
+  color: var(--text-secondary);
+}
+
+/* The step the viewer is standing on gets the ink tint, not a hue — same reason
+   the nav's current page does (:126). */
+.ext-step[data-step-state="here"] {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+/* The label/value grid, spelled the way `.detail-header` (:885) spells it. */
+.ext-cost {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.ext-cost dt {
+  color: var(--text-secondary);
+}
+
+.ext-cost dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.ext-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.ext-cli {
+  margin: 0;
+  font-size: 12px;
+}
+
+.ext-cli-note {
+  color: var(--text-muted);
+}
