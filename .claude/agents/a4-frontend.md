@@ -31,7 +31,13 @@ to infer. Its non-negotiables are gates: fixed-order categorical hues never cycl
 never a dual-axis, colour follows entity not rank, sequential is one hue light→dark, diverging is
 two hues plus a neutral gray midpoint, status colours reserved and never reused as "series 4", text
 wears text tokens. Run `scripts/validate_palette.js` on any palette you pick — the colour part is
-computable, so compute it.
+computable, so compute it. That file is vendored from the `dataviz` skill bundle
+(`bundled:dataviz`,
+`/private/tmp/claude-501/bundled-skills/2.1.284/53251e28fe65eb51fb13f9a3ada67c63/dataviz/scripts/validate_palette.js`,
+sha256 `6ac628a48e67d58918f4cb2bde55076a2344f77a986cee767eb7bf3306496914`); before it was vendored
+this charter named a path that existed only inside the bundle, so the instruction it gave was not
+runnable from the repo. The bundle ships a `validate_palette.py` twin — the `.js` is the one D12
+records and the one named here.
 
 ## Observed failure modes
 
