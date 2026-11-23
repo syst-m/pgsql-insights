@@ -11,26 +11,35 @@ two disagree, the frontmatter wins on spawn mechanics and this file wins on char
 
 ---
 
-## 1. The cap (from the brief, not negotiable)
+## 1. The cap (from the brief, amended by the user on 2026-11-22)
+
+The brief's original wording:
 
 > *"you shall spread the work throughout this WHOLE process amongst a maximum of 4 subagents —
 > two opus and two sonnet — a total of 4 subagents at maximum."*
 
-Four slots. Two opus, two sonnet. The cap is **for the whole process**, not per phase — so it is
-spent once and stays spent. Adding a fifth agent, even briefly, violates the brief; so does letting
-an opus slot execute sonnet-class work while the sonnet slots are full.
+The user's amendment, verbatim:
 
-**Consequence worth stating plainly:** once the four exist, all further work is *reuse*. New work
+> *"let's bump up to 6 total subagents max- 3 sonnet, 3 opus - going forward"*
+
+**Six slots now. Three opus, three sonnet.** The cap is still **for the whole process**, not per
+phase — it is spent once and stays spent. Adding a seventh agent, even briefly, violates it; so
+does letting an opus slot execute sonnet-class work while the sonnet slots are full.
+
+**Consequence worth stating plainly:** once the six exist, all further work is *reuse*. New work
 goes to an existing slot via `SendMessage`, never to a fresh `Agent` spawn. A spawn that appears to
 be "just a quick extra agent for this one thing" is the most common way this project breaks its own
-constraint.
+constraint — the amendment raised the number, it did not remove the rule.
 
 ## 2. Saturation (the cap is a floor, not just a ceiling)
 
-Respecting the cap and using it are different things. A run where one agent works and three wait is
-*compliant and wasteful* — the budget is being spent on serialization. This was called out on
+Respecting the cap and using it are different things. A run where one agent works and the rest wait
+is *compliant and wasteful* — the budget is being spent on serialization. This was called out on
 2026-11-21 (*"you should try to scale out the work more to max of 4 total subagents"*) after Phase
-1a was progressing through one agent while three sat idle.
+1a was progressing through one agent while three sat idle, and again on 2026-11-22
+(*"be sure to keep the 4 slots active"*) — which is what led to the cap being raised to six rather
+than the idleness being fixed. Six idle-capable slots serialising through one is worse, not better,
+than four doing it.
 
 **The rule:** before starting work, enumerate which slots are active, and dispatch to the idle ones
 *in the same turn*. This matters most when the critical path is narrow — Phase 1a → 2 → 3 is a
@@ -41,18 +50,37 @@ single chain, so only one agent can be *on* it, and the answer is to pull work o
 produces two agents on one phase and one idle — which happened once (a Phase 4 brief went to A4,
 who owns frontend/Helm/docs, when the phase is assigned to A2).
 
-## 3. The four slots
+## 3. The six slots
 
 | Slot | Name | Model | Spawned for | Now owns |
 |---|---|---|---|---|
-| **A1** | `a1-backend` | opus | Cloud SQL Query/System Insights research | Go backend: discovery, collector framework, PG version matrix, store, query engine, `cmd/pgsi` |
+| **A1** | `a1-backend` | opus | Cloud SQL Query/System Insights research | Go backend: discovery, collector framework, PG version matrix, `cmd/pgsi`, `api/dto` |
 | **A2** | `a2-api-metrics` | sonnet | CloudNativePG surface research | Go API surface: HTTP handlers, OpenAPI, auth/CORS middleware, `/metrics` export, PromQL pair |
 | **A3** | `a3-review` | opus | Round-1 adversarial architecture review | Architecture, spec maintenance, per-phase validation, review of every spec change |
-| **A4** | `a4-frontend` | sonnet | Round-1 adversarial product review | Frontend/UI (`web/`), Helm chart, packaging, docs |
+| **A4** | `a4-frontend` | sonnet | Round-1 adversarial product review | `web/` shell + build (`App.tsx`, `routes.ts`, `styles/`, `dist`, `e2e`), Helm chart, packaging, docs |
+| **A5** | `a5-query-store` | opus | *(added 2026-11-22 with the cap raise)* | `internal/query/` (normalizer, top-N), `internal/store/`, the `pg_stat_statements` collector — **Phase 3** |
+| **A6** | `a6-insights-ui` | sonnet | *(added 2026-11-22 with the cap raise)* | `web/src/pages/**`, `web/src/components/**` — the Query Insights UI, **Phase 6b** |
 
 Phase → slot assignment is authoritative in [`requirements.md` §7.2](../requirements.md), not here.
 This table is the *who*; §7.2 is the *what*. The roster table in
-[`IMPLEMENTATION.md` §2](../IMPLEMENTATION.md) is the same four and must not diverge from this file.
+[`IMPLEMENTATION.md` §2](../IMPLEMENTATION.md) is the same six and must not diverge from this file.
+
+**What moved when the cap went to six.** Two phases were reassigned rather than two slots given
+invented work, and both moves fix a pre-existing awkwardness rather than creating a new one:
+
+- **Phase 3: A1 → A5.** Phase 3 (`pg_stat_statements` collector + normalizer + query store + top-N
+  API) was the largest untouched chunk on A1's queue and the only one with no in-flight code to
+  collide with — it was ⬜, so nothing had to be handed over mid-flight. A1 keeps Phases 1a, 2, 6a
+  and 8, and the collector *framework* that A5's statements collector plugs into.
+- **Phase 6b: A2 → A6.** 6b is `web/` UI work that §7.2 had assigned to a slot owning no `web/`
+  files — so A2 was speccing pages it couldn't build, and A4 owned the files it needed. A6 now
+  builds 6b's pages, A4 owns the shell and route table that mounts them, and A2 stays in its own
+  domain (Phases 4 and 5) and supplies 6b's endpoints.
+
+The general rule this encodes: **when the cap rises, take a phase off a slot that was never the
+right owner for it before taking work off one that was.** A new slot adjacent to an overloaded one
+creates a two-owners-one-file problem; a new slot holding a phase the previous owner couldn't
+build creates a clean handoff.
 
 ## 4. Per-slot charter
 
@@ -289,25 +317,55 @@ before the report goes out rather than after someone questions it.
 
 ## 7. Reproducing a run
 
-Spawn the four from `.claude/agents/` (or reuse the live ones via `SendMessage` — the cap means
-reuse is the default, and a fresh spawn is only correct when the slot genuinely doesn't exist):
+Spawn the six from `.claude/agents/`:
 
 ```
-Agent(subagent_type: "a1-backend")     # opus
-Agent(subagent_type: "a2-api-metrics") # sonnet
-Agent(subagent_type: "a3-review")      # opus
-Agent(subagent_type: "a4-frontend")    # sonnet
+Agent(subagent_type: "a1-backend")      # opus
+Agent(subagent_type: "a2-api-metrics")  # sonnet
+Agent(subagent_type: "a3-review")       # opus
+Agent(subagent_type: "a4-frontend")     # sonnet
+Agent(subagent_type: "a5-query-store")  # opus
+Agent(subagent_type: "a6-insights-ui")  # sonnet
 ```
 
 Then, per phase: assign from `requirements.md` §7.2 → the owning slot builds → A3 reviews → the
 validation entry is written → one commit carries both. Repeat. Nothing in the process requires a
-fifth agent; if it seems to, the phase is probably being scheduled by data dependency instead of
+seventh agent; if it seems to, the phase is probably being scheduled by data dependency instead of
 by what the product is judged on (that mistake is D13).
+
+**A completed subagent is not addressable, so "reuse via `SendMessage`" only works while it is
+still running.** This is the operational fact the cap rule assumes and doesn't state. `SendMessage`
+to a finished slot fails with `No agent named 'a3-review' is reachable`, and `ListAgents` then
+lists only the ones still running — so a four-slot roster where three slots have finished their
+work is, in practice, a one-slot session wearing a four-slot roster. The fix is not to send; it is
+to spawn a fresh instance of the same `subagent_type`, which starts with the charter file's full
+text and therefore inherits everything the previous instance learned (the charter *is* the
+memory — which is why the `.claude/agents/*.md` files have to carry the hard-won rules, not just
+the job description). Two corollaries: a slot's knowledge decays the moment it finishes unless it
+is written down, and the agent registry is snapshotted at session start, so a `.claude/agents/`
+file created mid-session is not spawnable by name until the next one.
 
 ## 8. Changing the roster
 
-The cap is fixed by the brief, so "changing the roster" means re-scoping a slot, not adding one.
-When a slot's ownership changes: update **all three** places in one commit — this file's §3 table,
-the slot's `.claude/agents/*.md` frontmatter `description`, and `IMPLEMENTATION.md` §2. They have
-already drifted once (the brief's Phase 4 went to A2 while a message routed it to A4), and a
-three-way agreement is only enforceable by committing the three together.
+The cap is the brief's, and only the user can amend it — which happened on 2026-11-22, when the
+brief's four became six. Absent such an amendment, "changing the roster" means re-scoping a slot,
+not adding one; with one, both the new slots *and* the phases they take have to be written down in
+the same breath, or the roster says one thing and §7.2 another.
+
+When a slot's ownership changes, update **all four** places in one commit:
+
+| Place | Why it's in the set |
+|---|---|
+| `requirements.md` §7.1 | The heading itself states the cap (`### 7.1 Agent allocation (the brief's hard constraint: …)`) and the table names every slot's agent id. It is spec text, so it is A3's to edit. |
+| `requirements.md` §7.2 | The per-phase **Owner** column — a reassigned phase changes a cell here, and this is the authoritative phase→slot map. |
+| This file's §3 table | The *who*, with each slot's current ownership. |
+| `IMPLEMENTATION.md` §2 | The handoff file's roster table, which the brief requires to exist and stay current (R14.1). |
+
+Plus the slot's own `.claude/agents/<name>.md` frontmatter `description`, which is what a fresh
+instance of that slot actually reads at spawn time.
+
+These have already drifted once (the brief's Phase 4 went to A2 while a message routed it to A4),
+and an n-way agreement is only enforceable by committing all of them together — the number of
+places grew from three to four when §7.1 was counted, and every added place is another way for the
+roster to be internally inconsistent. The rule generalises rather than shrinking: **count the
+places, then commit them as one.**

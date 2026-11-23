@@ -1,11 +1,11 @@
 ---
 name: a2-api-metrics
-description: The API-surface and metrics slot. Use for internal/api HTTP handlers, auth/CORS middleware, the OpenAPI document, the Prometheus /metrics export and the PromQL pair. One of the project's four fixed subagent slots (sonnet).
+description: The API-surface and metrics slot. Use for internal/api HTTP handlers, auth/CORS middleware, the OpenAPI document, the Prometheus /metrics export and the PromQL pair. One of the project's six fixed subagent slots (sonnet).
 model: sonnet
 ---
 
-You are **A2**, the API surface and metrics slot. The project caps itself at four subagents
-(2 opus + 2 sonnet); you occupy one of them. Read `docs/agents.md` for the roster and
+You are **A2**, the API surface and metrics slot. The project caps itself at six subagents
+(3 opus + 3 sonnet); you occupy one of them. Read `docs/agents.md` for the roster and
 `IMPLEMENTATION.md` for current phase state before starting anything.
 
 ## What you own
@@ -15,7 +15,9 @@ You are **A2**, the API surface and metrics slot. The project caps itself at fou
 path is `api/openapi.yaml`, per R8.1 and the D13 ruling** — it sat at `internal/api/openapi.yaml`
 for a `go:embed` reason that turned out not to hold (nothing embedded it), and the fix is a
 three-line `api/embed.go`, which you also own. Phase 5 in `requirements.md` §7.2 is yours; Phase
-4's chart half belongs to A4.
+4's chart half belongs to A4. **Phase 6b went to A6** when the cap went to six — it is `web/` work
+that had been assigned to a slot with no `web/` ownership, so A6 now builds it and you supply its
+endpoints (the R9.13 batched series and R3.9–R3.12 query surfaces).
 
 ## Non-negotiables
 

@@ -67,10 +67,13 @@ Playwright with 8 committed baselines).
 
 ---
 
-## 2. The agent roster (hard cap: 4 subagents — 2 opus + 2 sonnet)
+## 2. The agent roster (cap: 6 subagents — 3 opus + 3 sonnet, amended from the brief's 4 on 2026-11-22)
 
-The brief caps the whole process at four subagents. That cap is **spent**; every remaining phase
-reuses these four via `SendMessage` rather than spawning new agents.
+The brief capped the whole process at four subagents (2 opus + 2 sonnet). The user amended it on
+2026-11-22 — *"let's bump up to 6 total subagents max- 3 sonnet, 3 opus - going forward"* — and
+that cap is now **spent** as well: every remaining phase reuses these six rather than spawning
+seventh. Two phases were reassigned to the new slots rather than giving the new slots invented
+work; the moves and the rule behind them are in [`docs/agents.md` §3](docs/agents.md).
 
 Full specification — the cap, saturation, per-slot charter, observed failure modes, the shared
 operating contract, and how to reproduce a run — is in [`docs/agents.md`](docs/agents.md); the
@@ -79,14 +82,19 @@ must not diverge from either.
 
 | Slot | Agent file | Model | Spawned for | Now owns |
 |---|---|---|---|---|
-| **A1** | [`a1-backend`](.claude/agents/a1-backend.md) | opus | Cloud SQL research | Go backend: `cmd/pgsi`, discovery, collector framework, PG version matrix, store, query engine, `api/dto` |
-| **A2** | [`a2-api-metrics`](.claude/agents/a2-api-metrics.md) | sonnet | CNPG research | Go API surface: HTTP handlers, auth/CORS, OpenAPI, `/metrics` export, PromQL pair |
+| **A1** | [`a1-backend`](.claude/agents/a1-backend.md) | opus | Cloud SQL research | Go backend: `cmd/pgsi`, discovery, collector framework, PG version matrix, `api/dto` *(store and query engine moved to A5)* |
+| **A2** | [`a2-api-metrics`](.claude/agents/a2-api-metrics.md) | sonnet | CNPG research | Go API surface: HTTP handlers, auth/CORS, OpenAPI, `/metrics` export, PromQL pair *(Phase 6b moved to A6)* |
 | **A3** | [`a3-review`](.claude/agents/a3-review.md) | opus | Round-1 architecture review | Architecture, spec maintenance, per-phase validation, review of every spec change |
-| **A4** | [`a4-frontend`](.claude/agents/a4-frontend.md) | sonnet | Round-1 product review | Frontend/UI, Helm chart, packaging, docs |
+| **A4** | [`a4-frontend`](.claude/agents/a4-frontend.md) | sonnet | Round-1 product review | `web/` shell + build (`App.tsx`, `routes.ts`, `styles/`, `dist`, `e2e`), Helm chart, packaging, docs *(pages/components moved to A6)* |
+| **A5** | [`a5-query-store`](.claude/agents/a5-query-store.md) | opus | Added with the 2026-11-22 cap raise | `internal/query/` (normalizer, top-N), `internal/store/`, the `pg_stat_statements` collector — **Phase 3**, from A1 |
+| **A6** | [`a6-insights-ui`](.claude/agents/a6-insights-ui.md) | sonnet | Added with the 2026-11-22 cap raise | `web/src/pages/**`, `web/src/components/**` — the Query Insights UI, **Phase 6b**, from A2 |
 
-Phase→agent assignment is in `requirements.md` §7.2. **No phase may spawn a fifth agent** — and
+Phase→agent assignment is in `requirements.md` §7.2. **No phase may spawn a seventh agent** — and
 the cap is a floor as well as a ceiling: dispatch to every idle slot in the same turn rather than
-working the chain through one agent (`docs/agents.md` §2).
+working the chain through one agent (`docs/agents.md` §2). A completed subagent is not addressable
+by `SendMessage`, so keeping six slots active means spawning a fresh instance of the slot's
+`subagent_type` — see `docs/agents.md` §7 for why the charter file has to carry the accumulated
+rules, since the running instance is the only place they lived.
 
 ---
 
@@ -670,9 +678,13 @@ half it is validating.
 Phase 4's WBS row carried a caveat and no table behind it, which is the failure mode R14.8 names:
 an unmarked ⬜ next to a requirement that is implemented is how that requirement gets implemented
 twice. The inventory was reconciled before anything was written, and it changed what the phase
-needs — of the nine ids the row claims, **five are implemented (four by A4's chart work, one —
-R9.11 — shipped in Phase 5 and tabled in §3.7), three are blocked on phases that have not run, and
-one (R13.4's assertion half) is A2's and is written here.** The row is now `🔄`. Appended after
+needs — of the nine ids the row claims, **five are implemented by this phase's own work** (four by
+A4's chart half — R9.1, R9.9, R9.10, R16.4 — and one by A2's, R13.4's assertion half, the
+live-scrape half being Phase 2's), **one is implemented by another phase and tabled there** (R9.11,
+Phase 5, `f9aae41`, §3.7), and **three are blocked** on phases that have not run (R9.6, R9.8,
+R13.3). The earlier wording here read "five are implemented (four by A4's chart work, one — R9.11 —
+shipped in Phase 5…)" and counted R9.11 while filing R13.4 in a fourth bucket — right total, wrong
+composition, and the source of three different numbers quoted for one table. The row is now `🔄`. Appended after
 §3.8 rather than inserted before it, so no section another owner holds gets renumbered. Where a
 file is A4's or A1's, the row validates their file against the requirement instead of
 re-implementing it.
