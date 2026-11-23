@@ -375,15 +375,23 @@ def check_links(root, tracked):
     .claude/agents/a4-frontend.md:58 reads [`docs/agents.md` §5.1](../../docs/agents.md),
     whose text is "docs/agents.md` §5.1" and whose target is "docs/agents.md".
 
-    The 18/0 figure, with its recipe, because the number is recipe-dependent (A4's f14d974
-    review could not reproduce 18 from the sentence alone, and listed four other whole-text
-    variants giving 28, 33, 53 and 69). Command: over the 70 links this function scans, strip
-    backticks from the bracket text, take the basename of what remains, compare it to the
-    basename of the target — 18 differ; re.search(P, text) then basename-vs-basename — 0
-    differ. Stripping backticks from both sides gives 28, and stripping nothing gives 53, so
-    the recipe is part of the claim. (The :58 here was :52 when f14d974 was written: the line
-    moved in db41cbb. The path-citation half of this script checks .md files only, so a stale
-    cite inside this .py docstring is invisible to the tool that exists to catch it.)
+    The 18/0 figure, with its recipe, because the number is recipe-dependent and this docstring
+    has now been wrong about its own numbers twice: f14d974 shipped "18 of the 70" with no
+    command (A4's review could not rebuild it and listed five other whole-text variants), and
+    ac6dfc2 added the command but attributed the neighbour numbers to the wrong recipes. The
+    whole matrix, over the 70 links this function scans, text side x target side:
+
+        raw text             vs full path 69   vs basename(path) 67   both basenamed 62
+        strip-end backticks  vs full path 28   vs basename(path) 53   both basenamed 18
+        strip-all backticks  vs full path 28   vs basename(path) 53   both basenamed 18
+
+    The shipped label half is the token branch — re.search(P, text), then basename-vs-basename —
+    which gives 0 on every one of those rows' link set; the whole-text rows are the counterfactual
+    that justifies it. "strip-end" is .strip("`") (backticks at the ends only), "strip-all" is
+    .replace("`", "") — identical numbers here, so the distinction is named rather than assumed.
+    (The :58 cite here was :52 when f14d974 was written: the line moved in db41cbb. The
+    path-citation half of this script checks .md files only, so a stale cite inside this .py
+    docstring is invisible to the tool that exists to catch it.)
     """
     checked, broken, label_bad = 0, [], []
     for rel in tracked:
