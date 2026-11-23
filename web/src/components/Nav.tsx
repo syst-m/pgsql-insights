@@ -17,7 +17,7 @@
 
 import type { MouseEvent } from "react";
 
-import { buildPath, navFor, type Route } from "../routes";
+import { buildPath, navFor, statusOf, type Route } from "../routes";
 import type { UrlState } from "../state/urlState";
 
 /** A plain-click handler that keeps modifier-click and middle-click semantics
@@ -60,7 +60,7 @@ function NavLink({ route, state, onPatch }: { route: Route; state: UrlState; onP
       // `data-status` lets the stylesheet mark a planned link differently from
       // a live one (a dotted underline in R10.2's muted token) without the
       // component having to invent a second class per state.
-      data-status={route.status}
+      data-status={statusOf(route)}
       className={isCurrent ? "active" : undefined}
       aria-current={isCurrent ? "page" : undefined}
       onClick={navTo(onPatch, targetFor(route))}

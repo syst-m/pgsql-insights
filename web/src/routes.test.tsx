@@ -19,6 +19,7 @@ import {
   matchPath,
   navFor,
   requiresCluster,
+  statusOf,
   type Page,
   type Route,
 } from "./routes";
@@ -82,9 +83,32 @@ describe("the route table", () => {
     }
   });
 
-  it("implements exactly the two pages Phase 1b ships, and no more", () => {
-    const implemented = ROUTES.filter((r) => r.status === "implemented").map((r) => r.page);
-    expect(implemented).toEqual(["fleet", "cluster"]);
+  it("implements exactly the two pages whose phase is 1b", () => {
+    // Phrased by phase rather than by "what is implemented today". The old
+    // assertion was `implemented === ["fleet","cluster"]`, which was a
+    // Phase-1b snapshot wearing an invariant: it had to be edited at every
+    // phase, and a green run proved only that someone had edited it. The set of
+    // pages *1b owns* is permanent, so this half never needs an edit.
+    const fromPhase1b = ROUTES.filter((r) => r.phase === "1b").map((r) => r.page);
+    expect(fromPhase1b).toEqual(["fleet", "cluster"]);
+    for (const page of fromPhase1b) {
+      expect(statusOf(ROUTE_BY_PAGE[page] as Route)).toBe("implemented");
+    }
+  });
+
+  it("derives status from the component, so nothing is implemented without a component", () => {
+    // The rule that replaced the hardcoded list. A route cannot advertise
+    // "implemented" with nothing behind it, and a page its owner ships becomes
+    // implemented by existing — not by an edit to a file they don't own, which
+    // is the shared-tree hazard this table's shape used to create.
+    for (const route of ROUTES) {
+      expect(statusOf(route), `${route.page}`).toBe(route.component === null ? "planned" : "implemented");
+    }
+    // And every implemented route's component is a function, not a truthy
+    // placeholder: the field's type says so, and this says it at runtime.
+    for (const route of ROUTES.filter((r) => r.component !== null)) {
+      expect(typeof route.component).toBe("function");
+    }
   });
 
   it("names a requirement and a §9 phase for every page", () => {
@@ -228,8 +252,13 @@ describe("App routing", () => {
   });
 
   it("renders the placeholder for each planned route, naming its phase", () => {
-    const planned = ROUTES.filter((r) => r.status === "planned") as Route[];
-    expect(planned).toHaveLength(12);
+    // No count here. The old `toHaveLength(12)` was the same snapshot as the
+    // implemented list in the other test — two numbers for one fact, and the
+    // set of planned pages is whatever `statusOf` says it is, which the
+    // derivation test above already pins. What matters is that every route
+    // without a component renders the placeholder, so this iterates that set
+    // instead of asserting its size.
+    const planned = ROUTES.filter((r) => statusOf(r) === "planned") as Route[];
     for (const route of planned) {
       // Query Detail's path needs a fingerprint — without one `buildPath`
       // returns its parent list, which is the correct fallback but renders the

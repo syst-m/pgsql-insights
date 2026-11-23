@@ -26,7 +26,27 @@
  * the query fingerprint, and it reuses `state.row` for it — the field R10.16
  * already uses for "selected table row", which is what a query detail is when
  * opened from the Queries table.
+ *
+ * **This file is the single registration point for a page.** A page used to
+ * need three shell files at once: this table (to flip `status`), `App.tsx`
+ * (whose `PageView` was an if-chain on `route.page`, despite its own comment
+ * claiming "adding a page is a table edit plus a component — never an edit
+ * here"), and `routes.test.tsx` (which hardcoded the implemented set and the
+ * planned count). Since Phase 6b moved `pages/**` and `components/**` to A6
+ * while the shell stayed here, three shared files per page is three chances for
+ * the `docs/agents.md` §5 rule-1 failure — a pathspec commit takes the working
+ * tree's content for a path, so two slots in one file ships one of them under
+ * the other's message. Now a page is *one* entry here plus *one* file of
+ * theirs, and `App.tsx` never changes again.
  */
+
+import type { ComponentType } from "react";
+
+import type { ClientConfig } from "./api/client";
+import type { FleetResponse } from "./api/types";
+import { ClusterDetailPage } from "./pages/ClusterDetail";
+import { FleetPage } from "./pages/Fleet";
+import type { UrlState } from "./state/urlState";
 
 /** The 14 pages R10.3 names. This is the canonical declaration; `state/urlState.ts`
  *  re-exports it so existing imports keep working. */
@@ -50,11 +70,31 @@ export type Page =
  *  `planned` — the route resolves and renders `NotImplemented`, naming the
  *  phase that will build it. Not `stub`: a stub implies code that pretends to
  *  work, and a page that says "Phase 6b, and this is the endpoint that will
- *  serve it" is not pretending. */
+ *  serve it" is not pretending.
+ *
+ *  Derived from `Route.component` by `statusOf`; it is not a field any more. */
 export type RouteStatus = "implemented" | "planned";
 
 /** Whether a page exists on its own or needs a selected cluster. */
 export type Scope = "fleet" | "cluster";
+
+/** The one props shape every page takes, so the table can mount a page instead
+ *  of `App.tsx` switching on it.
+ *
+ *  Pages that need fewer fields accept and ignore the rest: `ClusterDetailPage`
+ *  resolves its own row from `state.cluster` and never fetches, so `cfg` and
+ *  `fixtureOverride` are unused there. A per-page props shape is what forced the
+ *  if-chain in App.tsx — a lookup needs one type for every entry.
+ */
+export interface PageProps {
+  state: UrlState;
+  onPatch: (patch: Partial<UrlState>) => void;
+  cfg: ClientConfig;
+  /** The visual suite renders a named fixture directly instead of fetching. */
+  fixtureOverride?: FleetResponse;
+}
+
+export type PageComponent = ComponentType<PageProps>;
 
 export interface Route {
   page: Page;
@@ -71,7 +111,14 @@ export interface Route {
   endpoint: string;
   /** The §9 phase that ships it, written as §9 writes it ("6b", not 6.5). */
   phase: string;
-  status: RouteStatus;
+  /** The component that renders this page, or null while it is planned.
+   *
+   *  This field *is* the status — see `statusOf`. Carrying a separate
+   *  `status: "planned"` string next to a null component was two sources of
+   *  truth for one fact, and the fact belongs to the page file (A6's), not to
+   *  this table (A4's). That duplication is the whole reason A6 had to edit a
+   *  file they don't own in order to ship a page they do. */
+  component: PageComponent | null;
   scope: Scope;
   /** Path pattern: `/`, `/c/:ns/:name`, `/c/:ns/:name/queries`, or
    *  `/c/:ns/:name/queries/:fingerprint`. Parsed once into `PATTERNS` and used
@@ -91,7 +138,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.4",
     endpoint: "GET /api/v1/clusters",
     phase: "1b",
-    status: "implemented",
+    component: FleetPage,
     scope: "fleet",
     path: "/",
     inNav: true,
@@ -102,7 +149,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.5",
     endpoint: "GET /api/v1/clusters/{ns}/{name}",
     phase: "1b",
-    status: "implemented",
+    component: ClusterDetailPage,
     scope: "cluster",
     path: "/c/:ns/:name",
     inNav: true,
@@ -113,7 +160,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.6",
     endpoint: "GET /api/v1/insights/queries",
     phase: "6b",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/queries",
     inNav: true,
@@ -124,7 +171,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.7",
     endpoint: "GET /api/v1/insights/queries/{fingerprint}",
     phase: "6b",
-    status: "planned",
+    component: null,
     scope: "cluster",
     // The fingerprint is `state.row` — R10.16's "selected row", which is what a
     // query detail is when opened from the Queries table.
@@ -137,7 +184,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.8",
     endpoint: "GET /api/v1/active-queries",
     phase: "6a",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/active",
     inNav: true,
@@ -148,7 +195,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.9",
     endpoint: "GET /api/v1/insights/wait-events",
     phase: "6a",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/wait-events",
     inNav: true,
@@ -159,7 +206,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.3 · R3.7 · R8.2",
     endpoint: "GET /api/v1/insights/databases",
     phase: "5",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/databases",
     inNav: true,
@@ -170,7 +217,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.3 · R3.7 · R8.2",
     endpoint: "GET /api/v1/insights/users",
     phase: "5",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/users",
     inNav: true,
@@ -181,7 +228,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.3 · R3.12 · R8.2",
     endpoint: "GET /api/v1/insights/tags",
     phase: "5",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/tags",
     inNav: true,
@@ -192,7 +239,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.3 · R3.7 · R6.4",
     endpoint: "GET /api/v1/insights/client-addresses",
     phase: "5",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/client-addresses",
     inNav: true,
@@ -203,7 +250,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.10",
     endpoint: "GET /api/v1/insights/system",
     phase: "7",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/system",
     inNav: true,
@@ -214,7 +261,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.11",
     endpoint: "GET /api/v1/poolers/{ns}/{name}",
     phase: "8",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/poolers",
     inNav: true,
@@ -225,7 +272,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R7.2 · R7.4–R7.6",
     endpoint: "GET /api/v1/insights/recommendations",
     phase: "8",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/recommendations",
     inNav: true,
@@ -236,12 +283,24 @@ export const ROUTES: readonly Route[] = [
     requirement: "R5.9",
     endpoint: "GET /api/v1/events",
     phase: "8",
-    status: "planned",
+    component: null,
     scope: "cluster",
     path: "/c/:ns/:name/events",
     inNav: true,
   },
 ];
+
+/** Whether a route is implemented, read off its component.
+ *
+ *  The old table stored this, which meant `routes.test.ts` could only assert it
+ *  by hardcoding `["fleet", "cluster"]` and `toHaveLength(12)` — two numbers
+ *  that had to be edited every phase, and that a green suite still caught
+ *  nothing new, because a hardcoded list only proves the list was edited.
+ *  Derived, the test asserts the rule instead of the snapshot, and shipping a
+ *  page stops requiring a test edit. */
+export function statusOf(route: Route): RouteStatus {
+  return route.component === null ? "planned" : "implemented";
+}
 
 /** Lookup by page id. Typed as a complete Record, so a `Page` member with no
  *  route entry is a compile error rather than an `undefined` at runtime — the

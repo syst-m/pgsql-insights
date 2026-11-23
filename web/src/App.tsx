@@ -7,9 +7,11 @@
  *
  * The shell is deliberately thin: brand, nav, theme control. Everything with
  * data in it lives in a page. The nav is `routes.ts` rendered (see
- * components/Nav.tsx) and the page switch below is the same table consulted by
- * page id, so adding a page is a table edit plus a component — never an edit
- * here.
+ * components/Nav.tsx) and the page switch below is a lookup in that same table,
+ * so adding a page is a table edit plus a component and never an edit here.
+ * That sentence used to be false — the switch was an if-chain on `route.page`,
+ * so each of the other twelve pages needed an edit here when it landed. It now
+ * reads `Route.component`, which is what makes it true.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -27,11 +29,8 @@ import {
 } from "./state/urlState";
 import { Nav, navTo } from "./components/Nav";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { FleetPage } from "./pages/Fleet";
-import { ClusterDetailPage } from "./pages/ClusterDetail";
 import { NotImplemented } from "./pages/NotImplemented";
-import { ROUTE_BY_PAGE } from "./routes";
-import { FIXTURE_CLUSTERS } from "./api/fixtures";
+import { ROUTE_BY_PAGE, type PageProps } from "./routes";
 import type { FleetResponse } from "./api/types";
 
 export interface AppProps {
@@ -93,53 +92,22 @@ export function App({ initialLocation, fixtureOverride }: AppProps = {}) {
   );
 }
 
-/** The page switch, keyed off the route table rather than off an if-chain.
+/** The page switch: the route table's component for this page, or the
+ *  placeholder that names the phase that will build it.
  *
  *  Two of the fourteen R10.3 pages have components at Phase 1b; the other
- *  twelve render `NotImplemented`, which names the §9 phase that will build
- *  them. Routing them is what makes R10.3's page set one testable artifact
- *  today — every page in the table has a URL that answers, so a page landing at
- *  Phase 6b swaps a component without changing a route, a nav entry or a path. */
-function PageView({
-  state,
-  onPatch,
-  cfg,
-  fixtureOverride,
-}: {
-  state: UrlState;
-  onPatch: (p: Partial<UrlState>) => void;
-  cfg: ReturnType<typeof resolveConfig>;
-  fixtureOverride?: FleetResponse;
-}) {
-  const route = ROUTE_BY_PAGE[state.page];
+ *  twelve render `NotImplemented`. Routing them is what makes R10.3's page set
+ *  one testable artifact today — every page in the table has a URL that answers,
+ *  so a page landing at Phase 6b swaps a component without changing a route, a
+ *  nav entry, a path, or this file. That last clause is why `Route` carries the
+ *  component: the if-chain this replaced had a branch per page, so twelve more
+ *  pages meant twelve more edits to a file A6 doesn't own. */
+function PageView(props: PageProps) {
+  const route = ROUTE_BY_PAGE[props.state.page];
+  const Page = route.component;
 
-  if (route.page === "fleet") {
-    return <FleetPage state={state} onPatch={onPatch} cfg={cfg} fixtureOverride={fixtureOverride} />;
+  if (Page === null) {
+    return <NotImplemented route={route} state={props.state} onPatch={props.onPatch} />;
   }
-  if (route.page === "cluster") {
-    return <ClusterOrFleet state={state} onPatch={onPatch} />;
-  }
-  return <NotImplemented route={route} state={state} onPatch={onPatch} />;
-}
-
-/** Resolve the detail route. An unknown cluster id falls back to a card with a
- *  way back — a stale link should degrade, not blank the page. */
-function ClusterOrFleet({ state, onPatch }: { state: UrlState; onPatch: (p: Partial<UrlState>) => void }) {
-  const cluster = FIXTURE_CLUSTERS.find((c) => `${c.namespace}/${c.name}` === state.cluster);
-  if (cluster === undefined) {
-    return (
-      <section className="card">
-        <div className="card-head">
-          <h2 className="card-title">Unknown cluster</h2>
-        </div>
-        <p className="card-note">
-          <code>{state.cluster ?? ""}</code> is not in the current fleet snapshot.
-        </p>
-        <button type="button" className="btn" onClick={() => onPatch({ page: "fleet", cluster: null })}>
-          Back to Fleet
-        </button>
-      </section>
-    );
-  }
-  return <ClusterDetailPage cluster={cluster} state={state} onPatch={onPatch} />;
+  return <Page {...props} />;
 }

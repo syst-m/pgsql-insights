@@ -17,7 +17,9 @@
  */
 
 import type { FleetRow, PoolerView, ServiceView } from "../api/types";
+import { FIXTURE_CLUSTERS } from "../api/fixtures";
 import type { ClusterTab, UrlState } from "../state/urlState";
+import type { PageProps } from "../routes";
 import { StatusChip } from "../components/StatusGlyph";
 import { daysUntil, formatNumber, formatSize, formatTimestamp, NULL_VALUE } from "../lib/format";
 import { StatePanel } from "../components/StatePanel";
@@ -31,13 +33,49 @@ const TABS: readonly { key: ClusterTab; label: string }[] = [
   { key: "findings", label: "Findings" },
 ];
 
+/** The route entry for the `cluster` page (R10.5), mounted from `routes.ts`.
+ *
+ *  Resolving the row here, rather than in an `App.tsx` branch, is what lets the
+ *  route table hold a component: App.tsx used to look the cluster up in its
+ *  if-chain and render an "Unknown cluster" card from there, which is why every
+ *  new page needed an App.tsx edit. A detail page that cannot find its row is a
+ *  page state, not a router state.
+ *
+ *  `cfg` and `fixtureOverride` are accepted and unused — this page renders the
+ *  row the URL names, it does not fetch. They exist because `PageProps` is one
+ *  contract for every page, which is what replaced the if-chain.
+ */
+export function ClusterDetailPage(props: PageProps) {
+  const cluster = FIXTURE_CLUSTERS.find((c) => `${c.namespace}/${c.name}` === props.state.cluster);
+  if (cluster === undefined) return <UnknownCluster {...props} />;
+  return <ClusterDetailBody cluster={cluster} state={props.state} onPatch={props.onPatch} />;
+}
+
+/** A stale or hand-typed cluster id: the row is gone from the snapshot, so the
+ *  page says so and offers the way back instead of rendering an empty detail. */
+function UnknownCluster({ state, onPatch }: PageProps) {
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">Unknown cluster</h2>
+      </div>
+      <p className="card-note">
+        <code>{state.cluster ?? ""}</code> is not in the current fleet snapshot.
+      </p>
+      <button type="button" className="btn" onClick={() => onPatch({ page: "fleet", cluster: null })}>
+        Back to Fleet
+      </button>
+    </section>
+  );
+}
+
 export interface ClusterDetailProps {
   cluster: FleetRow;
   state: UrlState;
   onPatch: (patch: Partial<UrlState>) => void;
 }
 
-export function ClusterDetailPage({ cluster, state, onPatch }: ClusterDetailProps) {
+function ClusterDetailBody({ cluster, state, onPatch }: ClusterDetailProps) {
   const tab = state.tab;
   return (
     <div className="page" data-page="cluster">
