@@ -229,8 +229,10 @@ These apply to every slot.
    deletions where the probe's own diff was 19/8, so the fix was `git checkout --` plus re-applying
    the change as five asserted string replacements (`f14d974`). A4 built `patched.py` on `936b190`
    and re-derived it against the new base instead of copying it — the rule followed rather than
-   discovered. A2 ran a link-stripping probe from the repo root instead of inside the clone and
-   stripped 11 real files; the wrong "70 checked" in their own output is what caught it. Two rules
+   discovered. And A4 ran a link-stripping probe from the repo root instead of inside the clone
+   and stripped 11 real files; the wrong "70 checked" in their own output is what caught it — the
+   instance this rule first credited to A2, who ran the D12 hash brute-force and the two archive
+   extracts and not the nolinks probe, and filed the correction themselves. Two rules
    fall out of the three instances: **an extract, always, for any probe that writes**; and **read
    the diffstat before you commit** — a diffstat that disagrees with the edit you made is the
    finding, whether the edit was correct or not.
