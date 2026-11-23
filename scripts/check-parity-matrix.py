@@ -219,6 +219,17 @@ if len(cite_bad) > 40:
 # entirely: those notes cite the upstream projects' own files (postgres_exporter's
 # README.md:310-321), which this repo's file list cannot resolve.
 PATH_SKIP_DIRS = ("docs/research/",)
+# Cited paths that are known-not-to-resolve, keyed on the (citing file, cited path) pair with
+# the reason, mirroring EXEMPT above. Keyed on the pair, not the bare path string, and applied
+# only while the path still fails to resolve: if the repo ever gains a real
+# references/components.md, IMPLEMENTATION.md's cite of it becomes checkable and gets checked,
+# rather than being silently exempted forever. Without self-expiry the table is a standing
+# warning that outlives its own reason — which is how real findings get skipped.
+PATH_EXEMPT = {
+    ("IMPLEMENTATION.md", "references/components.md"):
+        "the dataviz skill bundle's own file; the bundle is cited by absolute path + sha256 in "
+        "the same cell (D12), so the relative form there refers outside this repo",
+}
 P = r"[A-Za-z0-9_./-]+\.(?:md|go|ya?ml|tsx?|json|sh|py|js|css)"
 CITE_A = re.compile(r"`(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?`")
 # The colon inside the parens is part of the form (`… (:254)`), and it is load-bearing: the
@@ -263,10 +274,12 @@ def path_citations(root, tracked):
     return out
 
 def check_paths(root, tracked):
-    checked, bad, unresolved = 0, [], []
+    checked, bad, unresolved, exempt = 0, [], [], 0
     tset = set(tracked)
     for rel, n, kind, path, s, e, head in path_citations(root, tracked):
         r = resolve_path(tracked, tset, rel, path)
+        if not r and (rel, path) in PATH_EXEMPT:
+            exempt += 1; continue              # exempt only while it still fails to resolve
         if len(r) != 1:
             unresolved.append((rel, n, kind, path, len(r))); continue
         checked += 1
@@ -279,14 +292,14 @@ def check_paths(root, tracked):
                 bad.append((rel, n, kind, f"{path}:{s} is not a heading ({actual[:48]!r})"))
             elif actual != head.strip():
                 bad.append((rel, n, kind, f"quotes {head!r}, {path}:{s} reads {actual!r}"))
-    return checked, bad, unresolved
+    return checked, bad, unresolved, exempt
 
-checked_path, path_bad, unresolved = check_paths(root, files_all)
-if not checked_path:
+checked_path, path_bad, unresolved, exempt_path = check_paths(root, files_all)
+if not checked_path and not exempt_path:
     print("GUARD: path-citation check resolved 0 citations — file discovery broke, not a pass")
     sys.exit(2)
 print(f"path citations: {checked_path} resolved · {len(path_bad)} wrong · "
-      f"{len(unresolved)} unresolvable (reported, not failed)")
+      f"{len(unresolved)} unresolvable (reported, not failed) · {exempt_path} exempt")
 for f, n, kind, msg in path_bad[:20]:
     print(f"  {f}:{n} [{kind}] {msg}")
 for f, n, kind, path, n_alt in unresolved[:10]:
