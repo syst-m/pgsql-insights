@@ -680,7 +680,64 @@ for f, n, text, path in labels_bad[:20]:
     print(f"  {f}:{n} label {text!r} names {path.rsplit('/', 1)[-1]}, target is "
           f"{path!r}")
 
+# --- finding ids (docs/reviews/finding-index.md, the S-ledger) -----------------------
+# "A3's S26" is cited from internal/store/statements.go, and before the ledger existed the id
+# was defined only inside a commit-message body -- a different repository object, so a reader
+# could not check what the finding said, what fixed it, or whether the id was real at all. The
+# ledger is now the definition and this is the gate. One direction fails the build: a cite
+# naming an id with no row is a typo or a renumbering, which is what the R-id check above
+# exists to catch, and the S-series has the same failure surface with none of the coverage.
+# The other direction -- a row nothing cites -- is printed, not failed: S33 and S36 are
+# findings that exist without being cited yet, and a hard rule there would force the table to
+# invent citations to satisfy its own tool. The printed count is what stops rows quietly
+# accruing that nobody asks about.
+FINDING_DOC = "docs/reviews/finding-index.md"
+FINDING_ROW_RE = re.compile(r"^\|\s*(S\d{1,3})\s*\|")
+FINDING_CITE_RE = re.compile(r"\bA3's\s+(S\d{1,3})\b")
+# Wider than CITE_EXTS on purpose. The R-id check scans .md/.yml/.go because an R-id in a
+# .tsx file has to resolve against §4, and adding .tsx there would change what that check
+# accepts. A finding id only has to resolve against the ledger, which is cheap and closed, so
+# the six S-cites living in web/src/**.tsx -- S21, S22, S23 -- are in scope here.
+FINDING_EXTS = CITE_EXTS | {".tsx", ".ts"}
+
+def finding_ledger():
+    p = root / FINDING_DOC
+    if not p.is_file():
+        print(f"GUARD: {FINDING_DOC} missing -- it is the definition of every \"A3's S<NN>\" "
+              f"cite in the tree; deleting it is not a pass")
+        sys.exit(2)
+    rows = {m.group(1) for line in p.read_text(errors="replace").splitlines()
+            for m in [FINDING_ROW_RE.match(line)] if m}
+    if not rows:
+        print(f"GUARD: {FINDING_DOC} parsed 0 finding ids -- the table shape changed, not a pass")
+        sys.exit(2)
+    return rows
+
+def finding_cites():
+    out = []
+    for rel in files_all:
+        p = root / rel
+        if not p.is_file(): continue
+        if p.suffix not in FINDING_EXTS and p.name not in CITE_NAMES: continue
+        for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
+            for m in FINDING_CITE_RE.finditer(line):
+                out.append((rel, n, m.group(1)))
+    return out
+
+ledger_ids = finding_ledger()
+fcites = finding_cites()
+cited_f = {t for _, _, t in fcites}
+finding_bad = sorted({(f, n, t) for f, n, t in fcites if t not in ledger_ids})
+uncited_f = sorted(ledger_ids - cited_f, key=lambda s: int(s[1:]))
+print(f"finding ids: {len(ledger_ids)} in {FINDING_DOC} \u00b7 {len(cited_f)} cited across "
+      f"{len({f for f, _, _ in fcites})} files \u00b7 {len(finding_bad)} cites with no row \u00b7 "
+      f"{len(uncited_f)} rows never cited")
+for f, n, t in finding_bad[:20]:
+    print(f"  {f}:{n}: {t} is cited but has no row in {FINDING_DOC}")
+for t in uncited_f[:20]:
+    print(f"  {t} has a row and no cite -- its status column says whether that is expected")
+
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
               or id_orphans or path_orphans or labels_bad or status_bad
-              or phase_bad or ms_bad) else 0)
+              or phase_bad or ms_bad or finding_bad) else 0)
 
