@@ -22,6 +22,10 @@
  * `await res.json() as FleetResponse` was how this file shipped an empty Fleet
  * page against a working API, because the cast accepted a body with no
  * `clusters` key and `?? []` turned that into a plausible-looking empty state.
+ *
+ * It also reads the body as text before parsing it, so a non-JSON error page is
+ * an `ApiError` with a status rather than a `SyntaxError` from the parse — see
+ * `getJSON`.
  */
 
 import {
@@ -35,6 +39,7 @@ import {
   FIXTURE_UNAVAILABLE,
 } from "./fixtures";
 import {
+  ContractError,
   parseEnvelope,
   parseErrorBody,
   parseQueryDetailView,
@@ -172,21 +177,60 @@ function search(params: Record<string, string | number | undefined>): string {
   return q === "" ? "" : `?${q}`;
 }
 
+/** `JSON.parse` reporting failure as `undefined` instead of throwing.
+ *
+ *  `res.json()` — the call this replaced — threw, and the throw was the bug: a
+ *  caller that never receives a value cannot tell "the proxy answered HTML" from
+ *  "the request never completed", and the `ApiError` shape every page's error
+ *  panel is built on depended on the *body being parseable*, which is a property
+ *  of the body and not of the contract. An empty body is `undefined` too:
+ *  `JSON.parse("")` throws, and every route here answers 200 with a body, so an
+ *  empty one is not a value either. */
+function parseJson(text: string): unknown {
+  if (text === "") return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The first line of a body, cut to 80 characters. An error message that quotes
+ *  a body has to quote it without pasting a whole HTML page into the error panel. */
+function preview(text: string): string {
+  const first = text.split("\n", 1)[0] ?? "";
+  return first.length > 80 ? `${first.slice(0, 80)}…` : first;
+}
+
 /** One GET and one failure path, shared by all four routes.
  *
  *  The http side used to be inline in `fetchFleet`; four fetchers each repeating
- *  the trailing-slash strip, the `accept` header, the `res.json()` and the
+ *  the trailing-slash strip, the `accept` header, the body read and the
  *  two-step `ok`/`ApiError` dance is four places to get R8.5's error handling
  *  subtly wrong. The order is the original one — read the body, *then* branch on
  *  `ok` — because the message needs the body to recover R8.5's `code`, and a
  *  404's body is the only place that says whether it was `NotFound` or
- *  `NotReady`. */
+ *  `NotReady`.
+ *
+ *  The body is read as text and then parsed (see `parseJson`), so an HTML 502
+ *  from a proxy is an `ApiError` carrying 502 rather than a `SyntaxError`. Both
+ *  arms then have to say what an unparseable body means for *them*: a failed
+ *  request keeps its status line, a successful one is a contract break. */
 async function getJSON(cfg: ClientConfig, pathWithQuery: string, opts: FetchOptions = {}): Promise<unknown> {
   const url = `${cfg.apiBase.replace(/\/$/, "")}${pathWithQuery}`;
   const res = await fetch(url, { signal: opts.signal, headers: { accept: "application/json" } });
-  const json: unknown = await res.json();
+  const text = await res.text();
+  const json = parseJson(text);
+
   if (!res.ok) {
     throw new ApiError(res.status, describeFailure(res.status, res.statusText, json), parseErrorBody(json)?.code);
+  }
+  // A 200 whose body is not JSON is the same family of break as a 200 that is
+  // JSON but not an envelope. `parseEnvelope` throws ContractError on that one,
+  // so this throws it on this one too rather than handing the caller an
+  // `undefined` to cast — which is the original bug wearing a different hat.
+  if (json === undefined) {
+    throw new ContractError(`GET ${pathWithQuery} → 200 body is not JSON (${preview(text)})`);
   }
   return json;
 }

@@ -24,6 +24,7 @@ import {
   FIXTURE_GENERATED_AT,
 } from "./fixtures";
 import {
+  ApiError,
   FIXTURES,
   fetchFleet,
   fetchQueries,
@@ -540,8 +541,15 @@ describe("partialBanner", () => {
  * two-copies-of-a-fact problem the fixture import exists to remove on the data
  * side. The cast is on the Response, not on the payload: `fetch`'s return type
  * demands the whole `Response` interface (headers, url, clone, …) and the client
- * reads only `ok`, `status`, `statusText` and `json()`. The bug this file exists
+ * reads only `ok`, `status`, `statusText` and the body. The bug this file exists
  * for was casting *data* — see the ContractError cases.
+ *
+ * It holds the bytes and derives both accessors from them, which is what a
+ * Response is. Stubbing `json()` with the object itself — the form this had —
+ * let a test pass on a body the client could never have produced by parsing: the
+ * 502 test passed `json: async () => "<html>…"` to a client that called
+ * `res.json()`, so the parse succeeded by never running, and the SyntaxError a
+ * real proxy would have caused stayed invisible behind a green suite.
  *
  * `delayMs: 0` on both configs: the fixture arm's latency is `resolveConfig`'s
  * business (it parses `?delay=`), and a suite that awaited 60ms per fetch would
@@ -552,8 +560,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function stub(json: unknown, ok = true, status = 200, statusText = "OK") {
-  const res = { ok, status, statusText, json: async () => json } as unknown as Response;
+function stub(body: unknown, ok = true, status = 200, statusText = "OK") {
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  const res = {
+    ok,
+    status,
+    statusText,
+    text: async () => text,
+    json: async () => JSON.parse(text) as unknown,
+  } as unknown as Response;
   globalThis.fetch = vi.fn(async () => res);
 }
 
@@ -594,11 +609,54 @@ describe("fetchFleet over http", () => {
     expect((err as { code?: string }).code).toBe("Forbidden");
   });
 
-  it("falls back to the status line when an error body is not an R8.5 body", async () => {
+  it("is an ApiError when the error body is not JSON at all", async () => {
+    // A proxy in front of the binary answers a 502 with an HTML page. That used
+    // to reject inside `res.json()`, before the `ok` branch could run, so the
+    // caller got `SyntaxError: Unexpected token '<'` and lost the ApiError shape
+    // the error panel is built on — the error surface depended on the body being
+    // parseable. The stub used to hand back `json: async () => "<html>…"`, which
+    // parses because it never runs; this one holds the bytes and fails the way a
+    // real Response fails.
     stub("<html>502 Bad Gateway</html>", false, 502, "Bad Gateway");
     const err = await fetchFleet(http).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
     expect((err as Error).message).toBe("GET → 502 Bad Gateway");
     expect((err as { code?: string }).code).toBeUndefined();
+  });
+
+  it("falls back to the status line when a parseable error body is not an R8.5 body", async () => {
+    // The other half of `describeFailure`: JSON that parses but carries no
+    // `error` key — a gateway with its own JSON error shape. The parse succeeds,
+    // `parseErrorBody` returns null, and the message is the status line alone.
+    stub({ status: "degraded" }, false, 503, "Service Unavailable");
+    const err = await fetchFleet(http).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as Error).message).toBe("GET → 503 Service Unavailable");
+    expect((err as { code?: string }).code).toBeUndefined();
+  });
+
+  it("is a ContractError when a 200 body is not JSON", async () => {
+    // The success arm's half of the same rule. `parseJson` reports the
+    // unparseable body as `undefined`, and the `!res.ok` branch cannot claim it —
+    // the request succeeded — so the 200 arm has to turn it into an error rather
+    // than return it as a value, which is what a cast used to do with it.
+    stub("<html>ok</html>");
+    const err = await fetchFleet(http).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ContractError);
+    expect((err as Error).message).toBe("GET /api/v1/clusters → 200 body is not JSON (<html>ok</html>)");
+  });
+
+  it("truncates a long non-JSON 200 body to one line in the message", async () => {
+    // `preview` exists so the message can quote a body without pasting a whole
+    // HTML page into the error panel. The test above covers the short body; this
+    // covers the long one, because a suite with only the short case passes with a
+    // `preview` that never truncated anything.
+    const body = `<html><head><title>502 Bad Gateway</title></head><body>${"x".repeat(200)}\nmore`;
+    stub(body);
+    const err = await fetchFleet(http).catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      `GET /api/v1/clusters → 200 body is not JSON (${body.slice(0, 80)}…)`,
+    );
   });
 });
 
