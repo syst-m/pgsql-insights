@@ -305,4 +305,38 @@ for f, n, kind, msg in path_bad[:20]:
 for f, n, kind, path, n_alt in unresolved[:10]:
     print(f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})")
 
-sys.exit(1 if (bad or missing or cite_bad or path_bad) else 0)
+# --- relative markdown links (A4's docs/README.md find, generalised) ---
+# The half above validates `path:N` citations and says nothing about `[text](path)` links,
+# which are the other way a doc points at a file — and in an index like docs/README.md the
+# only way. A rotting link there is worse than no index, because the index is the file
+# people use to find things. http(s)/mailto and pure-`#anchor` targets are skipped; a
+# `#fragment` is stripped before the path is resolved.
+LINK_RE = re.compile(r"\[([^\]]*)\]\(([^()\s]+)\)")
+
+def check_links(root, tracked):
+    """(checked, broken) for every relative [text](path) link in tracked markdown."""
+    checked, broken = 0, []
+    for rel in tracked:
+        if not rel.endswith(".md") or rel.startswith(PATH_SKIP_DIRS): continue
+        d = (root / rel).parent
+        for n, line in enumerate(lines_of(root, rel), 1):
+            for m in LINK_RE.finditer(line):
+                tgt = m.group(2)
+                if tgt.startswith(("http://", "https://", "mailto:")): continue
+                path = tgt.split("#")[0]
+                if not path: continue              # pure #anchor: no file to resolve
+                checked += 1
+                if not (d / path).resolve().exists():
+                    broken.append((rel, n, tgt))
+    return checked, broken
+
+checked_links, links_bad = check_links(root, files_all)
+if not checked_links:
+    print("GUARD: link check found 0 links — file discovery broke, not a pass")
+    sys.exit(2)
+print(f"markdown links: {checked_links} checked \u00b7 {len(links_bad)} broken")
+for f, n, tgt in links_bad[:20]:
+    print(f"  {f}:{n} -> {tgt}")
+
+sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad) else 0)
+

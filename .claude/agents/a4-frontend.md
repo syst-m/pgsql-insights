@@ -49,7 +49,7 @@ computable, so compute it.
   while that script sat uncommitted in A2's tree, so the target resolved and the thing it invoked
   did not (closed at `02381ba`).
 
-  **The rule itself is now shared contract at [`docs/agents.md` §5.1](../docs/agents.md)** —
+  **The rule itself is now shared contract at [`docs/agents.md` §5.1](../../docs/agents.md)** —
   including the transitivity clause (a `Makefile` is itself a file that invokes commands, so its
   recipe lines are in scope, not just the CI workflow's `run:` lines). Read the check there; this
   bullet is the record of A4's two instances, not the normative text. It moved because the rule
