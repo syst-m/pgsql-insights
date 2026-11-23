@@ -10,6 +10,11 @@ tmp/
 # on a machine with no node toolchain.
 !/web/dist/
 web/node_modules/
+# `npx --prefix web …` also drops a root-level node_modules/ holding nothing but
+# vite's cache. The real install is web/node_modules/, so a root one is never
+# dependencies — and without this line it shows up as `?? node_modules/` in the
+# diff of whoever ran the tests, which is residue in someone else's commit.
+node_modules/.vite/
 web/e2e/.artifacts/
 web/e2e/report/
 web/coverage/
