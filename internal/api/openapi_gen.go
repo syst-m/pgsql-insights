@@ -83,6 +83,17 @@ func GenerateOpenAPI() (string, error) {
 	if err := checkRouteTable(routes); err != nil {
 		return "", err
 	}
+	// The schema-side gate, run before anything is written: openapi_schemas.go
+	// resolves every openAPISchema's `Go:` reference and diffs the authored
+	// property list against the struct's json tags. It sits next to
+	// checkRouteTable because the two are the same rule on the two derived
+	// sections — R14.7 for `paths:` (a route in code with no entry, or an entry
+	// with no route) and R16.8 for `schemas:` (an entry whose properties are not
+	// the struct's tags) — and both have to fail the build rather than print.
+	if problems := checkSchemas(); len(problems) > 0 {
+		return "", fmt.Errorf("openapi_gen: %d schema/struct mismatch(es):\n%s",
+			len(problems), strings.Join(problems, "\n"))
+	}
 	planned, err := openapipkg.XPlannedPaths()
 	if err != nil {
 		return "", err
