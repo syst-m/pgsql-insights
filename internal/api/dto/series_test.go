@@ -37,14 +37,17 @@
 //
 // So the fixture does not reproduce the published entry. It builds three entries
 // from rows queries.json already has, all on open-webui-pg, a cluster the
-// inventory does list. The document's own example object stays where it is and
-// gets its own guard here: TestDocumentExampleIsCanonicalForTheCurrentStruct
-// re-marshals it against the struct as declared today, which is the same
-// canonical-encoding check the fixture gets, pointed at the document instead.
-// That split — a fixture built from real rows, the document's example checked on
-// its own — is deliberate. The alternative was a fixture that satisfied the
-// document by contradicting the inventory, and the inventory is the file
-// requirements.md §8 commits to.
+// inventory does list.
+//
+// The document has since come to the fixture rather than the other way round.
+// A2's `18ae97d` ("make the series route's example the fixture it documents")
+// replaced api/openapi.yaml's `example:` block with this file's content verbatim,
+// which is the fix this header asked for from the A2 side: the published example
+// no longer names `postgres`/`onepg`, and the sentence the document now carries
+// above its own example — "the example and testdata/api/query-series.json cannot
+// disagree about the payload shape" — is a promise the document makes about a
+// file it does not read. TestDocumentExampleMatchesFixture is the thing that
+// makes it true, and it reads the document instead of quoting it.
 //
 // The three entries are not three copies of one shape. They are the three shapes
 // QuerySeries can take, each pinning a different pair of fields:
@@ -60,9 +63,13 @@ package dto
 
 import (
 	"encoding/json"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const querySeriesPath = "../../../testdata/api/query-series.json"
@@ -222,52 +229,96 @@ func TestQuerySeriesFixturePointTimesAreMinuteAligned(t *testing.T) {
 	}
 }
 
-// TestDocumentExampleIsCanonicalForTheCurrentStruct applies the canonical-
-// encoding check to api/openapi.yaml's own example object for this route, which
-// is the copy no other test in this package re-reads.
+// TestDocumentExampleMatchesFixture is the R16.8 check on the document, and it
+// replaced a transcription of it.
 //
-// The fixture and the document's example are deliberately not the same object.
-// The document's entry is labelled namespace `postgres`, cluster `onepg`, pod
-// `onepg-1` — a cluster testdata/api/clusters.json does not list, which is the
-// divergence the header covers and
-// TestQuerySeriesFixtureLabelsExistInClustersFixture refuses to reproduce. So
-// this test does not ask "is the document's entry in the fixture"; it asks the
-// narrower and more useful question, "is the document's example still the
-// canonical encoding of the struct as it is today".
+// The version that shipped in `8b046ef` inlined the document's example object as
+// a const and re-marshalled the const against the struct. That passes whether or
+// not the document still says what the const says — so when A2's `18ae97d`
+// replaced the document's example with this fixture's own content, the const went
+// stale and the test stayed green. A guard that reads a copy of the thing it
+// guards cannot see the thing change, which is the R16.8 failure class aimed at
+// its own author.
 //
-// That is the R16.8 check pointed at the document instead of at a fixture.
-// json.Marshal emits struct fields in declaration order, so renaming a field in
-// dto/series.go, adding one, reordering two, or adding an omitempty changes the
-// re-marshalled bytes and fails here — and the document's example is the one
-// place a reader of the API contract looks first. It shipped in `4cef345`,
-// authored against the struct as it was then; the struct has since moved packages,
-// and nothing re-derived the example.
-func TestDocumentExampleIsCanonicalForTheCurrentStruct(t *testing.T) {
-	// The example object, transcribed from api/openapi.yaml's `example:` block
-	// for /api/v1/insights/queries/series (the route's 200 response), in the
-	// compact form encoding/json produces.
-	const docExample = `{"fingerprint":"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08","queryid":"8123456789012345678","namespace":"postgres","cluster":"onepg","pod":"onepg-1","instanceRole":"primary","datname":"appdb","usename":"app","points":[{"timestamp":"2026-11-21T09:11:00Z","executionTimeSeconds":0.4182,"rows":1200,"sharedBlocksHit":48200,"sharedBlocksRead":12,"lockTimeSeconds":0.0031},{"timestamp":"2026-11-21T09:12:00Z","executionTimeSeconds":0.3907,"rows":1180,"sharedBlocksHit":47910,"sharedBlocksRead":8,"lockTimeSeconds":0.0028}]}`
+// So it reads the document. The comparison is generic-value to generic-value —
+// YAML decoded to `any` then to JSON bytes, against the fixture's bytes decoded
+// to `any` then re-encoded — rather than struct to struct, because the document's
+// example is YAML with comments and a decoded map re-marshals with sorted keys on
+// both sides, which is the one normalisation that makes a byte comparison honest
+// here. The struct's declaration-order encoding is TestQuerySeriesFixtureIsCanonical's
+// job; this test's job is the sentence the document now prints above its own
+// example — "the example and testdata/api/query-series.json cannot disagree about
+// the payload shape" — which is a promise about a file the generator does not
+// read, and until this file nothing on the dto side checked it.
+func TestDocumentExampleMatchesFixture(t *testing.T) {
+	doc := readOpenAPIDocument(t)
 
-	var s QuerySeries
-	if err := json.Unmarshal([]byte(docExample), &s); err != nil {
-		t.Fatalf("unmarshal api/openapi.yaml's example: %v", err)
-	}
-	out, err := json.Marshal(s)
+	example := lookupPath(t, doc,
+		"paths", "/api/v1/insights/queries/series", "get",
+		"responses", "200", "content", "application/json", "example")
+
+	var fixture any
+	readFixture(t, querySeriesPath, &fixture)
+
+	got, err := json.Marshal(example)
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("re-encode the document's example: %v", err)
 	}
-	if string(out) != docExample {
-		t.Errorf("api/openapi.yaml's example for /api/v1/insights/queries/series is not the "+
-			"canonical encoding of dto.QuerySeries as declared today.\n"+
-			"example: %s\n\ncanonical: %s\n\n"+
-			"If a field in dto/series.go changed, the document's example needs the same change "+
-			"(that file is A2's; the -update path here only rewrites fixtures, not the document).",
-			docExample, out)
+	want, err := json.Marshal(fixture)
+	if err != nil {
+		t.Fatalf("re-encode %s: %v", querySeriesPath, err)
 	}
+	if string(got) != string(want) {
+		t.Errorf("api/openapi.yaml's example for /api/v1/insights/queries/series and %s "+
+			"disagree about the payload shape.\n"+
+			"document: %s\n\nfixture: %s\n\n"+
+			"The document's example is generated from the fixture (A2's `18ae97d`); if the "+
+			"fixture changed, regenerate the document with the generator rather than editing "+
+			"the block — api/openapi.yaml is A2's file and this test is the dto side of the "+
+			"pair.", querySeriesPath, got, want)
+	}
+}
 
-	// The spacing the example commits to: one minute apart, which is R8.11's
-	// bucket and the only spacing the document shows.
-	if d := s.Points[1].Timestamp.Sub(s.Points[0].Timestamp); d != time.Minute {
-		t.Errorf("the document's example pair is %s apart, want 1m", d)
+// openapiPath is A2's generated document. The dto tests already reach
+// testdata/api/ at ../../../testdata/api/; this is the same relative reach
+// pointed at api/, and it is what turns the document from something quoted into
+// something depended on.
+const openapiPath = "../../../api/openapi.yaml"
+
+// readOpenAPIDocument parses api/openapi.yaml once per test that asks for it.
+//
+// It decodes into `any` rather than into a typed OpenAPI struct because the
+// package that owns those types (internal/api) imports this one, so the typed
+// parse is not importable from here — and because a typed parse would only
+// re-check the fields the struct models, while the question here is about a
+// subtree the struct models as a free-form example.
+func readOpenAPIDocument(t *testing.T) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(openapiPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", openapiPath, err)
 	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse %s: %v", openapiPath, err)
+	}
+	return doc
+}
+
+// lookupPath walks a decoded YAML document by key, failing with the path it gave
+// up on rather than returning a nil that the caller then compares as "null".
+func lookupPath(t *testing.T, node any, keys ...string) any {
+	t.Helper()
+	for i, key := range keys {
+		m, ok := node.(map[string]any)
+		if !ok {
+			t.Fatalf("openapi.yaml: %s is a %T, not a mapping (wanted to read %s)",
+				strings.Join(keys[:i], "."), node, strings.Join(keys[i:], "."))
+		}
+		node, ok = m[key]
+		if !ok {
+			t.Fatalf("openapi.yaml: no %q under %s", key, strings.Join(keys[:i], "."))
+		}
+	}
+	return node
 }
