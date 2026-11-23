@@ -817,14 +817,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/QuerySeriesEnvelope'
               example:
+                # The fixture's three entries and its meta, verbatim, so the example
+                # and testdata/api/query-series.json cannot disagree about the payload
+                # shape — the promise the queries entry above makes about its own
+                # fixture. A batch has no page to excerpt (meta.nextCursor is always
+                # empty on this route), so a one-entry excerpt could not state the
+                # fixture's meta honestly: total 3 with one row would force truncated
+                # true, and the fixture says false.
                 data:
-                  - fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-                    queryid: "8123456789012345678"
-                    namespace: postgres
-                    cluster: onepg
-                    pod: onepg-1
+                  # The single-instance shape: pod and instanceRole present.
+                  - fingerprint: "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
+                    queryid: "4459823716093821447"
+                    namespace: open-webui
+                    cluster: open-webui-pg
+                    pod: open-webui-pg-2
                     instanceRole: primary
-                    datname: appdb
+                    datname: openwebui
                     usename: app
                     points:
                       - timestamp: "2026-11-21T09:11:00Z"
@@ -839,8 +847,30 @@ paths:
                         sharedBlocksHit: 47910
                         sharedBlocksRead: 8
                         lockTimeSeconds: 0.0028
+                  # The cluster-aggregate shape: both of those absent, one point.
+                  - fingerprint: "16f40dfa87b8ed58dbd080ef6fb5dd75ce0e241a769324801abf9e782c0ae001"
+                    queryid: "8102393847562019384"
+                    namespace: open-webui
+                    cluster: open-webui-pg
+                    datname: openwebui
+                    usename: app
+                    points:
+                      - timestamp: "2026-11-21T09:11:00Z"
+                        executionTimeSeconds: 0.368
+                        rows: 1
+                        sharedBlocksHit: 2140
+                        sharedBlocksRead: 3
+                        lockTimeSeconds: 0.0009
+                  # The never-seen shape: points is [], never null (R8.3).
+                  - fingerprint: "a615c7e522e65cc4e994046cca1ce5e82abcdc940b2ba35d54f644bb98e0fc66"
+                    queryid: "2337850198475623110"
+                    namespace: open-webui
+                    cluster: open-webui-pg
+                    datname: openwebui
+                    usename: postgres
+                    points: []
                 meta:
-                  total: 1
+                  total: 3
                   truncated: false
                   generatedAt: "2026-11-21T09:12:03Z"
         '400':
@@ -1320,7 +1350,9 @@ components:
       required: true
       schema:
         type: string
-      example: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      # The fixture's first fingerprint, so the example names a query
+      # testdata/api/query-series.json actually answers.
+      example: "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
     Range:
       name: range
       in: query
@@ -2406,15 +2438,29 @@ components:
           items:
             $ref: '#/components/schemas/QuerySeriesPoint'
       example:
-        fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-        queryid: "8123456789012345678"
-        namespace: postgres
-        cluster: onepg
-        pod: onepg-1
+        # The fixture's first entry, verbatim: the single-instance shape, with
+        # pod and instanceRole present and two of its points.
+        fingerprint: "843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3"
+        queryid: "4459823716093821447"
+        namespace: open-webui
+        cluster: open-webui-pg
+        pod: open-webui-pg-2
         instanceRole: primary
-        datname: appdb
+        datname: openwebui
         usename: app
-        points: []
+        points:
+          - timestamp: "2026-11-21T09:11:00Z"
+            executionTimeSeconds: 0.4182
+            rows: 1200
+            sharedBlocksHit: 48200
+            sharedBlocksRead: 12
+            lockTimeSeconds: 0.0031
+          - timestamp: "2026-11-21T09:12:00Z"
+            executionTimeSeconds: 0.3907
+            rows: 1180
+            sharedBlocksHit: 47910
+            sharedBlocksRead: 8
+            lockTimeSeconds: 0.0028
 
     QuerySeriesPoint:
       type: object
