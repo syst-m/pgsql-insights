@@ -12,6 +12,13 @@
  *                   TestGoldenFixtureIsCanonical re-marshals — and assigns it
  *                   to `Envelope<ClusterView>`, so a renamed json tag is a
  *                   compile error here rather than a page that renders empty.
+ *                   `QueryView`, `QueryDetailView`, `TagView` and the rest of
+ *                   the second block mirror `internal/api/dto/queries.go`
+ *                   (A5's file, R3.x) the same way; its pin — importing
+ *                   `testdata/api/queries.json` the way clusters.json is
+ *                   imported — lands with that fixture's commit, because a type
+ *                   importing an uncommitted file compiles in a working tree and
+ *                   fails at the tip (the `45a69a1` class, one level down).
  *
  *   presentation  — `FleetRow`, what the Fleet table actually draws: a
  *                   ClusterView plus the fields the UI computes or owns and
@@ -365,6 +372,235 @@ export interface ClusterView {
   createdAt: string;
 }
 
+/* ── wire: internal/api/dto/queries.go ──────────────────────────────────── */
+
+/** R3.2's eight load columns, in R3.2's order.
+ *
+ *  Declared once and embedded by every rollup the API serves — `QueryView`,
+ *  `TagView`, and through it `QueryDetailView` — because R3.2's column set is
+ *  one contract that the per-query, per-tag and per-table views all render, and
+ *  three copies of eight numbers is three ways for `avgExecTimeMs` to mean
+ *  something different on one page than on another.
+ *
+ *  Two of R3.2's thirteen columns are deliberately absent from this interface
+ *  and from every view that embeds it (queries.go spells out the rulings):
+ *  `Load by lock wait` has no per-query source and R10.6 renders the literal
+ *  `n/a (no per-query source, §5)`, and `Analyze latency` is marked **Gap** and
+ *  deferred. A nullable field that is always null is a field the UI has to
+ *  special-case anyway, so the literal is the UI's and the contract is silent.
+ *
+ *  The two derived columns carry a per-major-version difference the UI has to
+ *  know about (R10.28's "PG16 vs PG17 column differences"):
+ *
+ *    loadByIOWaitMs = blk_read_time + blk_write_time               (PG 15, 16)
+ *                   = shared_blk_read_time + shared_blk_write_time (PG 17, 18)
+ *    loadByCPUMs    = totalExecTimeMs − loadByIOWaitMs
+ *
+ *  PG17 split the block-time counters into shared/local/temp, so the ≤PG16 pair
+ *  and the PG17+ pair answer the same question from different columns and are
+ *  not comparable across the boundary. `pgMajor` on the row is what tells the
+ *  UI which derivation produced the numbers it is looking at. */
+export interface LoadColumns {
+  /** "this query's share of the cluster's total load", a percentage. */
+  loadByTotalTime: number;
+  /** The same numerator restated against the Queries category (R3.2). */
+  pctLoadByQueries: number;
+  avgExecTimeMs: number;
+  totalExecTimeMs: number;
+  avgRowsReturned: number;
+  /** R3.3's calls delta over the requested window, not the cumulative counter. */
+  timesCalled: number;
+  loadByCPUMs: number;
+  loadByIOWaitMs: number;
+}
+
+/** R7.1's index recommendation. R7.1 is marked post-0.1, so `recommendations`
+ *  is empty in every Phase 3 response; the shape is here because R3.2's
+ *  "Recommendations" column needs one and because an empty array and a missing
+ *  key render differently in every table on this app. */
+export interface RecommendationView {
+  finding: string;
+  evidence: string[];
+  action: string;
+  /** `string`, not a union: the enumerations R7.1 will define are post-0.1, and
+   *  a value added server-side should render as unfamiliar, not fail to
+   *  compile — the same reason `ClusterView.credentialSource` is a `string`. */
+  confidence: string;
+}
+
+/** One row of the R3.2 table — the payload of GET /api/v1/insights/queries
+ *  (R8.2) and the shape R10.6's Queries page draws.
+ *
+ *  The numbers are R3.3 deltas over the window the request asked for
+ *  (R8.4's `from`/`to`, R10.15's presets), not pg_stat_statements' cumulative
+ *  counters — the single most load-bearing fact about the row, since the view's
+ *  since-reset value and Cloud SQL's "last hour" are different numbers for the
+ *  same query. The window itself is not echoed here: R8.4's envelope has no
+ *  window field and the client named the window it asked for.
+ *
+ *  N is R9.5's top-N (default 50 per cluster, range 0–1000, N=0 disabling the
+ *  family), paged by R8.4's `limit`/`sort`/`nextCursor` (R8.10). */
+export interface QueryView extends LoadColumns {
+  /** R3.4's normalized fingerprint: the canonical key of the query store, of
+   *  R8.2's `/insights/queries/{fingerprint}` path segment and of R9.5b's
+   *  `fingerprint` label. 64 lowercase hex characters, because a fixed-length
+   *  digest is what keeps a label value URL- and path-safe. */
+  fingerprint: string;
+  /** PostgreSQL's `queryid`, informational (R9.5b: "the **fingerprint is the
+   *  canonical key**; `queryid` is informational") — R3.4 changes it in PG18
+   *  under an unchanged statement.
+   *
+   *  A **string**, not a number: a Postgres bigint exceeds 2^53 and JSON
+   *  numbers are IEEE-754 doubles, so a numeric `queryid` silently rounds in
+   *  every browser. The dto says so; this is the copy that has to keep saying it. */
+  queryid?: string;
+  /** The R3.5 normalized template, truncated to the R3.6 length profile. */
+  query: string;
+  /** R3.6's flag: `query` is a prefix of the full template, so the fingerprint
+   *  is over text longer than what is shown here. */
+  truncated: boolean;
+  /** `datname`. R3.2's column name is "Database"; the spec's word wins over
+   *  Postgres' where the two differ (dto/clusters.go's naming rule). */
+  database: string;
+  namespace: string;
+  cluster: string;
+  /** R1.3's resolved major, and the field that resolves which side of the
+   *  PG16/PG17 derivation `loadByCPUMs`/`loadByIOWaitMs` came from.
+   *
+   *  `number`, not `number | null` as in `ClusterView.pgMajor`: a query row
+   *  only exists if the collector connected to the instance, and connecting is
+   *  how the major gets resolved. The null case is R1.3's discovery state, not
+   *  this contract's. */
+  pgMajor: number;
+  recommendations: RecommendationView[];
+}
+
+/** R3.9's named bucket set, one row each: the eight named bounds plus the
+ *  implicit `+Inf`. `le` is the upper bound in ms as a string, Prometheus-style,
+ *  because `+Inf` has no JSON number and a sentinel string keeps the bucket list
+ *  one uniform shape instead of special-casing its last row. */
+export interface HistogramBucket {
+  le: string;
+  /** Cumulative: every bucket counts the calls at or below `le`, so the counts
+   *  are non-decreasing and the `+Inf` count equals `latency.count`. */
+  count: number;
+}
+
+/** R3.9's four stats plus the eight named buckets — R10.7's "or the R3.9
+ *  fallback" branch of the latency block. */
+export interface LatencyView {
+  minMs: number;
+  meanMs: number;
+  maxMs: number;
+  stddevMs: number;
+  /** R3.9's percentiles are `omitempty` because v1 has no distribution to take
+   *  them from: when the buckets are the source, p50/p95/p99 are absent and the
+   *  UI renders the buckets instead of inventing a number. A `0` here would
+   *  render as a real p50. */
+  p50Ms?: number;
+  p95Ms?: number;
+  p99Ms?: number;
+  /** True when the numbers come from R9.13's sampled histogram rather than from
+   *  every execution. */
+  sampled: boolean;
+  buckets: HistogramBucket[];
+  sumMs: number;
+  /** The population these stats describe. With `sampled` true this is the
+   *  sampled count, not `timesCalled` — the two differ and the UI labels them
+   *  with different words. */
+  count: number;
+}
+
+/** R3.10's capture methods. Documented as a union, used as a `string` on the
+ *  field, for the same reason as `CredentialSource`. */
+export type PlanMethod = "explain" | "prepare_execute" | "analyze";
+
+/** R3.10's two availability states. The unavailable one is the spec's exact
+ *  string, parentheses and all, because R10.28 lists it as a named empty state
+ *  and an empty state is only testable if its text is fixed. */
+export type PlanAvailability = "available" | "unavailable (insufficient table privileges)";
+
+/** One captured plan (R3.10). */
+export interface PlanSampleView {
+  capturedAt: string;
+  /** One of `PlanMethod`. */
+  method: string;
+  /** One of `PlanAvailability`. */
+  availability: string;
+  /** The statement text the plan was captured for. Present whenever there is
+   *  text to report — an *unavailable* sample still names its SQL, since
+   *  "which statement could you not plan" is the question the user is asking. */
+  sql?: string;
+  /** The `EXPLAIN` output as JSON. Absent when the capture failed.
+   *
+   *  `Record<string, unknown>` because the plan node shape is Postgres': the
+   *  keys vary by node type and by major version, and typing them here would
+   *  freeze a shape Postgres does not guarantee. */
+  plan?: Record<string, unknown>;
+  /** SHA-256 of the plan JSON's canonical compact encoding, hex-encoded. The
+   *  identity R3.11's plan-change detection compares. Absent with the plan. */
+  planHash?: string;
+  /** Why the capture failed, for an unavailable sample. Absent otherwise. */
+  message?: string;
+}
+
+/** R3.11's plan-change event: the two hashes, and when the change was seen. */
+export interface PlanChangeView {
+  detectedAt: string;
+  previousPlanHash: string;
+  currentPlanHash: string;
+}
+
+/** The R10.7 Query Detail page's payload: the row the user clicked, plus the
+ *  detail-only blocks.
+ *
+ *  There is no `points`/`series` field here. The detail chart's five series are
+ *  served by GET /api/v1/insights/queries/series — the same five points the
+ *  sparkline column uses (R8.11's batched endpoint), requested with one
+ *  `fingerprints=` value — and the dto cannot inline them: `QuerySeries` is
+ *  declared in `internal/api`, which imports this package, so referencing it
+ *  from here is an import cycle. Ask the series endpoint for the chart instead
+ *  of expecting it on this object. */
+export interface QueryDetailView extends QueryView {
+  /** `usename`, R3.2's "User" column. The list view keeps it off the row
+   *  (R3.12 folds it into the tag) and the detail view shows it. */
+  user?: string;
+  /** Earliest window in which the fingerprint was seen. */
+  firstSeen: string;
+  latency: LatencyView;
+  plans: PlanSampleView[];
+  planChanges: PlanChangeView[];
+}
+
+/** One R3.12 tag: the tag's dimensions plus R3.7's load rollup over every query
+ *  carrying it. */
+export interface TagView extends LoadColumns {
+  /** The hash of the tag's dimension set (R3.12's `tag_hash`), and R8.2's path
+   *  key for `/insights/tags/{tag_hash}`. 64 lowercase hex, so it is URL-safe
+   *  like the fingerprint. */
+  tagHash: string;
+  // R3.12's (a) dimensions — Postgres' own, always available.
+  /** `application_name`. */
+  application?: string;
+  /** `datname`. */
+  database?: string;
+  /** `usename`. */
+  user?: string;
+  // R3.12's (b) dimensions — from the `pgsi:` SQL-comment grammar (R3.12's key set). Absent
+  // when the statement carries no comment, which is the common case and not an
+  // error: a statement with no comment still has the (a) dimensions.
+  action?: string;
+  route?: string;
+  controller?: string;
+  framework?: string;
+  /** Comment key `dbdriver`, metric `db_driver`. */
+  dbDriver?: string;
+  /** R3.7's lock wait, sourced at rollup level from `pg_locks` +
+   *  `pg_stat_activity`. The per-query view has no source for this (see
+   *  `LoadColumns`), the rollup does, and that asymmetry is the spec's. */
+  lockWaitMs: number;
+}
+
 /* ── presentation ────────────────────────────────────────────────────────── */
 
 /** pgsi's own health rollup — the 4-level judgement the Fleet page colours.
@@ -434,6 +670,21 @@ export interface FleetRow extends ClusterView {
 export interface FleetResponse {
   meta: Meta;
   clusters: FleetRow[];
+}
+
+/** What the Queries page renders: the same `Meta` (R8.4's envelope shell is
+ *  shared by every list endpoint, R8.2) with `QueryView` rows. Named to match
+ *  `FleetResponse` so `client.ts` has one naming pattern per endpoint —
+ *  `<Noun>Response` for the presentation payload, `Envelope<Row>` for the wire.
+ *
+ *  No presentation layer of its own (no `QueryRow`): the fleet needed one
+ *  because `health` is computed and `observedAt` is denormalised, and neither
+ *  exists for a query row — R3.2's columns are all served, and R7.6's
+ *  recommendations ride on the row. So the presentation type is the wire type
+ *  plus `meta`, which is what `toQueriesResponse()` in envelope.ts builds. */
+export interface QueryResponse {
+  meta: Meta;
+  queries: QueryView[];
 }
 
 /** `namespace/name` — the cluster id used in URLs (R10.16) and table rows.

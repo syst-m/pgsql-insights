@@ -1,0 +1,61 @@
+{
+  "data": [
+    {
+      "tagHash": "76201a9fd0e48236038c7a35c976341e9ef42abd016e9078ab93d98efb912665",
+      "application": "openwebui",
+      "database": "openwebui",
+      "user": "openwebui",
+      "action": "session.load",
+      "route": "/api/v1/users/{user_id}",
+      "controller": "UsersController",
+      "framework": "fastapi",
+      "dbDriver": "pgx",
+      "loadByTotalTime": 88.3,
+      "pctLoadByQueries": 88.3,
+      "avgExecTimeMs": 43.9,
+      "totalExecTimeMs": 189244.6,
+      "avgRowsReturned": 1,
+      "timesCalled": 4311,
+      "loadByCPUMs": 174622.5,
+      "loadByIOWaitMs": 14622.1,
+      "lockWaitMs": 3120.4
+    },
+    {
+      "tagHash": "3761097502d5b815875d42a7ff8e0a532451400b212d5d42dc862966aa1b4bda",
+      "application": "gateway",
+      "database": "gateway",
+      "user": "gateway",
+      "loadByTotalTime": 88.7,
+      "pctLoadByQueries": 88.7,
+      "avgExecTimeMs": 8.1,
+      "totalExecTimeMs": 112110.5,
+      "avgRowsReturned": 14,
+      "timesCalled": 13914,
+      "loadByCPUMs": 104485.5,
+      "loadByIOWaitMs": 7625,
+      "lockWaitMs": 198.2
+    },
+    {
+      "tagHash": "27826ba5182963232f18580e3647e3c52fad072a513af3200addc47d6e02c4da",
+      "application": "cookbook",
+      "database": "cookbook",
+      "user": "cookbook",
+      "action": "recipe.list",
+      "route": "/api/recipes",
+      "loadByTotalTime": 64.1,
+      "pctLoadByQueries": 64.1,
+      "avgExecTimeMs": 323.2,
+      "totalExecTimeMs": 305120.8,
+      "avgRowsReturned": 1,
+      "timesCalled": 944,
+      "loadByCPUMs": 16420.7,
+      "loadByIOWaitMs": 288700.1,
+      "lockWaitMs": 4410.9
+    }
+  ],
+  "meta": {
+    "total": 3,
+    "truncated": false,
+    "generatedAt": "2026-11-20T09:12:00Z"
+  }
+}

@@ -27,9 +27,24 @@
  */
 
 import apiClustersJson from "../../../testdata/api/clusters.json";
+import apiQueryDetailJson from "../../../testdata/api/query-detail.json";
+import apiQueryPlansJson from "../../../testdata/api/query-plans.json";
+import apiQueriesJson from "../../../testdata/api/queries.json";
+import apiTagsJson from "../../../testdata/api/tags.json";
 
 import { emptyEnvelope, toFleetResponse, type RowExtras } from "./envelope";
-import type { ClusterMetrics, ClusterView, Envelope, Finding, FleetResponse, FleetRow } from "./types";
+import type {
+  ClusterMetrics,
+  ClusterView,
+  Envelope,
+  Finding,
+  FleetResponse,
+  FleetRow,
+  PlanSampleView,
+  QueryDetailView,
+  QueryView,
+  TagView,
+} from "./types";
 
 /** The drift check, in one line.
  *
@@ -39,6 +54,30 @@ import type { ClusterMetrics, ClusterView, Envelope, Finding, FleetResponse, Fle
  *  fixture and `make typecheck-web` fails — which is the R16.8 guarantee,
  *  enforced by the compiler instead of by review. */
 export const FIXTURE_ENVELOPE: Envelope<ClusterView> = apiClustersJson;
+
+/* The Phase 3 query fixtures, same rule as the cluster ones: the annotation is
+ * the drift check, so a json tag renamed in internal/api/dto/queries.go without
+ * regenerating the fixture is a compile error here. R16.8 wants a fixture per
+ * endpoint and Phase 3 serves four from that file, so there are four files and
+ * four exports — `queries.json` is the name clusters_test.go pre-announces, the
+ * other three are named after the routes that serve them. */
+
+/** GET /api/v1/insights/queries — the R3.2 table, R9.5's top-N page. */
+export const FIXTURE_QUERIES: Envelope<QueryView> = apiQueriesJson;
+
+/** GET /api/v1/insights/queries/{fingerprint} — R10.7's detail payload. Not an
+ *  envelope: the detail endpoint returns one object, so this mirrors the dto's
+ *  `QueryDetailView` directly rather than `Envelope<…>`. */
+export const FIXTURE_QUERY_DETAIL: QueryDetailView = apiQueryDetailJson;
+
+/** GET /api/v1/insights/queries/{fingerprint}/plans — R3.10's two states: one
+ *  `available` sample with its plan JSON, one
+ *  `unavailable (insufficient table privileges)` with a message and no plan. */
+export const FIXTURE_QUERY_PLANS: Envelope<PlanSampleView> = apiQueryPlansJson;
+
+/** GET /api/v1/insights/tags — R3.12's dimensions with R3.7's rollup. Three
+ *  tags: a full comment, no comment at all, and a partial one. */
+export const FIXTURE_TAGS: Envelope<TagView> = apiTagsJson;
 
 /** Now read from the contract instead of being a second copy of it. The old
  *  value ("2026-11-20T11:04:12Z") was invented here; the contract's is
