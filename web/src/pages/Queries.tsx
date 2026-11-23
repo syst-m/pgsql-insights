@@ -3,11 +3,10 @@
  * R10.6's sentence names five things and this file owns three of them: the
  * table (which is `components/QueryTable.tsx`, its own file and its own test),
  * the **filter chips**, and the **search over normalized text**. The fourth,
- * the per-row sparkline, arrives with `Sparkline` — it reads R8.11's
+ * the per-row sparkline, is `Sparkline` — it reads R8.11's
  * `/insights/queries/series`, the same path as R10.7's detail chart, so the two
- * ship in one change and the column joins `QUERY_COLUMNS` there rather than
- * being advertised here with no renderer. The fifth, the saved-view concept, is
- * below.
+ * shipped in one change and the column is in `QUERY_COLUMNS` here. The fifth,
+ * the saved-view concept, is below.
  *
  * ── the three chips, and why only one is here ──────────────────────────────
  *
@@ -58,7 +57,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { toQueriesResponse } from "../api/envelope";
 import { FIXTURE_QUERIES } from "../api/fixtures";
-import type { QueryResponse, QueryView } from "../api/types";
+import type { QueryResponse, QuerySeries, QueryView } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
 import type { SortDir, SortKey, TimeRange, UrlState } from "../state/urlState";
 import { formatTimestamp } from "../lib/format";
@@ -189,6 +188,18 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
    *  absent-means-unknown, so `routes.ts` mounting this component with plain
    *  `PageProps<any>` needs no change to pass. */
   extensionInstalled?: boolean;
+  /** R8.11's batched series for the table's `Load sparkline` column, keyed by
+   *  fingerprint.
+   *
+   *  A prop, not a fetch, for the same reason `extensionInstalled` is one:
+   *  `client.ts` has no `fetchQuerySeries` yet (the standing ask on A4), and
+   *  inventing a local fetcher would duplicate the one A4's file owns. Once
+   *  `useQueries` returns the series alongside the rows, this becomes
+   *  `queries.series` and the prop's only consumer is the `<QueryTable>` call
+   *  below. Optional and partial by nature — R8.11's batch endpoint returns one
+   *  entry per query that has data, so a 50-row page with 37 series is normal
+   *  and the 13 rows without one render `—`. */
+  series?: Record<string, QuerySeries>;
 }
 
 export function QueriesPage(props: QueriesPageProps) {
@@ -281,6 +292,7 @@ export function QueriesPage(props: QueriesPageProps) {
         <QueryTable
           rows={rows}
           columns={columns.visible}
+          series={props.series}
           sort={sort}
           dir={state.dir}
           onSort={(key) => patch({ sort: key, dir: nextDir(sort, state.dir, key) })}

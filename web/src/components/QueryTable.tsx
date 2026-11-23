@@ -4,9 +4,10 @@
  * R3.2 table with sparklines per row (served by R8.11's batched endpoint, not 50
  * requests), inline load bars, filter chips (database, user, tag), search over
  * normalized text, and a saved-view concept". This file is the table; the chips
- * and the search are the page's (`pages/Queries.tsx`), and the sparkline column
- * arrives with `Sparkline` (it is the same data path as R10.7's detail chart, so
- * the two are built together — see the note on QUERY_COLUMNS).
+ * and the search are the page's (`pages/Queries.tsx`). The sparkline column is
+ * `Sparkline` — the same data path as R10.7's detail chart, both reading R8.11's
+ * batched `/insights/queries/series`, which is why R10.6's one extra column
+ * landed with the Detail page rather than on its own (see QUERY_COLUMNS).
  *
  * VirtualList's header says a `<table>` cannot be windowed the way a `<div>` list
  * can: the rows have to stay inside `<tbody>`, so the caller needs the indices
@@ -18,8 +19,10 @@
  * ── columns ────────────────────────────────────────────────────────────────
  *
  * `QUERY_COLUMNS` is R3.2's thirteen (requirements.md:306), in R3.2's order and
- * with R3.2's names, and it is the same list `ColumnMenu`'s `DEFAULTS.queries`
- * documents — the two are one fact and `ColumnMenu.test.tsx` asserts it. The
+ * with R3.2's names, plus R10.6's fourteenth (the per-row sparkline) appended
+ * last so the thirteen keep the order §9's 6b acceptance asserts. It is the same
+ * list `ColumnMenu`'s `DEFAULTS.queries` documents — the two are one fact and
+ * `ColumnMenu.test.tsx` asserts it. The
  * keys are the DTO's json tags wherever the column has a field
  * (`loadByTotalTime`, `avgExecTimeMs`, …); the two columns R3.2 withholds a
  * per-query value for have no field to name, so they are named after the column
@@ -30,6 +33,9 @@
  * header a button: a sort control on a column that always renders
  * `n/a (no per-query source, §5)` is a control that cannot do anything, and R10.6's
  * "sorting must be by any column" means any column with a value to sort on.
+ * The sparkline is a third non-sortable column for a different reason: it has no
+ * scalar to sort on — its content is a shape — and R8.10's `?sort=` vocabulary
+ * names the DTO's columns, not a chart.
  *
  * ── the load bars, and what each bar is a fraction of ──────────────────────
  *
@@ -62,7 +68,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { buildPath } from "../routes";
 import type { SortDir } from "../state/urlState";
-import type { QueryView } from "../api/types";
+import type { QuerySeries, QueryView } from "../api/types";
 import { ROW_HEIGHT, useVirtualWindow, type Density } from "./VirtualList";
 import {
   ANALYZE_LATENCY_GAP,
@@ -71,7 +77,12 @@ import {
   LoadSourcePending,
   type LoadCellProps,
 } from "./LoadBars";
-import { formatDurationMs, formatNumber, formatPercent } from "../lib/format";
+import { NULL_VALUE, formatDurationMs, formatNumber, formatPercent } from "../lib/format";
+// `formatSec` is the one place a series second becomes the millisecond the shared
+// formatters expect (R9.5's units rule), and it lives with the other consumer of
+// series data rather than being re-derived per call site.
+import { formatSec } from "./QueryLoadChart";
+import { Sparkline } from "./Sparkline";
 
 /** The eleven columns that have a value to sort on. R10.6: "Sorting must be by
  *  any column with server-side pagination (R8.10)" — the ordering itself is the
@@ -90,9 +101,11 @@ export type QuerySortKey =
   | "loadByCPUMs"
   | "loadByIOWaitMs";
 
-/** Every column key, including the two R3.2 columns with no per-query value and
- *  therefore no sort. `ColumnDef.key` and `DEFAULTS.queries` use this union. */
-export type QueryColumnKey = QuerySortKey | "loadByLockWait" | "analyzeLatency";
+/** Every column key: the eleven sortable ones, the two R3.2 columns with no
+ *  per-query value and therefore no sort, and R10.6's `sparkline` — which is in
+ *  the union because `ColumnDef.key` and `DEFAULTS.queries` need to be able to
+ *  name it, and not in `QuerySortKey` because a chart has no value to sort on. */
+export type QueryColumnKey = QuerySortKey | "loadByLockWait" | "analyzeLatency" | "sparkline";
 
 export interface QueryColumn {
   key: QueryColumnKey;
@@ -115,14 +128,20 @@ export interface QueryColumn {
   required?: boolean;
 }
 
-/** R3.2's column set, in R3.2's order.
+/** R3.2's thirteen columns, in R3.2's order, plus R10.6's fourteenth.
  *
- *  R10.6 adds one more column — the per-row sparkline — that R3.2 does not name,
- *  and it is not here yet. `Sparkline` is the same data path as R10.7's detail
- *  chart (both read R8.11's `/insights/queries/series`, whose batch-of-one
- *  rationale queries.go:235 spells out), so the two ship together and the key
- *  joins this list and `DEFAULTS.queries` in that change rather than being
- *  advertised here as a column with no renderer.
+ *  R10.6 names the sparkline in the same sentence as the table itself ("the R3.2
+ *  table with sparklines per row, served by R8.11's batched endpoint, not 50
+ *  requests"), but R3.2's own list at requirements.md:306 does not have such a
+ *  column, so it is appended after the thirteen rather than inserted among them —
+ *  §9's 6b acceptance checks the thirteen's order, and an insertion in the middle
+ *  of that list fails it for a column the requirement never ordered.
+ *
+ *  It renders `Sparkline`, the same component and the same data path as R10.7's
+ *  detail chart: both read R8.11's `/insights/queries/series` (whose batch-of-one
+ *  rationale queries.go:235 spells out), which is why the two shipped in one
+ *  change. The data arrives through `QueryTableProps.series`, not the row —
+ *  `types.ts:575` documents why `QueryView` cannot inline it.
  */
 export const QUERY_COLUMNS: readonly QueryColumn[] = [
   { key: "query", label: "Query", sortable: true, required: true },
@@ -138,6 +157,9 @@ export const QUERY_COLUMNS: readonly QueryColumn[] = [
   { key: "loadByIOWaitMs", label: "Load by IO wait", numeric: true, sortable: true },
   { key: "loadByLockWait", label: "Load by lock wait", numeric: true, sortable: false },
   { key: "analyzeLatency", label: "Analyze latency", numeric: true, sortable: false },
+  // R10.6's addition, after R3.2's thirteen. Not `numeric`: the cell has no
+  // figure to right-align — the number is in the tooltip and the detail page.
+  { key: "sparkline", label: "Load sparkline", sortable: false },
 ];
 
 /** Narrow a column key to one the table can sort on. Exported so the page and
@@ -262,6 +284,15 @@ export interface QueryTableProps {
   /** The visible columns, in order (R10.20's persisted selection). Keys not in
    *  `QUERY_COLUMNS` are dropped, the same way `normalizeSelection` drops them. */
   columns?: readonly string[];
+  /** R8.11's batched series, keyed by fingerprint, for the `sparkline` column.
+   *
+   *  Keyed rather than a parallel array because R8.11's batch endpoint returns
+   *  the rows it has, not one per requested query (queries.go:235), so a page of
+   *  50 queries can legitimately get 37 series back and index arithmetic would
+   *  pair row 3 with series 3 the wrong way. Optional because only one column
+   *  needs it: a caller that has not fetched the series still renders thirteen
+   *  correct columns and one `—`. */
+  series?: Record<string, QuerySeries>;
   /** The sort the URL says (R10.6's "sorting must be by any column"). The page
    *  owns it; the table renders the header state and reports clicks. */
   sort: QuerySortKey;
@@ -283,6 +314,7 @@ const ALL_KEYS: readonly string[] = QUERY_COLUMNS.map((c) => c.key);
 export function QueryTable({
   rows,
   columns,
+  series,
   sort,
   dir,
   onSort,
@@ -378,7 +410,14 @@ export function QueryTable({
             </tr>
           )}
           {slice.map((row) => (
-            <QueryRow key={row.fingerprint} row={row} columns={visible} onOpen={onOpen} rowHeight={rowHeight} />
+            <QueryRow
+              key={row.fingerprint}
+              row={row}
+              columns={visible}
+              onOpen={onOpen}
+              rowHeight={rowHeight}
+              series={series?.[row.fingerprint]}
+            />
           ))}
           {win.padBottom > 0 && (
             <tr className="virtual-spacer" aria-hidden="true">
@@ -393,15 +432,22 @@ export function QueryTable({
 
 /** One cell of one row. Exported so the cell-by-cell rules — which column is a
  *  link, which is a bar, which is a plain number, which is the R7.1 pending
- *  marker — are assertable without rendering the table around them. */
+ *  marker, which is the sparkline — are assertable without rendering the table
+ *  around them. */
 export function QueryCell({
   row,
   col,
   onOpen,
+  series,
 }: {
   row: QueryView;
   col: QueryColumn;
   onOpen: (fingerprint: string) => void;
+  /** R8.11's series for this row's fingerprint, keyed by fingerprint upstream.
+   *  Only the `sparkline` column reads it; every other cell is a `QueryView`
+   *  field. Optional because the table renders correctly without it — the one
+   *  column that needs it degrades to `—`. */
+  series?: QuerySeries;
 }) {
   // The row's click-through target (R10.19): the row is the link, and LoadBars
   // deliberately renders no inner link so a row has exactly one behaviour.
@@ -441,6 +487,33 @@ export function QueryCell({
     );
   }
 
+  // R10.6's per-row sparkline. The values are not on the row — `types.ts:575`
+  // documents why `QueryView` cannot inline the series — so they arrive through
+  // the `series` prop, and a row whose series has not arrived renders `—` (the
+  // house's not-available marker) rather than an empty plot: R10.13 forbids a
+  // blank box with no explanation, and a flat line at zero would be a lie about
+  // the data. `executionTimeSeconds` is the plotted metric because that is what
+  // R3.2's "Avg execution time" column measures; the other three series metrics
+  // are R9.5's S25 set and belong to the detail chart, which shows all four.
+  if (col.key === "sparkline") {
+    return (
+      <td>
+        {series === undefined || series.points.length === 0 ? (
+          <span className="load-na secondary">{NULL_VALUE}</span>
+        ) : (
+          <Sparkline
+            values={series.points.map((p) => p.executionTimeSeconds)}
+            width={96}
+            height={20}
+            framed={false}
+            formatValue={formatSec}
+            label={`Execution time per minute for ${row.fingerprint}`}
+          />
+        )}
+      </td>
+    );
+  }
+
   const cell = loadCellFor(row, col.key);
   if (cell !== null) {
     return (
@@ -458,16 +531,20 @@ function QueryRow({
   columns,
   onOpen,
   rowHeight,
+  series,
 }: {
   row: QueryView;
   columns: readonly QueryColumn[];
   onOpen: (fingerprint: string) => void;
   rowHeight: number;
+  /** This row's series, already looked up by fingerprint. The row does the
+   *  lookup once so eleven cells don't each index the same record. */
+  series?: QuerySeries;
 }) {
   return (
     <tr style={{ height: rowHeight }}>
       {columns.map((col) => (
-        <QueryCell key={col.key} row={row} col={col} onOpen={onOpen} />
+        <QueryCell key={col.key} row={row} col={col} onOpen={onOpen} series={series} />
       ))}
     </tr>
   );

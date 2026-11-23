@@ -40,7 +40,10 @@ export interface ColumnDef {
  *  menu changes nothing for a table that accepts the default. Queries' set is
  *  the R3.2 column set (requirements.md:306) in R3.2's order and with R3.2's
  *  names — all thirteen, including the two R3.2 itself marks as having no
- *  per-query value.
+ *  per-query value — plus R10.6's `Load sparkline` last, which R3.2 does not
+ *  name and which is on by default for the same reason §9's sentence makes the
+ *  other two on: R10.6's own words are "the R3.2 table with sparklines per row",
+ *  so a default without it renders a table the requirement does not describe.
  *
  *  Those two are on by default *because* §9's 6b acceptance names them: "Queries
  *  page renders the R3.2 column set exactly (incl. `Load by lock wait` =
@@ -77,6 +80,7 @@ export const DEFAULTS: Record<string, readonly string[]> = {
     "loadByIOWaitMs",
     "loadByLockWait",
     "analyzeLatency",
+    "sparkline",
   ],
 };
 

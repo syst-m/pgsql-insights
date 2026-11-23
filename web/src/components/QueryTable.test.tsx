@@ -25,7 +25,7 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { FIXTURE_QUERIES } from "../api/fixtures";
-import type { QueryView } from "../api/types";
+import type { QuerySeries, QueryView } from "../api/types";
 import {
   QUERY_COLUMNS,
   QueryCell,
@@ -39,12 +39,52 @@ import {
 } from "./QueryTable";
 import { ANALYZE_LATENCY_GAP, LOCK_WAIT_NA } from "./LoadBars";
 import { ROW_HEIGHT } from "./VirtualList";
-import { formatDurationMs, formatNumber, formatPercent } from "../lib/format";
+import { NULL_VALUE, formatDurationMs, formatNumber, formatPercent } from "../lib/format";
 
 const rows = FIXTURE_QUERIES.data;
 const pg16 = rows.find((r) => r.pgMajor === 16 && !r.truncated) as QueryView;
 const pg17 = rows.find((r) => r.pgMajor === 17) as QueryView;
 const truncatedRow = rows.find((r) => r.truncated) as QueryView;
+
+/** R8.11's series for `pg16`, for the `Load sparkline` column.
+ *
+ *  Built inline because there is nothing to import: `testdata/api/` has no
+ *  query-series fixture (the R8.11 fixture is A4's to generate), and
+ *  `QueryDetailView` carries no `points` field — `types.ts:575` documents the
+ *  import cycle that keeps the series off the row — so the detail fixture cannot
+ *  supply it either. Same three points the Detail page's suite uses, so the two
+ *  suites plot the same series from the same numbers. */
+const SERIES: QuerySeries = {
+  fingerprint: pg16.fingerprint,
+  namespace: pg16.namespace,
+  cluster: pg16.cluster,
+  points: [
+    {
+      timestamp: "2026-11-20T09:11:00Z",
+      executionTimeSeconds: 1.8,
+      rows: 12,
+      sharedBlocksHit: 40,
+      sharedBlocksRead: 7,
+      lockTimeSeconds: 0.2,
+    },
+    {
+      timestamp: "2026-11-20T09:12:00Z",
+      executionTimeSeconds: 42.7,
+      rows: 981,
+      sharedBlocksHit: 2044,
+      sharedBlocksRead: 61,
+      lockTimeSeconds: 1.4,
+    },
+    {
+      timestamp: "2026-11-20T09:13:00Z",
+      executionTimeSeconds: 7.4,
+      rows: 88,
+      sharedBlocksHit: 310,
+      sharedBlocksRead: 12,
+      lockTimeSeconds: 0.1,
+    },
+  ],
+};
 
 /** `rows` with unique fingerprints, for the windowing test — the fixture's seven
  *  all fit in one viewport, so they can't show a window at all. */
@@ -60,9 +100,13 @@ function manyRows(n: number): QueryView[] {
 }
 
 describe("the R3.2 column set", () => {
-  it("is exactly R3.2's thirteen columns, in R3.2's order, with R3.2's names", () => {
-    // requirements.md:306. This is the §9 6b "renders the R3.2 column set
-    // exactly" assertion — the list, not a rendering of it.
+  it("is R3.2's thirteen columns in R3.2's order with R3.2's names, plus R10.6's sparkline last", () => {
+    // requirements.md:306 for the thirteen — the §9 6b "renders the R3.2 column
+    // set exactly" assertion, the list and not a rendering of it — and
+    // requirements.md:416 for the fourteenth. The order is the assertion: the
+    // thirteen must keep R3.2's order, so R10.6's column is appended after them
+    // rather than inserted among them, which is what lets this one test assert
+    // both requirements' wordings at once.
     expect(QUERY_COLUMNS.map((c) => c.key)).toEqual([
       "query",
       "database",
@@ -77,6 +121,7 @@ describe("the R3.2 column set", () => {
       "loadByIOWaitMs",
       "loadByLockWait",
       "analyzeLatency",
+      "sparkline",
     ]);
     expect(QUERY_COLUMNS.map((c) => c.label)).toEqual([
       "Query",
@@ -92,6 +137,7 @@ describe("the R3.2 column set", () => {
       "Load by IO wait",
       "Load by lock wait",
       "Analyze latency",
+      "Load sparkline",
     ]);
   });
 
@@ -100,23 +146,31 @@ describe("the R3.2 column set", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("makes exactly two columns non-sortable, and they are the two with no value", () => {
+  it("makes exactly three columns non-sortable, for two different reasons", () => {
     // R10.6's "sorting must be by any column" means any column with something to
     // sort on. A sort control on a cell that always renders the same literal is
-    // a control that cannot do anything.
+    // a control that cannot do anything — that's `loadByLockWait` and
+    // `analyzeLatency`. The sparkline is the third for the other reason: it has
+    // data, but no scalar to sort on, and R8.10's `?sort=` names the DTO's
+    // columns, not a chart. Both reasons end in the same flag, and this asserts
+    // that neither of them produced a fourth.
     expect(QUERY_COLUMNS.filter((c) => !c.sortable).map((c) => c.key)).toEqual([
       "loadByLockWait",
       "analyzeLatency",
+      "sparkline",
     ]);
   });
 
-  it("marks every numeric column numeric, and only the three text ones not", () => {
+  it("marks every numeric column numeric, and only the four non-figure ones not", () => {
     // Right-align + tabular figures is a per-column fact the table must not
-    // re-derive from the key's shape.
+    // re-derive from the key's shape. The sparkline is not numeric even though
+    // it is drawn from a number: the cell has no figure to align, and marking it
+    // numeric would right-align an empty `td` around a fixed-width svg.
     expect(QUERY_COLUMNS.filter((c) => !c.numeric).map((c) => c.key)).toEqual([
       "query",
       "database",
       "recommendations",
+      "sparkline",
     ]);
   });
 });
@@ -128,9 +182,13 @@ describe("isQuerySortKey", () => {
     }
   });
 
-  it("rejects the two columns with no value", () => {
+  it("rejects the three non-sortable columns", () => {
     expect(isQuerySortKey("loadByLockWait")).toBe(false);
     expect(isQuerySortKey("analyzeLatency")).toBe(false);
+    // R10.6's sparkline is in `QueryColumnKey` (the menu must be able to name it)
+    // and not in `QuerySortKey` (a chart is not a sort value), so a URL carrying
+    // `?sort=sparkline` is rejected here instead of reaching R8.10's `sort=`.
+    expect(isQuerySortKey("sparkline")).toBe(false);
   });
 
   it("rejects a fleet sort key, which is a different page's vocabulary", () => {
@@ -330,6 +388,47 @@ describe("QueryCell", () => {
     expect(container.querySelector("a")).toBeNull();
     expect(container.querySelector(".load-fill")).not.toBeNull();
   });
+
+  it("the sparkline cell plots the row's series and carries no figure", () => {
+    // R10.6's fourteenth column. The assertion worth making is the one a
+    // screenshot can't settle: the cell's numbers come from the *series* prop,
+    // not the row, so a cell wired to the wrong source still renders a line. The
+    // accessible name names the fingerprint, which is what ties this svg to this
+    // row, and the cell itself stays figure-free — the number is in the tooltip.
+    const { container } = render(
+      <QueryCell row={pg16} col={col("sparkline")} onOpen={onOpen} series={SERIES} />,
+    );
+    const svg = container.querySelector("td .sparkline-cell svg.sparkline");
+    expect(svg?.getAttribute("role")).toBe("img");
+    expect(svg?.getAttribute("aria-label")).toBe(`Execution time per minute for ${pg16.fingerprint}`);
+    // The framed variant's axes and y labels would crowd a 20px cell, so the
+    // cell variant is the bare line — and if it were framed, the cell would have
+    // text in it.
+    expect(container.querySelector(".spark-grid-group")).toBeNull();
+    expect(container.querySelector("td")?.textContent).toBe("");
+  });
+
+  it("the sparkline cell renders — when the row has no series, and for an empty one", () => {
+    // R8.11's batch endpoint answers with one entry per query that has data, so
+    // a row missing from the map is normal, not an error. R10.13 forbids a blank
+    // box with no explanation and a flat line at zero would be a lie about the
+    // data, so both the missing and the empty case render the house's
+    // not-available marker.
+    const missing = render(<QueryCell row={pg16} col={col("sparkline")} onOpen={onOpen} />);
+    expect(missing.container.querySelector("svg")).toBeNull();
+    expect(missing.container.querySelector("td .load-na")?.textContent).toBe(NULL_VALUE);
+
+    const empty = render(
+      <QueryCell
+        row={pg16}
+        col={col("sparkline")}
+        onOpen={onOpen}
+        series={{ ...SERIES, points: [] }}
+      />,
+    );
+    expect(empty.container.querySelector("svg")).toBeNull();
+    expect(empty.container.querySelector("td .load-na")?.textContent).toBe(NULL_VALUE);
+  });
 });
 
 describe("QueryTable rendering", () => {
@@ -345,22 +444,28 @@ describe("QueryTable rendering", () => {
     const { container } = render(<QueryTable {...base} rows={[pg16]} />);
     const table = container.querySelector("table.data") as HTMLElement;
     const head = within(table).getAllByRole("row")[0]!;
-    expect(within(head).getAllByRole("columnheader")).toHaveLength(13);
+    // `QUERY_COLUMNS.length`, not a literal: the literal is the column-set test's
+    // job (it asserts the exact thirteen-plus-one list). Here the assertion is
+    // one-th-per-column and one-td-per-column-per-row, which is a statement about
+    // the count, so it reads off the same array the table renders from.
+    expect(within(head).getAllByRole("columnheader")).toHaveLength(QUERY_COLUMNS.length);
 
     const body = container.querySelector("tbody")!;
     const dataRow = body.querySelector("tr:not(.virtual-spacer)") as HTMLElement;
-    expect(within(dataRow).getAllByRole("cell")).toHaveLength(13);
+    expect(within(dataRow).getAllByRole("cell")).toHaveLength(QUERY_COLUMNS.length);
   });
 
-  it("renders the two valueless headers as text and the eleven others as buttons", () => {
+  it("renders the three non-sortable headers as text and the eleven sortable ones as buttons", () => {
     // The e6ef285 class of bug (a header styled by a class rule that doesn't
     // exist) is avoided by construction here, and this asserts the other half:
-    // a non-sortable column has no button at all.
+    // a non-sortable column has no button at all — including the sparkline, whose
+    // header is a plain span for the reason in the column-set test.
     const { container } = render(<QueryTable {...base} rows={[pg16]} />);
     const head = within(container.querySelector("thead")!).getByRole("row");
     expect(within(head).getAllByRole("button")).toHaveLength(11);
     expect(within(head).getByText("Load by lock wait").tagName).toBe("SPAN");
     expect(within(head).getByText("Analyze latency").tagName).toBe("SPAN");
+    expect(within(head).getByText("Load sparkline").tagName).toBe("SPAN");
   });
 
   it("puts aria-sort on the active header only, and it matches dir", () => {
@@ -395,7 +500,7 @@ describe("QueryTable rendering", () => {
     const dataRows = body.querySelectorAll("tr:not(.virtual-spacer)");
     expect(dataRows).toHaveLength(39);
     const spacer = body.querySelector("tr.virtual-spacer") as HTMLElement;
-    expect(spacer.querySelector("td")?.getAttribute("colspan")).toBe("13");
+    expect(spacer.querySelector("td")?.getAttribute("colspan")).toBe(String(QUERY_COLUMNS.length));
     expect(spacer.querySelector("td")?.style.height).toBe(`${(200 - 39) * ROW_HEIGHT.compact}px`);
     // The rendered rows are the first 39, in order — the window, not a sample.
     expect(dataRows[0]!.textContent).toContain(many[0]!.query);
