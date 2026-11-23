@@ -411,6 +411,51 @@ def check_links(root, tracked):
                     label_bad.append((rel, n, text, path))
     return checked, broken, label_bad
 
+# ---------------------------------------------------------------------------
+# R14.8's status column: the closed enum, asserted.
+#
+# requirements.md R14.8 names the status values; before this check existed the
+# tables used twenty distinct spellings across 77 rows -- `satisfied (A4)`,
+# `implemented, **provisional, not validated**`, `contract validated in Phase 1a`,
+# `transferred to Phase 5`, `documented` -- which is why three agents quoted three
+# different numbers for Phase 4 and why the coordinator reported overall progress
+# to the user wrong twice. The enum was in the spec's prose, and prose is not a
+# gate: this is. Every requirement row's last cell must be `**<enum>**`, optionally
+# ` (A<n>)` for the R14.9 owner attribution, then ` -- <prose>`.
+#
+# split_row() at the top splits on every "|", which is wrong for a cell holding an
+# escaped pipe (`--auth=none\|token\|kube-rbac-proxy` in §3.7's R8.8 row): the
+# escape is exactly what makes that cell render as one cell, and a naive split turns
+# it into three. This check splits on unescaped pipes only.
+STATUS_ENUM = ("not-started", "in-progress", "implemented", "validated", "blocked", "tabled")
+STATUS_CELL_RE = re.compile(
+    r"^\*\*(" + "|".join(STATUS_ENUM) + r")(?: \((A[1-6])\))?\*\*(?: \u2014 .*)?$",
+    re.S)
+STATUS_ROW_ID_RE = re.compile(r"^R\d+\.\d+[a-z]?$")
+
+def split_row_esc(line):
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+
+def check_status_enum(root):
+    """Every R-id row in IMPLEMENTATION.md's R14.8 tables, and its status cell."""
+    rows, bad = 0, []
+    for n, line in enumerate(lines_of(root, "IMPLEMENTATION.md"), 1):
+        if not line.startswith("| ") or re.match(r"^\|[\s:|-]+\|$", line):
+            continue
+        cells = split_row_esc(line)
+        if not cells or not STATUS_ROW_ID_RE.match(cells[0]):
+            continue
+        rows += 1
+        if not STATUS_CELL_RE.match(cells[-1]):
+            bad.append((n, cells[0], cells[-1][:60]))
+    return rows, bad
+
+status_rows, status_bad = check_status_enum(root)
+print(f"status cells: {status_rows} requirement rows \u00b7 {len(status_bad)} non-canonical "
+      f"(enum: {'|'.join(STATUS_ENUM)})")
+for n, rid, cell in status_bad[:20]:
+    print(f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}")
+
 checked_links, links_bad, labels_bad = check_links(root, files_all)
 if not scanned_md:
     print("GUARD: link check scanned 0 markdown files — file discovery broke, not a pass")
@@ -424,5 +469,5 @@ for f, n, text, path in labels_bad[:20]:
           f"{path!r}")
 
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
-              or id_orphans or path_orphans or labels_bad) else 0)
+              or id_orphans or path_orphans or labels_bad or status_bad) else 0)
 
