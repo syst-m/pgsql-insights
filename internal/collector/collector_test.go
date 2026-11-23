@@ -5,7 +5,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/frankellis/pgsql-insights/internal/collector/pgversion"
 )
+
+// The compile-time half of the R2.1/R2.4 seam. collector.go declares
+// `type Applicability func(pgMajor int) bool` and its comment says the answer
+// comes from internal/collector/pgversion — the phase's second commit, which is
+// what let the framework compile before the matrix existed. This line is the
+// proof the answer fits the field: a signature change on either side now fails
+// to compile here rather than at the first collector that assigns it. It lives
+// in this package's test file because importing collector from pgversion's own
+// package would be an import cycle.
+var _ Applicability = pgversion.AppliesTo(pgversion.ViewStatWAL)
 
 // okDesc is the minimal valid Descriptor a test can register: the four R2.1
 // fields filled from §3.2/§3.3's vocabulary and nothing else.
