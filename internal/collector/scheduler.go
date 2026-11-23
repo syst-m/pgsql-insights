@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -78,6 +79,12 @@ type Scheduler struct {
 	stats *Stats
 	sink  Sink
 
+	// up is R9.12's pgsi_up tracker: one series per discovered instance, 1 when
+	// that instance's last round succeeded and 0 otherwise. It is not part of
+	// Stats — Stats' families are keyed (collector, cluster, namespace) and
+	// (collector), and R9.12's label set has no collector dimension. See up.go.
+	up *UpTracker
+
 	// mu guards clusters only. It is not the scheduler's main lock: the per-round
 	// state lives in the callers' pre-allocated slices (one writer per index), so
 	// a round does not serialise on a mutex while its goroutines run.
@@ -107,8 +114,23 @@ func NewScheduler(cfg Config, reg *Registry, log *slog.Logger, sink Sink, stats 
 		log:      log,
 		stats:    stats,
 		sink:     sink,
+		up:       NewUpTracker(),
 		clusters: map[string]chan struct{}{},
 	}
+}
+
+// Up returns the scheduler's R9.12 tracker, so the /metrics handler renders the
+// same tracker the collection loop writes rather than a snapshot of it.
+//
+// It is exported rather than kept private because the metric is only useful to a
+// caller outside the scheduler, and a nil receiver is tolerated: a Scheduler
+// built by a zero-value literal has no tracker, and Up() returns nil, and
+// (*UpTracker)(nil).Render is defined.
+func (s *Scheduler) Up() *UpTracker {
+	if s == nil {
+		return nil
+	}
+	return s.up
 }
 
 // targetSet is one target paired with the entries that may run against it.
@@ -191,6 +213,13 @@ type TargetReport struct {
 // is asserted from in the tests: a single round, measured, with no interval
 // bookkeeping in the way.
 func (s *Scheduler) RunOnce(ctx context.Context, targets []Target) RoundReport {
+	// R9.12's series set comes from discovery, not from collection: an instance
+	// that has been discovered but not yet collected must already export
+	// pgsi_up ... 0, because "0 otherwise" covers it. Track is idempotent, so
+	// calling it on every round costs a map probe per target and cannot reset an
+	// instance that already has a result.
+	s.up.Track(targets)
+
 	set := buildSet(targets, s.reg.Enabled())
 	reports := s.runSet(ctx, set)
 	return s.aggregate(len(targets), reports)
@@ -241,6 +270,10 @@ func (s *Scheduler) Run(ctx context.Context, targets func() []Target) error {
 
 		if len(due) > 0 {
 			tgs := targets()
+			// R9.12: the re-read target list is also the discovery refresh, so a
+			// pod that scaled in stops exporting a series and one that scaled out
+			// starts exporting a 0 before its first round finishes.
+			s.up.Track(tgs)
 			set := buildSet(tgs, due)
 			reports := s.runSet(ctx, set)
 			rr := s.aggregate(len(tgs), reports)
@@ -354,6 +387,20 @@ func (s *Scheduler) runTarget(ctx context.Context, tgt Target, entries []Entry) 
 			tr.MaxSkew = o.skew
 		}
 	}
+
+	// R9.12's observation is once per (target, round) and is derived from the
+	// finished report, not from any single runOne. runTarget fans out
+	// len(entries) goroutines, so an Observe inside runOne would let the
+	// exported value depend on which goroutine finished last: a target with
+	// twelve working collectors and one broken one would export pgsi_up 1
+	// whenever a healthy collector happened to win the race, which is the
+	// opposite of "our last collection round for that instance succeeded".
+	var upErr error
+	if tr.Errors > 0 {
+		upErr = fmt.Errorf("%d of %d collectors failed", tr.Errors, tr.Collectors)
+	}
+	s.up.Observe(tgt, upErr, s.cfg.Now())
+
 	return tr
 }
 
@@ -414,6 +461,20 @@ func (s *Scheduler) runOne(ctx context.Context, tgt Target, e Entry) roundOutcom
 		// path to get wrong.
 		return out
 	}
+
+	// R9.3's identity half is the scheduler's to fill — clock.go's Sample doc says
+	// so ("The scheduler fills the identity labels from the
+	// Target so a collector returns only the series-specific ones"), and until
+	// step 4 that sentence had no implementation behind it.
+	//
+	// It is applied here, on the success path, and not above the error branch,
+	// because that is where the samples are consumed. A failed round publishes
+	// nothing — that non-publish *is* R2.2's "a failed collector leaves its
+	// last-good data served and marks it with an age", so the sink keeps the
+	// *previous* round's samples, which were labelled when that round succeeded.
+	// Labelling the failed round's res.Samples would allocate a map per sample for
+	// the one field of that Result that anyone reads back (RoundTrips).
+	res.Samples = ApplyIdentityLabels(tgt, res.Samples)
 
 	// R13.11's check runs on the success path because it needs the sample set to
 	// compare; a failed round has no samples to carry timestamps.
