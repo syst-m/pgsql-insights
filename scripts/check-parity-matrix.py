@@ -532,15 +532,26 @@ for n, rid, cell in status_bad[:20]:
 # damage without turning this commit into a rewrite of prose it did not write. Entries are
 # (file, line): a fix deletes its line, and so does any edit that moves the row -- an exemption
 # that expires when the line moves re-reports the row instead of silently passing it, which is
-# the direction worth failing in. The nine §11 rows are missing a column outright (the Reviewer
-# cell absorbed the Scope cell's `-> docs/reviews/...` suffix), and IMPLEMENTATION.md:867's D12
-# row has three pipes whose role -- separator or text -- is a judgement, not a mechanical fix.
+# the direction worth failing in. The eight §11 rows at requirements.md:842-849 are missing a
+# column outright (the Reviewer cell absorbed the Scope cell's `-> docs/reviews/...` suffix);
+# :841, the ninth data row of that table, has five cells against its header's five and needs no
+# exemption -- the count here said nine until A5 measured it, which is the cost of writing a
+# number in a comment instead of deriving it from the set below. IMPLEMENTATION.md:867's D12
+# row is the ninth entry and a different defect: three pipes whose role -- separator or text --
+# is a judgement, not a mechanical fix.
 WIDTH_EXEMPT = {
     ("IMPLEMENTATION.md", 867),
     ("requirements.md", 842), ("requirements.md", 843), ("requirements.md", 844),
     ("requirements.md", 845), ("requirements.md", 846), ("requirements.md", 847),
     ("requirements.md", 848), ("requirements.md", 849),
 }
+# WIDTH_DOC is the whole scan set -- four named files, not "the docs" generally. The three
+# round-1 documents (docs/reviews/round-1-architecture.md, round-1-product.md and
+# v0.3.0-architecture-review.md) are deliberately excluded: they are point-in-time review
+# documents whose tables are prose-shaped the way the exempt §11 rows are, and their content
+# is frozen at the round they name. The gate's line reads as a statement about tables in
+# general and this tuple is the only thing that makes it not one, so the boundary lives here
+# rather than only in the message that shipped it.
 WIDTH_DOC = ("IMPLEMENTATION.md", "requirements.md",
              "docs/reviews/finding-index.md", "docs/agents.md")
 SEP_ROW_RE = re.compile(r"^\|[\s:|-]+\|$")
@@ -574,11 +585,98 @@ def check_table_widths(root):
                 i += 1
     return tables, rows, bad
 
+# ---------------------------------------------------------------------------
+# id-vs-cite: a requirement id written next to a `path:N` cite has to be the
+# requirement at line N. check_paths asserts a cited line exists (and, for a
+# markdown heading target, that it is that heading) -- never that the line is the
+# row the prose is talking about, so an off-by-one row cite is green. First run
+# found one: IMPLEMENTATION.md:729 read "`scripts/validate-env.sh` is R16.5
+# (`requirements.md:521`)" and :521 is R16.4's row; R16.5 is at :522. The check
+# ships with its own proof -- the tree one commit earlier makes it print 1 and
+# exit 1 -- which is the standard this file holds itself to: a checker that
+# cannot fail is a comment.
+IDCITE_RX = re.compile(
+    # "R16.5 (`requirements.md:521`)", "R9.8 (requirements.md:401)", and the prose
+    # forms "the R9.8 row at `requirements.md:401`" / "this R2.2 cell, in
+    # `requirements.md:330`" -- the gap is capped at one short connector so a random
+    # id and a random cite in the same sentence do not pair up.
+    r"(?<![\w.])(?P<id>R\d+\.\d+[a-z]?)"
+    r"(?:\s{0,2}|\s+(?:the|this|that|its)\s+(?:row|cell|entry|line|section|half|step|table|spec)\s+at\s+)"
+    r"(?:\()?"
+    r"(?:`(?P<p1>[\w./-]+\.md):(?P<n1>\d+)`"
+    r"|\((?P<p2>[\w./-]+\.md):(?P<n2>\d+)\))")
+IDCITE_ROW = re.compile(r"^\|\s*\*?\*?(R\d+\.\d+[a-z]?)\*?\*?\s*\|")
+
+def check_id_cites(root):
+    # (checked, bad) -- bad is a named id whose cited line is another requirement's
+    # row. Two forms, both needing a requirement-table row on the end to compare
+    # against (a .go/.yml line has no id column, so .md targets only):
+    #   1. adjacency -- "R16.5 (`requirements.md:521`)": the id written next to the
+    #      cite must be the requirement at that line.
+    #   2. table row -- a row whose first cell is an id (or "R9.2 / R9.3") may only
+    #      cite lines belonging to one of its own ids; this catches a row citing a
+    #      neighbouring requirement without naming it, which form 1 misses.
+    checked = 0
+    rows = 0
+    bad = []
+    cache = {}
+
+    def target(path):
+        if path not in cache:
+            cache[path] = lines_of(root, path)
+        return cache[path]
+
+    for rel in tracked_files(root):
+        if not rel.endswith(".md"):
+            continue
+        for i, line in enumerate(lines_of(root, rel), 1):
+            # form 1: id adjacent to a cite
+            for m in IDCITE_RX.finditer(line):
+                idc = m.group("id")
+                path = m.group("p1") or m.group("p2")
+                n = int(m.group("n1") or m.group("n2"))
+                checked += 1
+                tgt = target(path)
+                if n > len(tgt):
+                    continue  # out-of-bounds is check_paths' verdict, not ours
+                r = IDCITE_ROW.match(tgt[n - 1])
+                if r and r.group(1) != idc:
+                    bad.append((rel, i, idc, path, n, r.group(1)))
+            # form 2: a requirement row's own ids vs every .md cite in the row
+            if not line.startswith("|"):
+                continue
+            seen_pairs = {(rel, m.group("p1") or m.group("p2"),
+                           int(m.group("n1") or m.group("n2")))
+                          for m in IDCITE_RX.finditer(line)}
+            cells = split_row_esc(line)
+            if not cells or not re.match(r"^\*?\*?R\d+\.\d+[a-z]?\*?\*?$",
+                                         cells[0].strip()):
+                continue
+            own = set(re.findall(r"R\d+\.\d+[a-z]?", cells[0]))
+            rows += 1
+            for m in re.finditer(r"`([\w./-]+\.md):(\d+)`", line):
+                path, n = m.group(1), int(m.group(2))
+                if (rel, path, n) in seen_pairs:
+                    continue  # already counted by form 1
+                tgt = target(path)
+                if n > len(tgt):
+                    continue
+                r = IDCITE_ROW.match(tgt[n - 1])
+                if r and r.group(1) not in own:
+                    bad.append((rel, i, ",".join(sorted(own)), path, n, r.group(1)))
+    return checked, rows, bad
+
 width_tables, width_rows, width_bad = check_table_widths(root)
 print(f"table widths: {width_tables} tables \u00b7 {width_rows} rows \u00b7 "
       f"{len(width_bad)} mismatched \u00b7 {len(WIDTH_EXEMPT)} exempt")
 for rel, n, w, n2, first in width_bad[:20]:
     print(f"  {rel}:{n}: {n2} cells under a {w}-cell header -- first cell {first!r}")
+
+idc_checked, idc_rows, idc_bad = check_id_cites(root)
+print(f"id-vs-cite: {idc_checked} id+path:N adjacencies \u00b7 {idc_rows} requirement rows' "
+      f"own cites \u00b7 {len(idc_bad)} naming a different requirement's row")
+for rel, n, idc, path, ln, actual in idc_bad[:20]:
+    print(f"  {rel}:{n}: names {idc} but {path}:{ln} is {actual}'s row")
 
 # ---------------------------------------------------------------------------
 # §3's phase table and §1's milestone table: the phase-level status, derived.
@@ -846,5 +944,5 @@ for t in uncited_f[:20]:
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
-              or width_bad) else 0)
+              or width_bad or idc_bad) else 0)
 
