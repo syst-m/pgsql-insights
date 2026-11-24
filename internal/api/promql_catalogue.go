@@ -184,34 +184,48 @@ func DefaultCatalogue() *Catalogue {
 	// aggregates loop above wrote its one exception inline. The list is verified
 	// against collector.ExportedMetricNames() rather than against R5.2's prose,
 	// and it is the half of the answer the prose cannot give: R5.2 names 25
-	// families, the collector's naming table exports 18 of them by name, and
-	// these seven are the difference.
+	// families, the collector's naming table exports 20 of them by name, and
+	// these five are the difference.
 	//
 	// Where a name's absence has a reason in the file itself, it is here:
 	// db_tps is a rate Cloud SQL synthesises from xact_commit + xact_rollback
 	// (its own Description says so) and both counters are exported while the
 	// derived rate is not a family; the three cnpg_* rows exist on the pod as
-	// cnpg_* but not yet under the pgsi_ prefix R9.7's re-export requires. The
-	// other three (backends by state, by application_name, wal_size_bytes) are
-	// named by R5.2 and absent from the table with no further story worth
-	// inventing.
+	// cnpg_* but not yet under the pgsi_ prefix R9.7's re-export requires.
+	// wal_size_bytes is named by R5.2 and absent from the table with no further
+	// story worth inventing. Two rows that used to be here are gone rather than
+	// edited: 49b3210 shipped the pg_stat_activity collector, whose naming rows
+	// mint db_backends_by_state and db_backends_by_application_name, so both
+	// families now exist and their lines were deleted — which is what the
+	// paragraph below prescribes, and the reason the map is a list of exceptions
+	// instead of a bool that gets flipped in place.
 	//
 	// When Phase 2 ships one of these, the fix is to delete its line: the entry
 	// flips to implemented and no other entry changes, which is D13's bounded
 	// blast radius applied to the catalogue instead of to the rule set.
 	provisionalSystem := map[string]bool{
-		"pgsi_db_tps":                          true,
-		"pgsi_db_backends_by_state":            true,
-		"pgsi_db_backends_by_application_name": true,
-		"pgsi_wal_size_bytes":                  true,
-		"pgsi_pg_status":                       true,
-		"pgsi_pg_is_in_recovery":               true,
-		"pgsi_pg_replication_lag_seconds":      true,
+		"pgsi_db_tps":                     true,
+		"pgsi_wal_size_bytes":             true,
+		"pgsi_pg_status":                  true,
+		"pgsi_pg_is_in_recovery":          true,
+		"pgsi_pg_replication_lag_seconds": true,
 	}
 
 	// R9.7's system family = the full R5.2 set. R5.2 names the families; the
 	// names below are derived from R9.2's prefix plus postgres_exporter's
 	// vocabulary, and are provisional until Phase 2's MetricHub ships them.
+	//
+	// One name the collector exports is deliberately not a row here.
+	// pgsi_db_backends_by_wait_event is minted by the table (naming.go's
+	// pg_stat_activity rows, R4.3's wait-event rollup), but R5.2 has no
+	// wait-event family, so it fits neither category above: this list is R5.2's
+	// set, and provisionalSystem is "R5.2 names it, the table does not have it",
+	// which is the opposite of a name the table has and R5.2 does not name.
+	// Whether R4.3's rollup is a metric family or only the Wait Events page's
+	// payload is a gap in the spec rather than in this table, so it is A3's to
+	// rule on; until that ruling, the metric is documented by its naming row and
+	// not published as a system family. Adding the row later costs one entry and
+	// changes no other line.
 	systems := []struct{ name, metric, desc string }{
 		{"xact_commit", "pgsi_db_xact_commit_total", "R5.2 transactions: committed transactions per database."},
 		{"xact_rollback", "pgsi_db_xact_rollback_total", "R5.2 transactions: rolled-back transactions per database."},
