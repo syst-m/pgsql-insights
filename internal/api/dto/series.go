@@ -50,25 +50,30 @@ import "time"
 // describing a sibling file in prose no tool checks: the file moved, the
 // description did not, and nothing went red.
 //
-// float64 for all six because that is the type the R9.4 metric family carries
-// (a Prometheus sample value); a per-minute delta derived from a counter is not
-// necessarily integral even when the underlying count is. R8.3's ruling at
-// 7cecc49 makes two of the six `*float64` — lockTimeSeconds and ioTimeSeconds,
-// the two whose source can be absent — and the struct lines themselves
-// (`internal/api/dto/series.go:63`, `internal/api/dto/series.go:64`) are A1's
-// to flip; the document already says `nullable: true` on both.
+// float64 for the four that always have a value, because that is the type the R9.4
+// metric family carries (a Prometheus sample value); a per-minute delta derived
+// from a counter is not necessarily integral even when the underlying count is.
+// R8.3's ruling at 7cecc49 makes the two whose source can be absent —
+// LockTimeSeconds and IOTimeSeconds — `*float64`: the wire says "no value" with
+// `null`, not with a sentinel number, and the document says `nullable: true` on
+// both. The store's -1 lock-wait code is what the pointer is for —
+// internal/store/series.go's `point` now leaves the field nil rather than minting
+// a seconds value out of a code, which is also the end of the "-0.001 is the code
+// divided by a unit conversion" problem the field used to carry. IOTimeSeconds is
+// never nil in practice (its column is NOT NULL with no code, per the store's
+// seriesSQL doc), so its pointer is the contract's, not the data's.
 type QuerySeriesPoint struct {
 	// Timestamp is the start of the minute, RFC 3339 in UTC (R10.21: every
 	// timestamp the API emits is RFC 3339 UTC, and R8.4's meta.generatedAt is
 	// the same type for the same reason).
 	Timestamp time.Time `json:"timestamp"`
 
-	ExecutionTimeSeconds float64 `json:"executionTimeSeconds"`
-	Rows                 float64 `json:"rows"`
-	SharedBlocksHit      float64 `json:"sharedBlocksHit"`
-	SharedBlocksRead     float64 `json:"sharedBlocksRead"`
-	LockTimeSeconds      float64 `json:"lockTimeSeconds"`
-	IOTimeSeconds        float64 `json:"ioTimeSeconds"`
+	ExecutionTimeSeconds float64  `json:"executionTimeSeconds"`
+	Rows                 float64  `json:"rows"`
+	SharedBlocksHit      float64  `json:"sharedBlocksHit"`
+	SharedBlocksRead     float64  `json:"sharedBlocksRead"`
+	LockTimeSeconds      *float64 `json:"lockTimeSeconds"`
+	IOTimeSeconds        *float64 `json:"ioTimeSeconds"`
 }
 
 // QuerySeries is one requested fingerprint's answer.

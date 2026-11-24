@@ -72,6 +72,15 @@ func newSeriesServer(t *testing.T, src QuerySeriesSource) *Server {
 
 const testFingerprint = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
+// ptr returns the address of f, for the DTO's two *float64 fields (R8.3's nullable
+// pair): Go will not take the address of a literal, so a composite literal filling
+// LockTimeSeconds and IOTimeSeconds needs a value with an address.
+//
+// It is the same one-liner internal/store/statements_test.go has; that one is in
+// package store and so unreachable from here, and this package's only other helper of
+// the shape (queries_test.go's `fp`) returns a fingerprint string, not a pointer.
+func ptr(f float64) *float64 { return &f }
+
 func testPoint(t *testing.T) QuerySeriesPoint {
 	t.Helper()
 	return QuerySeriesPoint{
@@ -80,8 +89,8 @@ func testPoint(t *testing.T) QuerySeriesPoint {
 		Rows:                 1200,
 		SharedBlocksHit:      48200,
 		SharedBlocksRead:     12,
-		LockTimeSeconds:      0.0031,
-		IOTimeSeconds:        0.0412,
+		LockTimeSeconds:      ptr(0.0031),
+		IOTimeSeconds:        ptr(0.0412),
 	}
 }
 

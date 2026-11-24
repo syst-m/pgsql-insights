@@ -134,10 +134,16 @@ type seriesRow struct {
 
 // point converts the row to the DTO's point.
 //
-// The -1 sentinel is passed through as -1 rather than divided: -1 is a code, and
-// -0.001 is that code divided by a unit conversion, which no longer reads as the
-// code and is not a duration either. It is the one field on this path where the
-// conversion is skipped, and the reason the const above is named.
+// The -1 sentinel becomes nil, not -1 and not -0.001. R8.3's ruling at 7cecc49 —
+// implemented on the DTO by A1 — spells "no value" with `null`, so the code's whole
+// job here is to be recognised and dropped. The two prose encodings it replaces were
+// both wrong in the way the ruling names: -1 was a milliseconds value assigned
+// undivided to a seconds-typed field, and -0.001 was that code divided by a unit
+// conversion, which reads as a duration and is not one. A nil pointer is the answer
+// that does not have to be a number.
+//
+// IOTimeSeconds always gets a value: its column is NOT NULL with no code (see
+// seriesSQL's doc), so its pointer is the contract's nullable pair, not the data's.
 func (r seriesRow) point() dto.QuerySeriesPoint {
 	p := dto.QuerySeriesPoint{
 		Timestamp:            timeFromUnix(r.bucket),
@@ -145,15 +151,25 @@ func (r seriesRow) point() dto.QuerySeriesPoint {
 		Rows:                 r.rowsReturned,
 		SharedBlocksHit:      r.sharedHit,
 		SharedBlocksRead:     r.sharedRead,
-		IOTimeSeconds:        r.ioWaitMs / msPerSecond,
+		IOTimeSeconds:        fptr(r.ioWaitMs / msPerSecond),
 	}
-	if r.lockWaitMs == noLockWait {
-		p.LockTimeSeconds = noLockWait
-	} else {
-		p.LockTimeSeconds = r.lockWaitMs / msPerSecond
+	// Recognised before it is converted: a code is not a duration, so there is
+	// nothing to divide and the field stays nil.
+	if r.lockWaitMs != noLockWait {
+		p.LockTimeSeconds = fptr(r.lockWaitMs / msPerSecond)
 	}
 	return p
 }
+
+// fptr returns the address of f, for the DTO's two *float64 fields (R8.3's nullable
+// pair): Go will not take the address of a literal, so filling one from an
+// expression needs a value with an address.
+//
+// The store's test files already have this as `ptr` (statements_test.go). This one is
+// named `fptr` because a non-test declaration of `ptr` would collide with that test
+// file's — same package — and the non-test one is the half every caller can reach,
+// including the test files.
+func fptr(f float64) *float64 { return &f }
 
 // QuerySeries implements api.QuerySeriesSource: the points for every fingerprint in
 // q, one entry each.

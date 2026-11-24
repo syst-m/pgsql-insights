@@ -216,6 +216,16 @@ func equalFloats(a, b []float64) bool {
 // 0.1 ms does not fail on the last bit.
 func sameFloat(got, want float64) bool { return math.Abs(got-want) < 1e-9 }
 
+// sameFloatP is sameFloat for the DTO's two *float64 fields (R8.3's nullable pair).
+//
+// A nil pointer is never "the same float" as any want, so a field the store left nil
+// fails an assertion that expected a number instead of panicking on the deref — which
+// is the difference between a test that reports the sentinel and a test that crashes
+// on it.
+func sameFloatP(got *float64, want float64) bool {
+	return got != nil && math.Abs(*got-want) < 1e-9
+}
+
 // jsonHas and jsonLacks assert on an entry's JSON spelling, which is where the
 // omitempty rules live: `"points":[]` versus `"points":null`, and the absence of
 // pod/usename/queryid on a batch entry, are both invisible to a Go-side check.
@@ -417,7 +427,7 @@ func TestSeriesSumsAcrossPodsAndUsers(t *testing.T) {
 		if !sameFloat(p.ExecutionTimeSeconds, 0.18) {
 			t.Errorf("executionTimeSeconds = %v, want 0.18 (180 ms / 1000)", p.ExecutionTimeSeconds)
 		}
-		if !sameFloat(p.LockTimeSeconds, 0.1) {
+		if !sameFloatP(p.LockTimeSeconds, 0.1) {
 			t.Errorf("lockTimeSeconds = %v, want 0.1 (100 ms / 1000)", p.LockTimeSeconds)
 		}
 		if !sameFloat(p.Rows, 180) {
@@ -444,7 +454,7 @@ func TestSeriesSumsAcrossPodsAndUsers(t *testing.T) {
 			t.Errorf("db1 point = %v s / %v rows, want 0.12 s / 120 rows (db2's row must not be in the sum)",
 				p.ExecutionTimeSeconds, p.Rows)
 		}
-		if !sameFloat(p.SharedBlocksHit, 18) || !sameFloat(p.LockTimeSeconds, 0.06) {
+		if !sameFloat(p.SharedBlocksHit, 18) || !sameFloatP(p.LockTimeSeconds, 0.06) {
 			t.Errorf("db1 hit/lock = %v/%v, want 18/0.06", p.SharedBlocksHit, p.LockTimeSeconds)
 		}
 	})
@@ -478,7 +488,7 @@ func TestSeriesLockWaitPoisoning(t *testing.T) {
 
 	t.Run("two real rows sum", func(t *testing.T) {
 		p := entries[allReal].Points[0]
-		if !sameFloat(p.LockTimeSeconds, 0.03) {
+		if !sameFloatP(p.LockTimeSeconds, 0.03) {
 			t.Errorf("lockTimeSeconds = %v, want 0.03 (10 + 20 ms / 1000)", p.LockTimeSeconds)
 		}
 	})
@@ -489,8 +499,8 @@ func TestSeriesLockWaitPoisoning(t *testing.T) {
 	// and not a verdict on the row.
 	t.Run("one sentinel poisons the minute, not the point", func(t *testing.T) {
 		p := entries[poisoned].Points[0]
-		if p.LockTimeSeconds != noLockWait {
-			t.Errorf("lockTimeSeconds = %v, want -1 exactly (the naive SUM gives 0.004)", p.LockTimeSeconds)
+		if p.LockTimeSeconds != nil {
+			t.Errorf("lockTimeSeconds = %v, want null (R8.3: the -1 code leaves the store as null, not as a number; the naive SUM gives 0.004)", *p.LockTimeSeconds)
 		}
 		if !sameFloat(p.ExecutionTimeSeconds, 0.03) || !sameFloat(p.Rows, 30) {
 			t.Errorf("the other fields stopped summing: %v s / %v rows, want 0.03 s / 30 rows",
@@ -502,8 +512,8 @@ func TestSeriesLockWaitPoisoning(t *testing.T) {
 	// code divided by a unit conversion is no longer the code.
 	t.Run("the sentinel passes through undivided", func(t *testing.T) {
 		p := entries[allSentinel].Points[0]
-		if p.LockTimeSeconds != noLockWait {
-			t.Errorf("lockTimeSeconds = %v, want -1 exactly, not -0.001", p.LockTimeSeconds)
+		if p.LockTimeSeconds != nil {
+			t.Errorf("lockTimeSeconds = %v, want null, not -1 and not -0.001 (R8.3: the code leaves the store as null)", *p.LockTimeSeconds)
 		}
 	})
 }
@@ -535,7 +545,7 @@ func TestSeriesPointConversion(t *testing.T) {
 		if !sameFloat(p.ExecutionTimeSeconds, 1.5) {
 			t.Errorf("executionTimeSeconds = %v, want 1.5 (1500 ms / 1000)", p.ExecutionTimeSeconds)
 		}
-		if !sameFloat(p.LockTimeSeconds, 0.25) {
+		if !sameFloatP(p.LockTimeSeconds, 0.25) {
 			t.Errorf("lockTimeSeconds = %v, want 0.25 (250 ms / 1000)", p.LockTimeSeconds)
 		}
 		// The three counters pass through: dividing Rows is the bug the named
@@ -553,8 +563,8 @@ func TestSeriesPointConversion(t *testing.T) {
 			fingerprint: fpNamed("ab"), bucket: b,
 			totalExecMs: 1500, rowsReturned: 30, lockWaitMs: noLockWait,
 		}.point()
-		if p.LockTimeSeconds != noLockWait {
-			t.Errorf("lockTimeSeconds = %v, want -1 exactly, not -0.001", p.LockTimeSeconds)
+		if p.LockTimeSeconds != nil {
+			t.Errorf("lockTimeSeconds = %v, want null, not -1 and not -0.001 (R8.3: the code leaves the store as null)", *p.LockTimeSeconds)
 		}
 		if !sameFloat(p.ExecutionTimeSeconds, 1.5) {
 			t.Errorf("executionTimeSeconds = %v, want 1.5 — the sentinel is one field's problem", p.ExecutionTimeSeconds)
