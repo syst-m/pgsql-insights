@@ -10,7 +10,7 @@
 // copy that sentence existed to prevent, and R16.8 files a second copy of a
 // contract more often than this project files anything else.
 //
-// # The eight families, and which six render here
+// # The eight families, and where each one renders
 //
 // R9.8 names eight. IMPLEMENTATION.md §3.9's R9.8 row is the authority on the
 // count; this is the same accounting read from the package's side:
@@ -21,8 +21,8 @@
 //	here      pgsi_up{namespace,cluster,pod,instance_role}  R9.12  collector.UpTracker.Render
 //	here      pgsi_store_size_bytes               R13.5   StoreSize (store.go)
 //	here      pgsi_http_request_duration_seconds  R9.8    HTTPRequests.Render (http.go)
-//	pending   pgsi_scheduler_queue_depth          R2.9    needs the scheduler queue and its budget
-//	pending   pgsi_scheduler_shed_total           R2.9    needs the scheduler queue and its budget
+//	here      pgsi_scheduler_queue_depth          R2.9    collector.SchedulerMetrics.Render
+//	here      pgsi_scheduler_shed_total           R2.9    collector.SchedulerMetrics.Render
 //
 // One spelling note the two rows force. R9.8's list names this family
 // `pgsi_scrape_target_up{cluster,pod}`; R9.12's row — added later, per the
@@ -31,25 +31,29 @@
 // collector.UpTracker renders. The table follows the code and R9.12, the newer
 // of the two texts and the one the collector implements.
 //
-// The two pending families are not stubbed, and a stub is the wrong move here
-// for a reason the exposition format states rather than one this package
-// invents: a family with no series is absent, not a HELP/TYPE pair beside a
-// value the process never measured. collector.Stats.Render and
-// collector.UpTracker.Render both implement that rule on their nil receivers,
-// and `promtool check metrics` reports the empty-family shape the stub would
-// produce. Each pending family therefore lands in the commit that gives it a
+// No family here is stubbed, and a stub is the wrong move for a reason the
+// exposition format states rather than one this package invents: a family with
+// no series is absent, not a HELP/TYPE pair beside a value the process never
+// measured. collector.Stats.Render, collector.UpTracker.Render and
+// collector.SchedulerMetrics.Render each implement that rule on their nil
+// receivers, and `promtool check metrics` reports the empty-family shape the
+// stub would produce. Each family therefore lands in the commit that gives it a
 // value, and adding one costs one Hub field plus one line in Render — the
 // growth shape collector/metrics.go:44 documents as this package's contract:
 // "one exported function per family, returning a string, carrying its own
 // `# HELP` and `# TYPE` lines, so the hub is a strings.Builder over N calls
 // with no per-family special-casing".
 //
-// What is left pending is the scheduler pair, and both halves are blocked on the
-// subsystem rather than on a metric: they need R2.9's global budget with its shed
-// counter, which does not exist yet, so there is no queue depth to report and
-// nothing to increment. The two families that were blocked on something other
-// than the scheduler are now both rendered, and each one's blocker names what it
-// was. The HTTP duration family needed a renderer, and it is in http.go; the
+// The scheduler pair was the last of the eight to land, and it was blocked on the
+// subsystem rather than on a metric, in the same way the two rows above were:
+// R2.9's global budget with its shed counter had to exist before there was a
+// queue depth to report or anything to increment. collector.SchedulerMetrics is
+// that budget's observable half — the channel collections are admitted into and
+// the counter of what was refused — so the pair now renders from it, and the
+// sentence "needs the scheduler queue and its budget" that those two rows used to
+// carry is what the commit adding the type satisfied. The two families that were
+// blocked on something other than the scheduler are both rendered too, and each
+// one's blocker names what it was. The HTTP duration family needed a renderer, and it is in http.go; the
 // api-side middleware that feeds it was wired into Server.Handler by aee9046, so
 // a running process now has observations for it. Before that commit the renderer
 // existed with no caller and the family rendered absent — the same answer the
@@ -170,6 +174,19 @@ func WithStoreSize(src StoreSizer) Option {
 	return func(h *Hub) { h.store = src }
 }
 
+// WithScheduler adds R2.9's scheduler pair — pgsi_scheduler_queue_depth and
+// pgsi_scheduler_shed_total — as the collector package renders it
+// (collector/scheduler_metrics.go). It is an Option rather than a third
+// positional argument to New for the reason the Option type's own docblock
+// gives: New(collectors, up) shipped at 0f4b154 and every family since — R9.5's,
+// R9.8's HTTP one, R13.5's store-size one — arrived as an option so the
+// signature and internal/api's call sites stop moving. A nil *SchedulerMetrics
+// is legal and renders both families absent, which is SchedulerMetrics.Render's
+// own nil-receiver answer and not a check in this package.
+func WithScheduler(m *collector.SchedulerMetrics) Option {
+	return func(h *Hub) { h.scheduler = m }
+}
+
 // Hub composes the self-observability families one process can render (R9.8).
 //
 // It is a value over its sources, not a registry: every family arrives as a
@@ -209,6 +226,12 @@ type Hub struct {
 	// is handled by HTTPRequests.Render's own nil receiver rather than by a
 	// check here — the same way collectors and up are handled above.
 	http *HTTPRequests
+
+	// scheduler is R2.9's pair — pgsi_scheduler_queue_depth and
+	// pgsi_scheduler_shed_total — supplied through WithScheduler. It is a
+	// concrete collector-package type like collectors and up, so its nil case is
+	// SchedulerMetrics.Render's nil receiver, not a check here.
+	scheduler *collector.SchedulerMetrics
 }
 
 // New returns the hub over the given sources. Both are nil-safe —
@@ -287,6 +310,13 @@ func (h *Hub) RenderContext(ctx context.Context) string {
 	// on a nil receiver and returns "", which is this package's answer for a
 	// family with no series and the same shape the two collector sources get.
 	b.WriteString(h.http.Render(""))
+	// R2.9's scheduler pair. No nil check: SchedulerMetrics.Render is defined on
+	// a nil receiver and returns "", the same answer collectors and up and h.http
+	// give for a family with no series. The empty prefix is
+	// collector.DefaultPrefix, which is what h.up.Render("") passes for the same
+	// reason — R9.2's `metrics.prefix` is configurable and the renderer applies
+	// the default when the caller has no config to hand.
+	b.WriteString(h.scheduler.Render(""))
 	// The catalogue families are last, and they are last in the body as well as in
 	// the sentence above: 7a8e158 appended the HTTP render after this block rather
 	// than before it, which contradicted both this doc and

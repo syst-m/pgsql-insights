@@ -600,5 +600,14 @@ func (s *Server) metricsBody(ctx context.Context) string {
 	return metrics.New(s.metrics, s.cfg.Scheduler.Up(),
 		metrics.WithPerQuery(s.cfg.PerQueryMetrics),
 		metrics.WithHTTPRequests(s.cfg.HTTPMetrics),
-		metrics.WithStoreSize(s.cfg.StoreSize)).RenderContext(ctx)
+		metrics.WithStoreSize(s.cfg.StoreSize),
+		// R2.9's scheduler pair, from the scheduler itself rather than from a
+		// second queue the handler keeps: Scheduler.Metrics() is the third
+		// accessor beside Up() and Stats(), and it exists for the reason they do
+		// — the field is unexported, the families are not, and a caller that
+		// builds a Scheduler has no other way to name what the loop writes. It is
+		// nil-safe on a nil *Scheduler and its Render is nil-safe on a nil
+		// *SchedulerMetrics, so this needs no guard where cfg.Scheduler's own
+		// nil-ness is already handled by Up() one line above.
+		metrics.WithScheduler(s.cfg.Scheduler.Metrics())).RenderContext(ctx)
 }
