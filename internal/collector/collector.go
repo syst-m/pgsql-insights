@@ -57,6 +57,22 @@ const DefaultTimeout = 10 * time.Second
 // instances where max_connections is commonly 100.
 const DefaultPerClusterConcurrency = 4
 
+// DefaultMaxConcurrentSQL, DefaultMaxConcurrentHTTPScrapes and
+// DefaultSchedulerQueueDepth are R2.9's three defaults, quoted from the
+// requirement's own parenthetical: "--max-concurrent-sql (default 32),
+// --max-concurrent-http-scrapes (default 64) and a shed policy ...
+// --scheduler-queue-depth (default 512)". They sit beside
+// DefaultPerClusterConcurrency because the four numbers are one table of
+// concurrency limits — one per cluster (R2.1) and three global (R2.9) — and a
+// reader checking the two requirements' arithmetic needs them in one place to
+// see that 32 SQL + 64 HTTP global slots is what bounds the ~200 concurrent
+// queries that R2.1's per-cluster cap of 4 alone would let 50 clusters produce.
+const (
+	DefaultMaxConcurrentSQL         = 32
+	DefaultMaxConcurrentHTTPScrapes = 64
+	DefaultSchedulerQueueDepth      = 512
+)
+
 // SourceID names one of the ten data sources §3.2 ranks by cost and by
 // always-available-ness. R2.1 requires every collector to declare which one it
 // needs, so the set is enumerated here from §3.2's table rather than invented:
@@ -100,6 +116,63 @@ const (
 	// live when --log-source is enabled (R5.10).
 	SourcePodLogs SourceID = "S10"
 )
+
+// Class names which of R2.9's two global budgets a source draws from.
+//
+// R2.9 names two caps and §3.2 names ten sources, and the requirement never
+// draws the line between them, so the mapping is a decision. It is made here,
+// beside the vocabulary it maps from, rather than in a switch inside the
+// scheduler where every reader would have to reconstruct it: the two SQL sources
+// are named explicitly and the other eight fall through to HTTP.
+//
+// The line is the one R2.9's own justification draws. The SQL cap exists because
+// "50 clusters × 13 collectors fans out to ~200 concurrent SQL queries with no
+// global cap, against Postgres instances where max_connections is commonly 100"
+// — so the class is *sources that open a Postgres connection*, which is S2
+// (direct SQL on :5432) and S6 (pgbouncer's console on 5432, whose SHOW
+// POOLS/CLIENTS/STATS are Postgres-wire queries like any other and take a
+// connection slot on the pooler). Everything else — the informer cache S1, the
+// exposition scrapes S3, S4, S5, S7 and S9, the kubectl exec S8, the log
+// subresource S10 — costs a socket rather than a connection slot and is charged
+// to the HTTP budget, which is why that number is twice the SQL one. An
+// eleventh source in §3.2 gets the HTTP class by default, and that default is
+// stated here rather than implied by a missing case.
+type Class int
+
+const (
+	// ClassSQL is R2.9's --max-concurrent-sql budget (default 32): S2 and S6.
+	ClassSQL Class = iota
+	// ClassHTTP is R2.9's --max-concurrent-http-scrapes budget (default 64):
+	// the other eight sources.
+	ClassHTTP
+)
+
+// String names the class for a log line or a test failure, so a scheduler log
+// says "sql" rather than "0".
+func (c Class) String() string {
+	switch c {
+	case ClassSQL:
+		return "sql"
+	case ClassHTTP:
+		return "http"
+	}
+	return "unknown"
+}
+
+// Class returns the budget a collector declaring src draws from.
+//
+// The two SQL sources are named explicitly and the rest fall to default, so
+// ValidSource's closed set and this mapping cannot drift apart silently: a
+// SourceID that ValidSource rejects still gets a class here (HTTP), which is the
+// safe direction, because an unregistered source cannot be a Postgres query.
+func (src SourceID) Class() Class {
+	switch src {
+	case SourceSQL, SourcePoolerRuntime:
+		return ClassSQL
+	default:
+		return ClassHTTP
+	}
+}
 
 // ValidSource reports whether id is one of §3.2's ten. R2.1's declaration is
 // only checkable if the source vocabulary is closed, so an unknown value is a

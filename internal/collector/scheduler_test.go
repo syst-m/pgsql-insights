@@ -380,28 +380,41 @@ func TestPerClusterConcurrencyCapTwoClusters(t *testing.T) {
 
 // assertCap runs one round over targets with nCols collectors each and checks the
 // peak number of Collect calls in flight is at most wantMax and at least 2.
-func assertCap(t *testing.T, wantMax int, targets []Target, nCols int) {
+// blockingFake returns a Collector named name from source src that counts itself
+// in cur — and in peak, the high-water mark — for 15 ms. The sleep is what makes
+// the peak measurable: a collector that returns immediately lets a cap-2
+// scheduler finish one call before the next one starts, so the fixture reports 1
+// and the test cannot tell a cap of 2 from a serial loop.
+func blockingFake(name string, src SourceID, cur, peak *int32) Collector {
+	return fakeCollector{
+		desc: Descriptor{Name: name, Interval: DefaultInterval, Source: src, Cost: CostStandard},
+		fn: func(context.Context, Target) (Result, error) {
+			n := atomic.AddInt32(cur, 1)
+			for {
+				m := atomic.LoadInt32(peak)
+				if n <= m || atomic.CompareAndSwapInt32(peak, m, n) {
+					break
+				}
+			}
+			time.Sleep(15 * time.Millisecond)
+			atomic.AddInt32(cur, -1)
+			return Result{}, nil
+		},
+	}
+}
+
+// assertPeak runs one round over targets with nCols S2 collectors each and checks
+// the peak number of Collect calls in flight is at most wantMax and at least 2.
+func assertPeak(t *testing.T, cfg Config, wantMax int, targets []Target, nCols int) {
 	t.Helper()
 
 	var cur, peak int32
 	cols := make([]Collector, 0, nCols)
 	for i := 0; i < nCols; i++ {
-		name := colName(i)
-		cols = append(cols, fakeCollector{desc: okDesc(name), fn: func(context.Context, Target) (Result, error) {
-			n := atomic.AddInt32(&cur, 1)
-			for {
-				m := atomic.LoadInt32(&peak)
-				if n <= m || atomic.CompareAndSwapInt32(&peak, m, n) {
-					break
-				}
-			}
-			time.Sleep(15 * time.Millisecond)
-			atomic.AddInt32(&cur, -1)
-			return Result{}, nil
-		}})
+		cols = append(cols, blockingFake(colName(i), SourceSQL, &cur, &peak))
 	}
 
-	s := NewScheduler(Config{PerClusterConcurrency: 4}, mustRegistry(t, cols...), nil, nil, nil)
+	s := NewScheduler(cfg, mustRegistry(t, cols...), nil, nil, nil)
 	s.RunOnce(context.Background(), targets)
 
 	got := int(atomic.LoadInt32(&peak))
@@ -411,6 +424,14 @@ func assertCap(t *testing.T, wantMax int, targets []Target, nCols int) {
 	if got < 2 {
 		t.Errorf("peak concurrent collectors = %d, want > 1 (a serial scheduler passes the <= test by accident)", got)
 	}
+}
+
+// assertCap is assertPeak with R2.1's per-cluster cap as the only knob, which is
+// all the three pre-R2.9 tests configured. R2.9's caps need the Config itself
+// exposed, so the measurement moved to assertPeak and this kept its signature.
+func assertCap(t *testing.T, wantMax int, targets []Target, nCols int) {
+	t.Helper()
+	assertPeak(t, Config{PerClusterConcurrency: 4}, wantMax, targets, nCols)
 }
 
 func TestPerCollectorTimeoutApplied(t *testing.T) {
@@ -506,21 +527,57 @@ func TestConfigDefaults(t *testing.T) {
 	if c.DefaultTimeout != DefaultTimeout {
 		t.Errorf("DefaultTimeout = %s, want %s", c.DefaultTimeout, DefaultTimeout)
 	}
+	// R2.9's three budgets. The requirement names 32, 64 and 512 in prose, so the
+	// constants are spec text and this is the only place a typo in one of them —
+	// or a withDefaults clause that forgets one — is caught.
+	if c.MaxConcurrentSQL != DefaultMaxConcurrentSQL {
+		t.Errorf("MaxConcurrentSQL = %d, want %d", c.MaxConcurrentSQL, DefaultMaxConcurrentSQL)
+	}
+	if c.MaxConcurrentHTTPScrapes != DefaultMaxConcurrentHTTPScrapes {
+		t.Errorf("MaxConcurrentHTTPScrapes = %d, want %d", c.MaxConcurrentHTTPScrapes, DefaultMaxConcurrentHTTPScrapes)
+	}
+	if c.SchedulerQueueDepth != DefaultSchedulerQueueDepth {
+		t.Errorf("SchedulerQueueDepth = %d, want %d", c.SchedulerQueueDepth, DefaultSchedulerQueueDepth)
+	}
 	if c.Now == nil {
 		t.Fatal("Now = nil after withDefaults")
 	}
-	set := Config{PerClusterConcurrency: 9, DefaultTimeout: time.Minute, Now: func() time.Time { return time.Unix(1, 0) }}.withDefaults()
+	set := Config{
+		PerClusterConcurrency:    9,
+		DefaultTimeout:           time.Minute,
+		MaxConcurrentSQL:         5,
+		MaxConcurrentHTTPScrapes: 7,
+		SchedulerQueueDepth:      11,
+		Now:                      func() time.Time { return time.Unix(1, 0) },
+	}.withDefaults()
 	if set.PerClusterConcurrency != 9 || set.DefaultTimeout != time.Minute {
 		t.Errorf("explicit values were overwritten: %+v", set)
+	}
+	if set.MaxConcurrentSQL != 5 || set.MaxConcurrentHTTPScrapes != 7 || set.SchedulerQueueDepth != 11 {
+		t.Errorf("explicit R2.9 values were overwritten: %+v", set)
 	}
 	if !set.Now().Equal(time.Unix(1, 0)) {
 		t.Error("an injected Now must survive withDefaults")
 	}
 	// A negative value is not "unset" in any useful sense; it must fall back
-	// rather than become a zero-capacity channel that deadlocks every round.
-	neg := Config{PerClusterConcurrency: -3, DefaultTimeout: -1}.withDefaults()
+	// rather than become a zero-capacity channel that deadlocks every round. R2.9's
+	// three are the same hazard in a louder shape: makechan panics outright on a
+	// negative capacity, so `--max-concurrent-sql -1` would crash the binary at
+	// NewScheduler rather than fail a round.
+	neg := Config{
+		PerClusterConcurrency:    -3,
+		DefaultTimeout:           -1,
+		MaxConcurrentSQL:         -1,
+		MaxConcurrentHTTPScrapes: -2,
+		SchedulerQueueDepth:      -3,
+	}.withDefaults()
 	if neg.PerClusterConcurrency != DefaultPerClusterConcurrency || neg.DefaultTimeout != DefaultTimeout {
 		t.Errorf("negative values = %+v, want the defaults", neg)
+	}
+	if neg.MaxConcurrentSQL != DefaultMaxConcurrentSQL ||
+		neg.MaxConcurrentHTTPScrapes != DefaultMaxConcurrentHTTPScrapes ||
+		neg.SchedulerQueueDepth != DefaultSchedulerQueueDepth {
+		t.Errorf("negative R2.9 values = %+v, want the defaults", neg)
 	}
 }
 
@@ -681,5 +738,177 @@ func TestSchedulerStats(t *testing.T) {
 	// than the api.New default being chosen for it.
 	if NewScheduler(Config{}, mustRegistry(t), nil, NewMemSink(0), nil).Stats() == nil {
 		t.Error("NewScheduler(..., nil).Stats() = nil, want the NewStats() the constructor substituted")
+	}
+}
+
+// TestGlobalClassCaps is R2.9's premise in code: "R2.1 bounds concurrency per
+// cluster only; 50 clusters x 13 collectors fans out to ~200 concurrent SQL
+// queries with no global cap". The first three sub-cases vary only
+// --max-concurrent-sql over one fixture, so the peak that follows is attributable
+// to the flag and not to the shape of the registry — the property the pre-R2.9
+// tests cannot show, because for them the per-cluster cap is the only number that
+// can move.
+func TestGlobalClassCaps(t *testing.T) {
+	twoClusters := []Target{tgtPG("pg", "pg-1", "primary"), tgtPG("other", "other-1", "primary")}
+
+	for _, tc := range []struct {
+		name    string
+		sqlCap  int
+		wantMax int
+	}{
+		// The global cap below the per-cluster product: two clusters with four
+		// slots each would allow eight, and the answer is two. This is the number
+		// R2.9 exists to produce.
+		{"global cap below the per-cluster product", 2, 2},
+		// A different value, a different peak: proves the measurement tracks the
+		// flag rather than merely showing that some cap exists.
+		{"a different value tracks the flag", 3, 3},
+		// The global cap at exactly the per-cluster product: R2.1's scoping —
+		// TestPerClusterConcurrencyCapTwoClusters's eight — survives, so setting
+		// the class budget to the sum of the per-cluster budgets does not quietly
+		// serialise the fleet.
+		{"global cap at the product keeps R2.1's scoping", 8, 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertPeak(t, Config{PerClusterConcurrency: 4, MaxConcurrentSQL: tc.sqlCap},
+				tc.wantMax, twoClusters, 4)
+		})
+	}
+
+	// The two sub-cases below are the half that proves runOne consults the class
+	// table rather than just declaring it: each pairs two sources of one class and
+	// gives that class exactly one slot while leaving the other class wide open, so
+	// an entry drawing from the wrong pool overlaps its partner and the peak is 2.
+	//
+	// The first draft of this paired S5 with S6 and expected the HTTP cap to bind —
+	// and it measured 2, because S6 is ClassSQL: the S6 collector took a SQL token
+	// and ran alongside the S5 collector. That is the mapping the second sub-case
+	// now pins from the runtime side, and the measurement that corrected the
+	// expectation is the reason it exists.
+	type col struct {
+		name string
+		src  SourceID
+		pod  string
+	}
+	assertPair := func(t *testing.T, classLabel string, cfg Config, a, b col) {
+		t.Helper()
+		var cur, peak int32
+		s := NewScheduler(cfg, mustRegistry(t,
+			blockingFake(a.name, a.src, &cur, &peak),
+			blockingFake(b.name, b.src, &cur, &peak),
+		), nil, nil, nil)
+		s.RunOnce(context.Background(), []Target{
+			{Namespace: "db", Cluster: "pg", Pod: a.pod, Source: a.src, PGMajor: 16},
+			{Namespace: "db", Cluster: "pg", Pod: b.pod, Source: b.src, PGMajor: 16},
+		})
+		if got := int(atomic.LoadInt32(&peak)); got != 1 {
+			t.Errorf("peak concurrent collectors = %d, want 1: %s (%s) and %s (%s) must share one %s slot",
+				got, a.name, a.src, b.name, b.src, classLabel)
+		}
+	}
+
+	t.Run("two http-class sources share one http slot", func(t *testing.T) {
+		assertPair(t, "http",
+			Config{PerClusterConcurrency: 4, MaxConcurrentSQL: 8, MaxConcurrentHTTPScrapes: 1},
+			col{colName(0), SourceClusterStatus, "pg-1"},
+			col{CollectorPooler, SourcePoolerMetrics, "pg-1-pooler-0"})
+	})
+
+	t.Run("S6 draws from the sql budget, not the http one", func(t *testing.T) {
+		// R2.9's ambiguity, resolved at runtime: with one SQL slot and eight HTTP
+		// slots, an S6 collector classified HTTP would take an HTTP token and run
+		// alongside the S2 collector for a peak of 2. The table says pgbouncer's
+		// SHOW POOLS costs a Postgres connection, so it shares S2's budget — which
+		// is what this measures.
+		assertPair(t, "sql",
+			Config{PerClusterConcurrency: 4, MaxConcurrentSQL: 1, MaxConcurrentHTTPScrapes: 8},
+			col{CollectorDatabase, SourceSQL, "pg-1"},
+			col{CollectorPoolerClients, SourcePoolerRuntime, "pg-1-pooler-0"})
+	})
+}
+
+// TestShedAccountingMatchesTheMetric is the test RoundReport.Shed's docblock
+// promises by name (scheduler.go, "Shed is the round's total across targets").
+// R2.9's shed has two visible halves — the report and
+// pgsi_scheduler_shed_total{cluster} — and a count that disagrees between a report
+// and a metric in the same package is R16.8's failure class. This test's whole job
+// is that they agree.
+//
+// The fixture forces the shed instead of timing it: two collectors on one target,
+// both blocking on one channel, and a queue depth of 1. Both goroutines must pass
+// the queue before either can finish, so exactly one takes the only token and the
+// other is refused. The test's sync point is the metric reaching 1 rather than a
+// sleep — releasing the collectors before that would let the admitted one finish
+// and the queue drain, and the round would end with nothing observable.
+func TestShedAccountingMatchesTheMetric(t *testing.T) {
+	block := make(chan struct{})
+	mk := func(name string) Collector {
+		return fakeCollector{
+			desc: okDesc(name),
+			fn: func(context.Context, Target) (Result, error) {
+				<-block
+				return Result{}, nil
+			},
+		}
+	}
+	s := NewScheduler(Config{PerClusterConcurrency: 4, SchedulerQueueDepth: 1},
+		mustRegistry(t, mk(colName(0)), mk(colName(1))), nil, nil, nil)
+
+	// RunOnce cannot return until block closes, so it runs in a goroutine and the
+	// observation happens mid-round: a finished round's queue is empty, so the
+	// gauge is only ever readable while a round is in flight.
+	done := make(chan RoundReport, 1)
+	go func() { done <- s.RunOnce(context.Background(), []Target{tgtPG("pg", "pg-1", "primary")}) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for s.Metrics().Depth() < 1 || s.Metrics().Shed("pg") < 1 {
+		if time.Now().After(deadline) {
+			close(block)
+			t.Fatalf("queue depth %d / shed count %d after 2s, want 1/1: a depth-1 queue with two entries "+
+				"must leave exactly one admitted and one shed", s.Metrics().Depth(), s.Metrics().Shed("pg"))
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(block)
+	rr := <-done
+
+	if rr.Shed != 1 {
+		t.Errorf("RoundReport.Shed = %d, want 1", rr.Shed)
+	}
+	if len(rr.PerTarget) != 1 {
+		t.Fatalf("PerTarget has %d entries, want 1", len(rr.PerTarget))
+	}
+	tr := rr.PerTarget[0]
+	if tr.Shed != 1 {
+		t.Errorf("TargetReport.Shed = %d, want 1", tr.Shed)
+	}
+	if tr.Collectors != 2 || tr.Rounds != 1 {
+		t.Errorf("TargetReport.Collectors/Rounds = %d/%d, want 2/1 (the shed entry was scheduled but did not run)",
+			tr.Collectors, tr.Rounds)
+	}
+	if rr.Rounds != 1 {
+		t.Errorf("RoundReport.Rounds = %d, want 1", rr.Rounds)
+	}
+	// The separation both docblocks insist on: a shed is not a collector failure,
+	// and charging it to Errors would send a reader to a collector's code for a
+	// problem with the scheduler's capacity.
+	if rr.Errors != 0 || tr.Errors != 0 {
+		t.Errorf("RoundReport/TargetReport Errors = %d/%d, want 0/0 (a shed must not be charged to the collector error rate)",
+			rr.Errors, tr.Errors)
+	}
+	if rr.SinkErrors != 0 || tr.SinkErrors != 0 {
+		t.Errorf("RoundReport/TargetReport SinkErrors = %d/%d, want 0/0", rr.SinkErrors, tr.SinkErrors)
+	}
+	// The promised agreement, stated as the one line the test exists for.
+	if got, want := s.Metrics().Shed("pg"), uint64(rr.Shed); got != want {
+		t.Errorf("pgsi_scheduler_shed_total{cluster=\"pg\"} = %d, RoundReport.Shed = %d, want equal", got, want)
+	}
+	// R2.9's other half of the sentence — "mark the shed cluster stale rather than
+	// dropping the sample". pgsi_up is the codebase's one per-instance health
+	// signal (R9.12), so the marking is this target's line going to 0 through
+	// runTarget's existing upErr switch. The sink needs no marking: a shed
+	// publishes nothing, so its stored samples age on their own (sink.go:33-38).
+	if got := s.Up().Render(""); !strings.Contains(got, `pgsi_up{cluster="pg",instance_role="primary",namespace="db",pod="pg-1"} 0`) {
+		t.Errorf("a shed target still reports pgsi_up 1:\n%s", got)
 	}
 }

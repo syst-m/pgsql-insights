@@ -119,6 +119,52 @@ func TestValidSource(t *testing.T) {
 	}
 }
 
+// TestClassForEverySource pins the line R2.9 never draws. The requirement names
+// two budgets, --max-concurrent-sql and --max-concurrent-http-scrapes, while §3.2
+// names ten sources, and the requirement text says nothing about which source
+// draws from which pool. SourceID.Class() is where that decision lives, so it is
+// pinned here rather than left to a switch in the scheduler where it would read as
+// an implementation detail: the two Postgres-wire sources are SQL — S6 is
+// pgbouncer's SHOW POOLS/CLIENTS over 5432, so it takes a real connection slot the
+// way S2 does — and the other eight are HTTP. That split is also why the HTTP
+// default is double the SQL one: a scrape costs a socket, not a max_connections
+// slot, and R2.9's stated constraint ("Postgres instances where max_connections is
+// commonly 100") only applies to the first class.
+func TestClassForEverySource(t *testing.T) {
+	for _, tc := range []struct {
+		src  SourceID
+		want Class
+	}{
+		{SourceSQL, ClassSQL},
+		{SourcePoolerRuntime, ClassSQL},
+		{SourceClusterStatus, ClassHTTP},
+		{SourceInstanceMetrics, ClassHTTP},
+		{SourceInstanceStatus, ClassHTTP},
+		{SourcePoolerMetrics, ClassHTTP},
+		{SourceK8sMetrics, ClassHTTP},
+		{SourceKubectlStatus, ClassHTTP},
+		{SourcePostgresExporter, ClassHTTP},
+		{SourcePodLogs, ClassHTTP},
+	} {
+		if got := tc.src.Class(); got != tc.want {
+			t.Errorf("SourceID(%q).Class() = %s, want %s", tc.src, got, tc.want)
+		}
+	}
+	// The default arm, which is what an unregistered source gets: the class that
+	// cannot exhaust a Postgres connection. An unknown source must not be able to
+	// consume the budget the real Postgres instances depend on.
+	for _, id := range []SourceID{"", "S0", "S11", "s1", "postgres"} {
+		if got := id.Class(); got != ClassHTTP {
+			t.Errorf("SourceID(%q).Class() = %s, want %s (the default arm)", id, got, ClassHTTP)
+		}
+	}
+	// The Class vocabulary itself, so a fifth constant added without a String case
+	// reports "unknown" rather than "Class(4)".
+	if got := Class(7).String(); got != "unknown" {
+		t.Errorf("Class(7).String() = %q, want \"unknown\"", got)
+	}
+}
+
 func TestValidCostClass(t *testing.T) {
 	for _, c := range []CostClass{CostCheap, CostStandard, CostExpensive} {
 		if !ValidCostClass(c) {

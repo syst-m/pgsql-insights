@@ -39,6 +39,28 @@ type Config struct {
 	// Timeout wins; this field exists so an operator can lower the floor globally
 	// without editing thirteen collectors.
 	DefaultTimeout time.Duration
+	// MaxConcurrentSQL is R2.9's global cap on concurrent Postgres-wire
+	// collections (default 32). It is global where PerClusterConcurrency above it
+	// is per-cluster, and both apply to an S2 collection: R2.1's cap of 4 bounds
+	// one cluster's own fan-out, and R2.9 exists because 50 clusters each obeying
+	// their own cap of 4 still means ~200 concurrent queries against instances
+	// where max_connections is commonly 100 — which is the sentence "R2.1 bounds
+	// concurrency per cluster only" is conceding.
+	MaxConcurrentSQL int
+	// MaxConcurrentHTTPScrapes is R2.9's global cap on concurrent HTTP scrapes
+	// (default 64), the budget every non-Postgres source draws from. See
+	// SourceID.Class for which sources that is and for why the number is twice
+	// the SQL one.
+	MaxConcurrentHTTPScrapes int
+	// SchedulerQueueDepth is R2.9's bound on how many collections may be waiting
+	// for the global budget before new work is shed instead of queued (default
+	// 512). A collection holds its queue token from admission until its run
+	// finishes, so this bounds admitted-and-not-finished work, and
+	// pgsi_scheduler_queue_depth is literally its length. The number is
+	// deliberately larger than the two slot counts it fronts (32 + 64 = 96): the
+	// queue is where a round's ~650 scheduled collections wait for 96 slots, and
+	// the depth decides how many of them get in before the round starts shedding.
+	SchedulerQueueDepth int
 	// Now is the clock the scheduler measures with. Nil selects time.Now.
 	// It is injectable because R13.1's "< 3 s per cluster" and R2.1's timeout are
 	// both assertions about elapsed time, and a test that cannot control the clock
@@ -55,6 +77,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DefaultTimeout <= 0 {
 		c.DefaultTimeout = DefaultTimeout
+	}
+	if c.MaxConcurrentSQL <= 0 {
+		c.MaxConcurrentSQL = DefaultMaxConcurrentSQL
+	}
+	if c.MaxConcurrentHTTPScrapes <= 0 {
+		c.MaxConcurrentHTTPScrapes = DefaultMaxConcurrentHTTPScrapes
+	}
+	if c.SchedulerQueueDepth <= 0 {
+		c.SchedulerQueueDepth = DefaultSchedulerQueueDepth
 	}
 	if c.Now == nil {
 		c.Now = time.Now
@@ -85,6 +116,25 @@ type Scheduler struct {
 	// (collector), and R9.12's label set has no collector dimension. See up.go.
 	up *UpTracker
 
+	// metrics is R2.9's pair: the queue whose length is
+	// pgsi_scheduler_queue_depth and the counter behind
+	// pgsi_scheduler_shed_total{cluster}. Built by NewScheduler from
+	// Config.SchedulerQueueDepth, and exported through Metrics() the way up is
+	// exported through Up() so /metrics renders the queue the collection loop
+	// writes rather than a copy of it.
+	metrics *SchedulerMetrics
+
+	// sqlSlots and httpSlots are R2.9's two class semaphores, sized from
+	// Config.MaxConcurrentSQL and Config.MaxConcurrentHTTPScrapes. Two channels
+	// rather than one shared cap of 96 because R2.9 sets two numbers and the
+	// reason for each is different: a fleet running 64 HTTP scrapes must not have
+	// to wait for one of 32 SQL slots, and the SQL number is small because
+	// Postgres max_connections is commonly 100 while the HTTP one is large
+	// because a scrape costs a socket, not a connection slot. Which channel a
+	// collection uses comes from SourceID.Class.
+	sqlSlots  chan struct{}
+	httpSlots chan struct{}
+
 	// mu guards clusters only. It is not the scheduler's main lock: the per-round
 	// state lives in the callers' pre-allocated slices (one writer per index), so
 	// a round does not serialise on a mutex while its goroutines run.
@@ -109,13 +159,16 @@ func NewScheduler(cfg Config, reg *Registry, log *slog.Logger, sink Sink, stats 
 		stats = NewStats()
 	}
 	return &Scheduler{
-		cfg:      cfg,
-		reg:      reg,
-		log:      log,
-		stats:    stats,
-		sink:     sink,
-		up:       NewUpTracker(),
-		clusters: map[string]chan struct{}{},
+		cfg:       cfg,
+		reg:       reg,
+		log:       log,
+		stats:     stats,
+		sink:      sink,
+		up:        NewUpTracker(),
+		metrics:   NewSchedulerMetrics(cfg.SchedulerQueueDepth),
+		sqlSlots:  make(chan struct{}, cfg.MaxConcurrentSQL),
+		httpSlots: make(chan struct{}, cfg.MaxConcurrentHTTPScrapes),
+		clusters:  map[string]chan struct{}{},
 	}
 }
 
@@ -152,6 +205,18 @@ func (s *Scheduler) Stats() *Stats {
 		return nil
 	}
 	return s.stats
+}
+
+// Metrics returns the scheduler's R2.9 pair, so the /metrics handler renders the
+// same queue and shed counter the collection loop writes rather than a snapshot
+// of it. It is the third accessor beside Up() and Stats() for the same reason
+// they exist: the fields are unexported, the families are not, and a caller that
+// builds a Scheduler has no other way to name the values it writes.
+func (s *Scheduler) Metrics() *SchedulerMetrics {
+	if s == nil {
+		return nil
+	}
+	return s.metrics
 }
 
 // targetSet is one target paired with the entries that may run against it.
@@ -193,6 +258,12 @@ type RoundReport struct {
 	// failure is not a collector failure, and folding them together sends the reader
 	// to the wrong component.
 	SinkErrors int
+	// Shed is the round's total across targets: R2.9's count of collections the
+	// global budget refused. The metric reports the same number per cluster and
+	// this reports it per round; TestShedAccountingMatchesTheMetric pins that the
+	// two agree, because a report and a metric disagreeing about one count is
+	// R16.8's failure class with both halves in one package.
+	Shed int
 	// RoundTrips is the summed SQL round-trips across the round: R13.1's number.
 	RoundTrips int
 	// MaxTargetDuration is the slowest single target's round: R13.1's "< 3 s" is
@@ -217,6 +288,12 @@ type TargetReport struct {
 	Rounds     int
 	Errors     int
 	SinkErrors int
+	// Shed is how many of this target's entries R2.9's queue refused instead of
+	// running. It is not folded into Errors: a shed is not a collector failure,
+	// and charging it there would send a reader to a collector's code for a
+	// problem with the scheduler's capacity — the same argument SinkErrors
+	// two lines above makes about the store.
+	Shed int
 	// RoundTrips is R13.1's per-cluster count, summed over this target's
 	// collectors.
 	RoundTrips int
@@ -357,18 +434,23 @@ func (s *Scheduler) runSet(ctx context.Context, set []targetSet) []TargetReport 
 }
 
 // runTarget runs entries against one target, bounded by that cluster's
-// concurrency cap, and returns the target's report.
+// concurrency cap and by R2.9's global budget, and returns the target's report.
 //
-// R2.9's seam is here. The per-cluster cap is what this function enforces today;
-// R2.9's *global* budget (--max-concurrent-sql 32, --max-concurrent-http-scrapes
-// 64, --scheduler-queue-depth 512) is the phase's fifth commit, and it belongs
-// between this line and runOne because that is the last point where a queued
-// collection can still be shed. 50 targets x 13 collectors is ~650 concurrent
-// collections against a global cap of 32 SQL + 64 HTTP, so the gate will shed, and
-// R2.9's shed policy ("mark the shed cluster stale rather than dropping the work
-// silently") needs the two scheduler metrics that come with it. Writing a channel
-// here without those would ship a half-requirement, so the seam is a comment and
-// the fifth commit adds the gate and its metrics together.
+// The R2.9 seam that used to be this function's whole second paragraph is now
+// gated below it. The comment named the gate's position ("between this line and
+// runOne because that is the last point where a queued collection can still be
+// shed") and said the commit that filled it would add the gate and its two
+// metrics together, since a channel with nothing exported from it would be a
+// half-requirement; that commit is this one, the gate is gated, the families are
+// in scheduler_metrics.go, and the seam comment went with it — a comment
+// describing a future commit is a claim that goes stale the moment the commit
+// lands, and this file has already been burned once by a docblock that outlived
+// the code it described.
+//
+// The gate is per entry, not per target, which is what makes a shed reportable
+// per collector: each of the goroutines below admits itself, so a target whose
+// seven entries hit a full queue reports the four that ran and the three that
+// were refused instead of a round that looks like it did nothing.
 func (s *Scheduler) runTarget(ctx context.Context, tgt Target, entries []Entry) TargetReport {
 	tr := TargetReport{Target: tgt, Collectors: len(entries)}
 	if len(entries) == 0 {
@@ -384,7 +466,7 @@ func (s *Scheduler) runTarget(ctx context.Context, tgt Target, entries []Entry) 
 		wg.Add(1)
 		go func(i int, e Entry) {
 			defer wg.Done()
-			outcomes[i] = s.runOne(ctx, tgt, e)
+			outcomes[i] = s.gated(ctx, tgt, e)
 		}(i, e)
 	}
 	wg.Wait()
@@ -399,6 +481,9 @@ func (s *Scheduler) runTarget(ctx context.Context, tgt Target, entries []Entry) 
 		}
 		if o.sinkErr != nil {
 			tr.SinkErrors++
+		}
+		if o.shed {
+			tr.Shed++
 		}
 		tr.RoundTrips += o.res.RoundTrips
 		if o.dur > tr.MaxCollectorDuration {
@@ -417,12 +502,48 @@ func (s *Scheduler) runTarget(ctx context.Context, tgt Target, entries []Entry) 
 	// whenever a healthy collector happened to win the race, which is the
 	// opposite of "our last collection round for that instance succeeded".
 	var upErr error
-	if tr.Errors > 0 {
+	switch {
+	case tr.Errors > 0:
 		upErr = fmt.Errorf("%d of %d collectors failed", tr.Errors, tr.Collectors)
+	case tr.Shed > 0:
+		// R2.9's "mark the shed cluster stale rather than dropping the sample".
+		// pgsi_up is the one per-instance health signal this codebase has (R9.12),
+		// and a round that ran four of seven collectors is not a round that
+		// succeeded, so the shed folds into the same Observe call the failure
+		// branch uses rather than getting a second one that the trailing call
+		// would overwrite. The sink needs no marking: a shed publishes nothing, so
+		// the stored samples age on their own, which is sink.go:33-38's point that
+		// there is no MarkStale/Restore pair to get wrong. The counter and this
+		// gauge are what make the shed visible.
+		upErr = fmt.Errorf("%d of %d collectors shed", tr.Shed, tr.Collectors)
 	}
 	s.up.Observe(tgt, upErr, s.cfg.Now())
 
 	return tr
+}
+
+// gated is R2.9's queue admission wrapped around runOne: take a queue slot, or
+// shed; only an admitted collection reaches the run.
+//
+// It is its own function rather than three lines in runTarget's goroutine so
+// there is exactly one place where an entry becomes a roundOutcome — the seam
+// comment's "last point where a queued collection can still be shed", as a call
+// site rather than as a sentence. The class semaphore is not here: it is inside
+// runOne, after the per-cluster slot, so a global token is held only while a
+// collection is in flight. Admitting here and running there is the whole point —
+// between these two calls sits a collection that has been admitted and has not
+// finished, which is the thing pgsi_scheduler_queue_depth counts.
+func (s *Scheduler) gated(ctx context.Context, tgt Target, e Entry) roundOutcome {
+	release, ok := s.metrics.Admit()
+	if !ok {
+		s.metrics.ObserveShed(tgt)
+		s.log.Debug("collector run shed",
+			"collector", e.Desc.Name, "cluster", tgt.Cluster, "namespace", tgt.Namespace,
+			"queue_depth", s.metrics.Depth())
+		return roundOutcome{shed: true}
+	}
+	defer release()
+	return s.runOne(ctx, tgt, e)
 }
 
 // roundOutcome is one (target, collector) run's result, in the shape the report
@@ -436,12 +557,19 @@ type roundOutcome struct {
 	res     Result
 	err     error
 	sinkErr error
-	dur     time.Duration
-	skew    time.Duration
+	// shed is true when R2.9's queue refused the collection. It is not err: a
+	// shed did not run, so it has no collector error, and runTarget counts it in
+	// TargetReport.Shed rather than in Errors for the reason sinkErr exists —
+	// charging a non-collector problem to the collector's error rate sends the
+	// reader to the wrong component.
+	shed bool
+	dur  time.Duration
+	skew time.Duration
 }
 
 // runOne runs a single collector against a single target: acquire the cluster
-// slot, bound the call with the collector's timeout, observe, and publish.
+// slot, then R2.9's class slot, bound the call with the collector's timeout,
+// observe, and publish.
 func (s *Scheduler) runOne(ctx context.Context, tgt Target, e Entry) roundOutcome {
 	release, ok := s.acquire(ctx, tgt.ClusterKey())
 	if !ok {
@@ -453,6 +581,20 @@ func (s *Scheduler) runOne(ctx context.Context, tgt Target, e Entry) roundOutcom
 	// 4 that admits 5, then 6. The cap stops being a cap and becomes advisory,
 	// which is the exact thing R2.1 and R13.2 both rely on.
 	defer release()
+
+	// R2.9's class slot, taken after the cluster slot and released before it (the
+	// two defers unwind in that order). The order is what keeps the global cap
+	// honest: a class token is held only while the collection is in flight, so
+	// --max-concurrent-sql 32 means 32 queries in flight rather than 32 tokens
+	// parked on goroutines waiting for a per-cluster slot. Take it the other way
+	// round and a cluster whose four slots are full holds a global token for a
+	// collection that cannot start — R13.2's "one slow cluster delays every other
+	// one", reintroduced at the level R2.9 exists to fix.
+	classRelease, ok := s.acquireClass(ctx, e.Desc.Source.Class())
+	if !ok {
+		return roundOutcome{err: ctx.Err()}
+	}
+	defer classRelease()
 
 	name := e.Desc.Name
 	t0 := s.cfg.Now()
@@ -530,6 +672,37 @@ func (s *Scheduler) acquire(ctx context.Context, clusterKey string) (func(), boo
 	}
 }
 
+// acquireClass takes one of the global slots for c — R2.9's --max-concurrent-sql
+// or --max-concurrent-http-scrapes, picked by SourceID.Class — blocking until one
+// is free or ctx is done.
+//
+// It is acquire's twin one level up and copies its two details for the same two
+// reasons: a sync.Once on the release, because a double release inflates the cap
+// from 32 to 33 and keeps inflating it, and a select on ctx.Done(), because a
+// caller must be able to walk away from a slot it cannot get rather than hold a
+// round hostage to one class being busy. A Scheduler not built by NewScheduler
+// has nil slots and gets an unlimited pass, matching the nil-receiver rule the
+// rest of the package follows.
+func (s *Scheduler) acquireClass(ctx context.Context, c Class) (func(), bool) {
+	var ch chan struct{}
+	switch c {
+	case ClassSQL:
+		ch = s.sqlSlots
+	case ClassHTTP:
+		ch = s.httpSlots
+	}
+	if ch == nil {
+		return func() {}, true
+	}
+	select {
+	case ch <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-ch }) }, true
+	case <-ctx.Done():
+		return func() {}, false
+	}
+}
+
 // slotsFor returns clusterKey's semaphore, creating it on first use. Lazy
 // creation, because the fleet is discovered rather than configured: pre-creating
 // slots for clusters that do not exist yet would make the scheduler own a list of
@@ -567,6 +740,7 @@ func (s *Scheduler) aggregate(requested int, reports []TargetReport) RoundReport
 		rr.Rounds += tr.Rounds
 		rr.Errors += tr.Errors
 		rr.SinkErrors += tr.SinkErrors
+		rr.Shed += tr.Shed
 		rr.RoundTrips += tr.RoundTrips
 		if tr.Duration > rr.MaxTargetDuration {
 			rr.MaxTargetDuration = tr.Duration
