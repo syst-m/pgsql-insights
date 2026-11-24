@@ -12,7 +12,13 @@
  * clusters says so rather than looking complete.
  */
 
-import type { ClusterMetrics, FleetResponse, FleetRow, QueryResponse } from "../api/types";
+import type {
+  ActiveQueriesResponse,
+  ClusterMetrics,
+  FleetResponse,
+  FleetRow,
+  QueryResponse,
+} from "../api/types";
 import { partialBanner, type BannerSource } from "../api/envelope";
 import { FIXTURE_EMPTY, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "../api/fixtures";
 
@@ -102,6 +108,47 @@ export function deriveQueryPanelState(input: QueryPanelInput): PanelState {
     return input.extensionInstalled === false ? "unavailable" : "empty";
   }
   if (partialBanner({ meta: queries.meta, data: queries.queries }) !== null) return "partial";
+  return "ready";
+}
+
+export interface ActivePanelInput {
+  phase: FetchPhase;
+  /** The last good payload, if any. Present during a background refetch. */
+  active: ActiveQueriesResponse | null;
+  /** Set when the fetch failed. */
+  error?: string;
+}
+
+/** The Active Queries page's rule (R10.8).
+ *
+ *  Same shape again, and the third one that cannot share the first's body for
+ *  the same reason `deriveQueryPanelState` can't: the payload type. Three
+ *  payloads, three derivations, one `PanelState` union — which is the
+ *  alternative to a generic over `data`, and the generic is the one that would
+ *  have to invent a `partial` rule for a payload whose `meta` says something
+ *  different from what `data` lists.
+ *
+ *  `unavailable` is unreachable here, and that is the requirement's own doing:
+ *  R4.1's read needs `CONNECT` and nothing else — no extension, no metrics
+ *  source, no Enterprise tier — so the Queries page's "the source is not
+ *  configured" case has no analogue. It stays in the copy table because the
+ *  table is `Record<Exclude<PanelState, "ready">, …>` and a missing key is a
+ *  type error, not a documented choice. */
+export function deriveActivePanelState(input: ActivePanelInput): PanelState {
+  const { phase, active } = input;
+
+  if (phase === "idle" || phase === "loading") {
+    return active === null ? "loading" : "partial";
+  }
+  if (phase === "error") {
+    return active === null ? "error" : "partial";
+  }
+  if (active === null) return "loading";
+  // An empty session set is this page's good news, and it is still R10.12's
+  // named `empty`: a cluster with nothing running renders a named screen, not
+  // a table with zero rows and no explanation.
+  if (active.data.length === 0) return "empty";
+  if (partialBanner({ meta: active.meta, data: active.data }) !== null) return "partial";
   return "ready";
 }
 
@@ -198,6 +245,40 @@ export const QUERY_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   error: {
     title: "Could not load the queries",
     body: "GET /api/v1/insights/queries did not answer for this cluster.",
+    action: "Retry",
+  },
+};
+
+/** The Active Queries page's copy table (R10.8).
+ *
+ *  `empty` is the one cell worth reading, because on this page it is the
+ *  *normal* answer rather than the exceptional one: a cluster with nothing
+ *  running has no active sessions, and R4.1's whole premise is that the answer
+ *  changes every second. A page that renders "No queries in this window" for it
+ *  borrows the query store's noun for a pg_stat_activity fact — the store's
+ *  emptiness is about a window, this one is about a moment. */
+export const ACTIVE_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
+  loading: {
+    title: "Reading pg_stat_activity",
+    body: "The first read for this cluster has not answered yet.",
+  },
+  empty: {
+    title: "No active sessions",
+    body: "The cluster reported no sessions in pg_stat_activity. Nothing is running and nothing is idle in transaction — the query store's own state is a different question, on the Queries page.",
+    action: "Refresh",
+  },
+  partial: {
+    title: "Partial results",
+    body: "The read returned fewer sessions than the scorecard counts, so the table is a page of the answer rather than all of it.",
+  },
+  unavailable: {
+    title: "pg_stat_activity is not readable",
+    body: "The cluster answered but returned no session set. R4.1's read needs only CONNECT, so this is RBAC or a paused instance rather than a missing extension.",
+    action: "Retry",
+  },
+  error: {
+    title: "Could not load the active sessions",
+    body: "GET /api/v1/active-queries did not answer for this cluster.",
     action: "Retry",
   },
 };

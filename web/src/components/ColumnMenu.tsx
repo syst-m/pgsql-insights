@@ -82,6 +82,27 @@ export const DEFAULTS: Record<string, readonly string[]> = {
     "analyzeLatency",
     "sparkline",
   ],
+  // R10.8's table has nineteen columns (`dto/sessions_test.go:52-54`'s set, as
+  // `pages/ActiveQueries.tsx`'s ACTIVE_COLUMNS enumerates) and a default that
+  // shows nine. The nine are the ones that answer R10.8's own question — "what
+  // is running right now, who is blocking whom, can I kill it" — which is
+  // pid/query/type/status/query-duration/wait-event/database/user/action. The
+  // other ten are real columns the menu reaches: the session and transaction
+  // durations belong to R4.6's separate-age rule, and `clientPort`,
+  // `backendType`, `queryid`, `applicationName`, `clientAddress` and
+  // `sourceTime` are per-row detail that R10.8 does not name and that no
+  // default should spend horizontal space on.
+  "active-queries": [
+    "pid",
+    "query",
+    "queryType",
+    "status",
+    "queryDurationSeconds",
+    "waitEvent",
+    "database",
+    "userName",
+    "action",
+  ],
 };
 
 /** Storage key for one view's selection. Exported so a test can write a
