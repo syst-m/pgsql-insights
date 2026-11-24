@@ -743,6 +743,28 @@ func TestPromQLTimeArgAndStep(t *testing.T) {
 		in   time.Time
 		want string
 	}{
+		// Go's zero Time and the epoch are two different zeros, and the row
+		// that pins the first one used to be missing. promQLTimeArg
+		// (promql.go:677-679) formats time.Time{} as -6795364578.871 rather
+		// than 0.000: the zero Time is year 1, its UnixNano (-62135596800e9)
+		// does not fit an int64, and Go documents the result as undefined
+		// outside 1678..2262 -- so the number is what this toolchain returns,
+		// not a meaning. The number is not the point; that it is not "0.000"
+		// is.
+		//
+		// Ruled (coordinator, on the epoch follow-up A2 flagged from the
+		// document's sample timestamp): pin the value rather than add an
+		// IsZero guard inside promQLTimeArg. A caller that reaches the
+		// formatter with time.Time{} has a bug upstream, and silently emitting
+		// 0.000 converts "the caller forgot to set a time" into "this sample is
+		// from 1970" -- the failure PromQLSeries.Value's pointer exists to
+		// prevent, in those words about [0,"0"] at promql.go:130-132. The guard
+		// belongs at the call sites, and both R8.3 call sites already have one:
+		// promql.go:526 rejects a zero start or end in the range arm, and
+		// promql.go:599 writes `time` only when !start.IsZero(). So this row
+		// pins a value no live caller can produce, which is the point: a later
+		// guard becomes a visible diff here instead of a silent one.
+		{time.Time{}, "-6795364578.871"},
 		{time.Unix(0, 0), "0.000"},
 		{time.Unix(1764209523, 0), "1764209523.000"},
 		{time.Unix(1764209523, 123456789), "1764209523.123"},
