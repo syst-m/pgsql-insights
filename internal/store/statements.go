@@ -5,102 +5,41 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/frankellis/pgsql-insights/internal/api/dto"
 	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/query"
 )
 
 // QuerySource is the (instance, database) a snapshot came from.
 //
-// It embeds A1's collector.Target — namespace, cluster, pod, role, address,
-// source, pg major — because that is R9.3's instance identity and the store must
-// key on the same triple the scheduler and the sink key on (A1's sink.go:
-// "no two distinct triples can produce the same key"). Datname is the addition
-// the target cannot carry: pg_stat_statements is per-database, so one pod yields
-// one snapshot per database it hosts, and R9.4's row identity names the database.
-type QuerySource struct {
-	collector.Target
-	Datname string
-}
+// It is an alias for collector.QuerySource. The three types this file used to
+// define — QuerySource, StatementRow and Snapshot — moved to the collector, which
+// is the package that has to name them and cannot import store (store/sink.go
+// imports collector, so the dependency only runs one way). The collector's
+// statements.go carries their docs; internal/api/series.go:96-109 is the same
+// pattern and states the guarantee: "an alias creates no second type, so every
+// existing `api.QuerySeriesPoint` spelling ... keeps compiling and keeps naming
+// one definition."
+//
+// Nothing in this file changed a call site. PutSnapshot's argument is now the
+// value StatementsCollector.CollectStatements returns, which is the seam the
+// cmd/pgsi round loop needed and did not have.
+type QuerySource = collector.QuerySource
 
 // StatementRow is one pg_stat_statements row as the collector read it.
 //
-// The field set is the view's projection (collector/pgversion's
-// StatStatementsPG15to16 and friends) minus the columns no DTO renders
-// (local_blks_*, temp_blks_*, wal_*, jit_*, the plan-time columns) plus the two
-// the store derives. What the view does *not* have, the store does not claim:
-// there is no lock_time column on any major, which is R3.2's "no per-query
-// source" and why query_rollup stores -1 rather than a number (see rollupTable).
-type StatementRow struct {
-	// QueryID is PostgreSQL's queryid, as a string. The view has a bigint and
-	// dto.QueryView.QueryID is a string for the reason stated there — a JSON
-	// number past 2^53 is an id JavaScript rounds, so "the UI would display an
-	// id the API never sent". Storing the collector's decimal spelling is what
-	// keeps the store's answer and the API's answer the same string.
-	QueryID string
-
-	// SQL is the raw statement text (the view's `query` column). The store
-	// normalizes it here, and this is the package's only normalization site:
-	// R3.5's rules and R3.6's length cap applied in one place is what keeps the
-	// fingerprint the API serves identical to the one the collector stored.
-	SQL string
-
-	// Usename is the role the statement ran as. The view has `userid` (an OID)
-	// on every major and never the name, so the collector resolves it through
-	// pg_authid and hands the store the name; empty means unresolved, which the
-	// DTOs omit rather than rendering blank.
-	Usename string
-
-	Calls            int64
-	TotalExecTimeMs  float64
-	RowsReturned     float64
-	SharedBlocksHit  float64
-	SharedBlocksRead float64
-
-	// BlockReadMs and BlockWriteMs are the per-major IO pair the collector
-	// picked: blk_read_time/blk_write_time on PG 15–16,
-	// shared_blk_read_time/shared_blk_write_time on PG 17+ (R3.2's derivation,
-	// quoted at dto.LoadColumns). The store sums them into io_wait_ms and
-	// subtracts that sum from TotalExecTimeMs for cpu_ms, so R3.2's two derived
-	// columns are derived once instead of in every read path — which is the only
-	// way a PG16 row and a PG17 row end up with comparable numbers.
-	BlockReadMs  float64
-	BlockWriteMs float64
-
-	// Min, Max and Stddev complete dto.LatencyView's four named stats; Mean is
-	// derived from Total/Calls and is not stored. StddevExecTimeMs is a pointer
-	// because the view reports NULL stddev when the row has no sample, and the
-	// store must tell "no sample" (stored as -1) from "0" — the same
-	// not-available-vs-zero distinction as rollupTable's lock_wait_ms sentinel.
-	MinExecTimeMs    float64
-	MaxExecTimeMs    float64
-	StddevExecTimeMs *float64
-
-	// Plan is R3.10's captured plan for this statement, nil when this round
-	// captured none. R3.10's sampling is bounded, so most rounds capture none
-	// for most queries and nil is the common case, not the error case.
-	Plan *dto.PlanSampleView
-}
+// It is an alias for collector.StatementRow; see QuerySource above for why the
+// definitions live there. The field set's doc — the view's projection minus the
+// columns no DTO renders, plus the two the store derives — moved with the type
+// rather than being copied here.
+type StatementRow = collector.StatementRow
 
 // Snapshot is one collector round's rows for one source.
-type Snapshot struct {
-	Source     QuerySource
-	CapturedAt time.Time
-	IngestedAt time.Time
-
-	// StatsReset is pg_stat_statements_info.stats_reset (PG14+; the view has no
-	// row on PG13). R3.3: "every rate is current − previous snapshot, with the
-	// snapshot's pg_stat_statements_info.stats_reset (PG14+) checked — a reset
-	// must reset the baseline rather than produce a negative or wrapped rate.
-	// On PG13, which has no stats_reset in the info view, fall back to detecting
-	// counter decreases per row." Zero means "no epoch available", which selects
-	// that fallback rather than disabling reset detection.
-	StatsReset time.Time
-
-	Rows []StatementRow
-}
+//
+// It is an alias for collector.Snapshot; see QuerySource above. R3.3's
+// counter-reset epoch (StatsReset) is documented on the type, and the store's
+// three delta rules read it from there.
+type Snapshot = collector.Snapshot
 
 // The SQL PutSnapshot runs. They are consts rather than inline strings so the
 // column lists are visible next to each other and a column added to the schema
