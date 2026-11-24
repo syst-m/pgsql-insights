@@ -129,7 +129,7 @@ type CostClass string
 
 const (
 	// CostCheap costs no SQL round-trip at all: an informer read (S1), an HTTP
-	// GET on a metrics or status endpoint (S3, S4), or a watch. These are the
+	// GET on a metrics or status endpoint (S3, S4, S5), or a watch. These are the
 	// sources §3.2 calls free and always-available.
 	CostCheap CostClass = "cheap"
 	// CostStandard costs one read-only transaction per view group (R2.7) and
@@ -176,9 +176,8 @@ func AllMajors(int) bool { return true }
 // the two the scheduler needs to run it safely (a timeout, and the view groups
 // R2.7 wraps in one read-only transaction).
 type Descriptor struct {
-	// Name is the collector's stable identifier — one of §3.3's thirteen
-	// (inventory, statement, activity, database, wal, io, replication, locks,
-	// settings, progress, pooler, instance-metrics, k8s-events). It is the
+	// Name is the collector's stable identifier — one of §3.3's collector names;
+	// the schedule table is the list. It is the
 	// `collector` label value on both R2.2 families and the key R2.3's
 	// --interval.<collector>= and --disable-collector= flags address, so
 	// renaming it is a breaking change to a user's flags.
