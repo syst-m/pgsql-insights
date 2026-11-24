@@ -536,11 +536,16 @@ for n, rid, cell in status_bad[:20]:
 # column outright (the Reviewer cell absorbed the Scope cell's `-> docs/reviews/...` suffix);
 # :841, the ninth data row of that table, has five cells against its header's five and needs no
 # exemption -- the count here said nine until A5 measured it, which is the cost of writing a
-# number in a comment instead of deriving it from the set below. IMPLEMENTATION.md:867's D12
-# row is the ninth entry and a different defect: three pipes whose role -- separator or text --
-# is a judgement, not a mechanical fix.
+# number in a comment instead of deriving it from the set below. IMPLEMENTATION.md's D12 row was
+# the ninth entry: three pipes whose role -- separator or text -- was a judgement, not a
+# mechanical fix. The judgement is now made. All three are shell pipes inside one inline-code
+# span (`find <bundle> -type f \| sort \| xargs shasum -a 256 \| shasum -a 256`), so they are
+# text and the row escapes them, which is the outcome this comment's own rule prefers ("a fix
+# deletes its line"). Measured 2026-11-24: the row sat at :867 at `aee9046` and at :1016 in the
+# tree that added §3.12, and the line-keyed exemption expired on the move -- escaping the pipes
+# ends that churn, where re-pointing the number would have restarted it on the next edit above
+# the row.
 WIDTH_EXEMPT = {
-    ("IMPLEMENTATION.md", 867),
     ("requirements.md", 842), ("requirements.md", 843), ("requirements.md", 844),
     ("requirements.md", 845), ("requirements.md", 846), ("requirements.md", 847),
     ("requirements.md", 848), ("requirements.md", 849),

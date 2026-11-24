@@ -38,7 +38,7 @@ The number dispute this settles, and its verdict:
 | Figure | Source | |
 |---|---|---|
 | 23 700 | requirements.md R13.4's headline ("~23.7 k series / ~1.5 GB") | oldest |
-| 24 300 | requirements.md §5's prose ("four clusters ≈ **24.3 k series**") | |
+| 24 300 | requirements.md §5's prose ("four clusters ≈ **24.3 k series**"; amended 2026-11-24 to **24.08 k**, this script's own figure — the 24 300 stands here as the published figure that amendment replaced) | |
 | 24 480 | chart/README.md ("4 × 6 070 + 200 = 24 480 series") | |
 | 24 080 | this script — the table x the fixture, printed above | **current** |
 
@@ -49,17 +49,20 @@ R9.5's member list at four metrics instead of inheriting R9.4's six — and the
 whole 400-series gap to chart/README.md's figure is that one row, 100 per cluster
 x 4.
 
-Two published figures disagree with that, and the script treats them differently —
+Two published figures disagreed with that, and the script treats them differently —
 an earlier version of this header said "this script does not fail on it" about the
-wrong one, so the two are now named separately:
+wrong one, so the two were named separately. As of 2026-11-24 only R13.4's headline
+does: the prose was amended to this script's figure, and check 1 passes.
 
-* §5's **prose** formula (requirements.md:551, still summing the pre-ruling 300
-  where the table row says 200) is check 1, and check 1 **fails**: it appends to
-  `failures` and `main` returns 1, so `make cardinality-check` — ci.yml:87 — is
-  red until A3 amends the prose to match the table. The table is the row-level
-  source and the prose is a summary of it; requirements.md:556-560 records the
-  same defect class ("§5's prose 'claims to have corrected R13.4 while R13.4
-  still carries the older figure'").
+* §5's **prose** formula (requirements.md:551) is check 1. It had been failing
+  since the S25 ruling moved the table's per-query row 300 → 200 without moving
+  the summary sentence, which made `make cardinality-check` — ci.yml:87 — red for
+  every slot, not only the one editing docs; A3 amended the sentence on
+  2026-11-24 to `1 200 + 200 + 450 + 4 000 + 120 = **5 970**`, the table's own
+  sum, and the check passes. The table is the row-level source and the prose is a
+  summary of it; requirements.md:556-560 records the same defect class ("§5's
+  prose 'claims to have corrected R13.4 while R13.4 still carries the older
+  figure'").
 * R13.4's **headline** (23 700) is check 2, and a merely-older published figure
   never fails it: the gate is `max(published)`, the loosest defensible bound and
   the only rule that does not require editing the spec from a tool script. The
