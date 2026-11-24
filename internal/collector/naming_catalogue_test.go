@@ -75,3 +75,74 @@ func TestExportedNamesCoverCatalogue(t *testing.T) {
 		t.Error("no catalogue entry with a Metric to check (all derived?)")
 	}
 }
+
+// TestProvisionalSetIsExactlyTheUnexportedNames is the assertion behind the
+// catalogue header's sentence "The list is verified against
+// collector.ExportedMetricNames()", which until now had no test behind it.
+//
+// TestExportedNamesCoverCatalogue checks one direction only: an entry marked
+// Implemented must have a family behind it. It cannot see the other direction,
+// because a provisional entry is *allowed* to be unexported — so an entry that
+// stays provisional after its collector lands is invisible to it. That is not
+// hypothetical. 49b3210 shipped the activity collector, which added
+// db_backends_by_state and db_backends_by_application_name to the naming table,
+// and their provisionalSystem rows stayed put until A2 deleted them by hand at
+// a826f84. The header's sentence was true in prose and unenforced in code, which
+// is R16.8's producer/consumer disagreement with both sides being tests that
+// read past each other.
+//
+// So the rule is a biconditional, and it is the only rule that fits the field's
+// own doc: Implemented=false means "the name is provisional and Phase 2's
+// MetricHub must adopt it for this entry to answer anything". Once the naming
+// table has the name, MetricHub has adopted it, so `false` is now a false
+// statement about the table — and deleting the row is the fix the catalogue's own
+// header prescribes ("When Phase 2 ships one of these, the fix is to delete its
+// line"), which this test makes mechanical instead of remembered.
+func TestProvisionalSetIsExactlyTheUnexportedNames(t *testing.T) {
+	exported := map[string]bool{}
+	for _, n := range collector.ExportedMetricNames() {
+		exported[n] = true
+	}
+
+	entries := api.DefaultCatalogue().Entries()
+	if len(entries) == 0 {
+		t.Fatal("api.DefaultCatalogue() has no entries")
+	}
+
+	var (
+		checked, implemented int
+		disagree             []string
+	)
+	for _, e := range entries {
+		if e.Metric == "" {
+			continue // derived entry: no single family to resolve
+		}
+		checked++
+		// The catalogue's names carry R9.2's prefix; the collector's list is the
+		// unprefixed half because the prefix is applied at render time. Stripping
+		// it is the comparison, for the same reason TestExportedNamesCoverCatalogue
+		// strips it.
+		base := strings.TrimPrefix(e.Metric, collector.DefaultPrefix)
+		if e.Implemented {
+			implemented++
+		}
+		if e.Implemented == exported[base] {
+			continue
+		}
+		if e.Implemented {
+			disagree = append(disagree, e.Name+" -> "+e.Metric+
+				": marked implemented, but collector.ExportedMetricNames() has no such family")
+			continue
+		}
+		disagree = append(disagree, e.Name+" -> "+e.Metric+
+			": still marked provisional, but the naming table has it — delete the provisional row")
+	}
+
+	if len(disagree) > 0 {
+		t.Errorf("%d of %d entries disagree with collector.ExportedMetricNames() (%d marked implemented):\n  %s",
+			len(disagree), checked, implemented, strings.Join(disagree, "\n  "))
+	}
+	if checked == 0 {
+		t.Error("no catalogue entry with a Metric to check (all derived?)")
+	}
+}
