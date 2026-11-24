@@ -607,6 +607,19 @@ IDCITE_RX = re.compile(
     r"|\((?P<p2>[\w./-]+\.md):(?P<n2>\d+)\))")
 IDCITE_ROW = re.compile(r"^\|\s*\*?\*?(R\d+\.\d+[a-z]?)\*?\*?\s*\|")
 
+QUOTED_SPAN = re.compile(r'\"[^\"]*\"|\u201c[^\u201d]*\u201d')
+
+
+def dequote(line):
+    # Blank every quoted span before pairing ids with cites. A row that *documents*
+    # a wrong cite has to quote it, and quoting is not asserting: S55's own row
+    # quotes "R16.5 (`requirements.md:521`)" -- the bad pairing it exists to record --
+    # and the check flagged the quotation as a second instance of the defect.
+    # Blank the quotations first and the check asks the right question: does the
+    # prose *assert* a pairing, not does it contain the string.
+    return QUOTED_SPAN.sub(lambda m: " " * len(m.group(0)), line)
+
+
 def check_id_cites(root):
     # (checked, bad) -- bad is a named id whose cited line is another requirement's
     # row. Two forms, both needing a requirement-table row on the end to compare
@@ -630,6 +643,7 @@ def check_id_cites(root):
         if not rel.endswith(".md"):
             continue
         for i, line in enumerate(lines_of(root, rel), 1):
+            line = dequote(line)
             # form 1: id adjacent to a cite
             for m in IDCITE_RX.finditer(line):
                 idc = m.group("id")
