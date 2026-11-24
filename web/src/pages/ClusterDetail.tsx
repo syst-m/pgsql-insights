@@ -294,6 +294,27 @@ function formatShort(value: string): string {
     .replace(/ /g, " ");
 }
 
+/** The instance list — four of R10.28's seven named states (:439).
+ *
+ *  R10.28 enumerates the states the reference environment actually produces
+ *  rather than letting each one fall out of a default render, and four of the
+ *  seven are instance-level, so they are this table's: *healthy 2-instance*,
+ *  *single-instance*, *Pending replica*, and *CrashLoopBackOff on a CR that
+ *  reports healthy* (R1.2). The other three have other owners — *no Pooler* is
+ *  `Poolers` below, *PG16 vs PG17 column differences* is
+ *  `../components/QueryTable.tsx`, *extension-absent* is
+ *  `../components/ExtensionNotInstalled.tsx` — and naming them here is what
+ *  keeps the catalogue one list with one owner per entry.
+ *
+ *  The first two are the count in `card-meta`: a one-pod cluster and a two-pod
+ *  cluster are different states, not merely different row counts. The other two
+ *  are the `role`/`serving`/`containerStatus` trio, and the pair worth stating
+ *  is `serving` + `containerStatus` — R1.2's point is that a CR can report
+ *  healthy while its pod sits in CrashLoopBackOff (`freeidp-pg-2`), so a table
+ *  that rendered only `ready` would show R10.28's worst state as its best one.
+ *  That is why the cell carries the container's state verbatim instead of
+ *  deriving a glyph from the pod phase.
+ */
 function Instances({
   cluster,
   selectedRow,
@@ -426,6 +447,14 @@ function Config({ cluster }: { cluster: FleetRow }) {
   );
 }
 
+/** R10.28's *no Pooler* entry (:439), and the reason the empty case is a
+ *  sentence in a card rather than a table with one `—` row: the requirement's
+ *  argument is that a designed absence reads differently from an accidental one,
+ *  so the wording is the state. It names the reference environment's
+ *  distribution (R1.4 — only `rev-proxy-pg` has a pooler) which is what lets a
+ *  reader tell "this cluster has no pooler" from "this app cannot see poolers";
+ *  the latter is R10.22's banner, not this card's job.
+ */
 function Poolers({ cluster }: { cluster: FleetRow }) {
   if (cluster.poolers.length === 0) {
     return (
