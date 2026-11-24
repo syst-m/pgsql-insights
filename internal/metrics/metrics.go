@@ -50,11 +50,13 @@
 // nothing to increment. The two families that were blocked on something other
 // than the scheduler are now both rendered, and each one's blocker names what it
 // was. The HTTP duration family needed a renderer, and it is in http.go; the
-// api-side middleware that feeds it compiles and is tested but is still the one
-// line in internal/api not yet wired, so that family has no observations and
-// renders absent — the same answer the rule above gives for any family with no
-// series. The store-size family needed a route to a number that already exists,
-// and it is in store.go: the route is a one-method interface rather than
+// api-side middleware that feeds it was wired into Server.Handler by aee9046, so
+// a running process now has observations for it. Before that commit the renderer
+// existed with no caller and the family rendered absent — the same answer the
+// rule above gives for any family with no series, which is why the absence was
+// not a bug and why the fix was a call site rather than a change here. The
+// store-size family needed a route to a number that already exists, and it is in
+// store.go: the route is a one-method interface rather than
 // collector.Sink, because that interface declares Publish and Samples only,
 // which is the whole reason this row used to read "no route to it yet". A hub
 // with no source passed to WithStoreSize renders it absent, which is the state

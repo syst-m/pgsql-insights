@@ -31,16 +31,16 @@ package api
 // calls WriteHeader reports nothing to read. The wrapper records the first
 // WriteHeader call and defaults to 200, which is the same answer net/http gives.
 //
-// Where it runs is server.go's to say, but the placement is not free: the
-// handler it returns serves through mux, so it replaces the `var h http.Handler
-// = mux` line and CORS/Auth wrap it as they wrap the mux today. Putting it
-// around the finished chain instead would bypass auth — it serves via the mux,
-// not via the handler it wrapped — and being inside auth is why an
-// auth-rejected request is not recorded: that response comes from R8.9's
-// middleware, not from a route. The wiring status belongs in server.go rather
-// than here, because a comment in this file describing a line in a file A1 owns
-// is a second contract with no checker (2026-11-24: this file compiles and is
-// tested; Handler() does not call it yet).
+// Where it runs is server.go's to say, and as of aee9046 it does: Handler's
+// innermost handler is `s.instrumentRequests(mux, s.cfg.HTTPMetrics)`, with
+// CORS and auth wrapping it. That call site and the comment above it in
+// server.go are the authority on the placement — including why putting this
+// around the finished chain instead would route requests past auth, and why an
+// auth-rejected 401 therefore never reaches this wrapper and is not recorded.
+// An earlier draft of this paragraph restated that reasoning in prose here,
+// which is the second contract this paragraph's own rule warns about: a comment
+// in this file describing a line in a file A1 owns has no checker. The sentence
+// is now a dated pointer to the commit rather than a paraphrase of its reasoning.
 
 import (
 	"net/http"
