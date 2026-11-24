@@ -105,3 +105,50 @@ func TestMissingAssetIsNotTheShell(t *testing.T) {
 		t.Fatalf("GET /assets/definitely-missing.css = %d, want 404", rec.Code)
 	}
 }
+
+// The two tests below cover R8.6's `--serve-ui` — the off state and the unset
+// state. R10.1's TestSPARootServesTheBundle above is the on state that `New`
+// defaults to, so between the three they cover all three values the `*bool`
+// field can hold.
+
+func TestServeUIFalseUnregistersTheRoot(t *testing.T) {
+	// False removes the `GET /` registration rather than mounting a handler that
+	// declines, so every path the root pattern used to answer — the root itself,
+	// the R10.16 client-side routes, and the bundle's own assets — answers 404.
+	//
+	// A mounted handler that returned 404 for everything would be
+	// indistinguishable from this one at the HTTP layer, so the assertion that
+	// separates the two shapes is the one on the API routes: R8.6's flag is an
+	// off switch for the UI, and the two routes below are the ones that must
+	// survive it.
+	no := false
+	s := New(Config{Listen: "127.0.0.1:0", ServeUI: &no})
+	for _, target := range []string{"/", "/c/freeidp/freeidp-pg", "/assets/index.js"} {
+		if rec := do(t, s, http.MethodGet, target); rec.Code != http.StatusNotFound {
+			t.Fatalf("GET %s = %d with ServeUI=false, want 404 (R8.6: an API-only deployment serves no UI)", target, rec.Code)
+		}
+	}
+	if rec := do(t, s, http.MethodGet, "/api/v1/version"); rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/version = %d with ServeUI=false, want 200 — the flag removes the SPA, not the API", rec.Code)
+	}
+	if rec := do(t, s, http.MethodGet, "/healthz"); rec.Code != http.StatusOK {
+		t.Fatalf("GET /healthz = %d with ServeUI=false, want 200 (R8.9: a probe is never gated on the UI)", rec.Code)
+	}
+}
+
+func TestServeUIUnsetServesTheRoot(t *testing.T) {
+	// The half a plain `bool` would have inverted. `ServeUI bool`'s zero value is
+	// false, so `New(Config{})` would have become an API-only server and every
+	// deployment that never set the field would have lost its UI — which is why
+	// the field is a *bool and why nil means serve.
+	//
+	// newTestServer(t) is New(Config{Listen: ...}) and the R10.1 test above
+	// already proves that server answers 200, so this adds no new behaviour. It
+	// pins the rule as its own named assertion so that the day someone collapses
+	// the field to a plain bool, the failure reads "ServeUIUnsetServesTheRoot"
+	// rather than "SPARootServesTheBundle", which is a test whose name has to be
+	// read before it explains itself.
+	if rec := do(t, New(Config{}), http.MethodGet, "/"); rec.Code != http.StatusOK {
+		t.Fatalf("GET / = %d with ServeUI unset, want 200 (nil means serve)", rec.Code)
+	}
+}

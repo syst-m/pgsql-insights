@@ -1770,11 +1770,14 @@ paths:
         matches answers 404 rather than the shell, so a typo in a fetch URL
         surfaces as an error instead of a page that renders empty.
 
-        R8.6 also specifies `--serve-ui=false` for API-only deployments. The
-        flag is not implemented yet — the embed is always served — and the gap
-        is recorded in IMPLEMENTATION.md §3.7's R8.6 row rather than implied
-        away here; it is one bool in `Config` plus one `if` around this
-        registration.
+        R8.6's `--serve-ui=false` is implemented (A1's `03f0b0b`): the
+        `Config.ServeUI` field is a `*bool` whose nil means serve, and a
+        false removes this registration outright rather than mounting a
+        handler that declines — so `/`, every R10.16 route and every asset
+        path answer 404 from an API-only process while the API routes above
+        stay mounted. `Config.ServeUI`'s docblock in server.go is the
+        normative text for why nil means serve; this paragraph points at it
+        rather than restating it (R16.8).
       x-status: implemented
       responses:
         '200':
