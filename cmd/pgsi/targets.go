@@ -41,17 +41,33 @@ import (
 
 // collectTargets returns every addressable target in one inventory snapshot.
 //
-// Two of §3.2's ten sources are produced, and the choice is by constructibility
+// Three of §3.2's ten sources are produced, and the choice is by constructibility
 // rather than by preference:
 //
 //   - S2 (SourceSQL) from each instance pod. The address is kube.PostgresAddress
 //     over InstanceView.PodIP, which is the field R1.10's direct transport needs
 //     and the only one a 5432 target can be built from.
+//
 //   - S5 (SourcePoolerMetrics) from each pooler pod, via
 //     kube.PoolerMetricsURL over PoolerPodView.IP, falling back to the
 //     pooler-level PoolerView.MetricsURL when a Pooler reports an endpoint but
 //     lists no pods (R1.4 discovers Poolers separately from Clusters, so the two
 //     lists are not guaranteed to be populated together).
+//
+//   - S6 (SourcePoolerRuntime) from the same pooler pods, on the pooler table's
+//     5432 row (kube.URLFor(kube.OwnerPooler, 5432, ip, false) → "10.42.1.21:5432",
+//     the pgbouncer admin console pooler_clients.go reads SHOW CLIENTS through for
+//     R6.4's attribution). One pod therefore yields two targets — the exporter
+//     scrape and the psql round-trip — which is what A3's ruling that split §3.3's
+//     single pooler row into two collectors requires of a target producer: two
+//     schedulable units means two addresses.
+//
+//     It has no pooler-level fallback, and the reason is the DTO's rather than
+//     this function's: PoolerView carries MetricsURL (the S5 address) and no
+//     address field for the 5432 half, so a Pooler that reports an endpoint and
+//     lists no pods yields an S5 target and no S6 one. Building "svc:5432" from
+//     PoolerView.Service would be inventing an address shape the S5 fallback does
+//     not have to invent, because there the URL is a discovered field.
 //
 // S3 and S4 are deliberately not produced, and the reason is a missing DTO field
 // rather than a missing collector: kube.MetricsURL's second parameter is
@@ -160,6 +176,26 @@ func collectTargets(inv discovery.Inventory) []collector.Target {
 					Pod:       pod.Name,
 					Address:   kube.PoolerMetricsURL(pod.IP),
 					Source:    collector.SourcePoolerMetrics,
+				})
+				// S6: the same pod's pgbouncer console on 5432, for the
+				// pooler-clients collector. The address comes from URLFor rather
+				// than from a named helper because kube has one (PoolerMetricsURL,
+				// two lines above) for the 9127 row and none for this one — and
+				// URLFor is the layer all four named helpers in that file
+				// (:195-217) delegate to, so calling it here uses the port table
+				// rather than routing around it. The bool is dropped for the reason
+				// PostgresAddress drops it at :196: a false return is an empty
+				// string, and add() rejects an empty address. monitoringTLS is false because the 5432
+				// row has no TLSFrom field — the protocol is fixed (transport.go:180,
+				// "host:port" with no scheme), so there is nothing for the CR's
+				// monitoring flag to flip.
+				addr, _ := kube.URLFor(kube.OwnerPooler, 5432, pod.IP, false)
+				add(collector.Target{
+					Namespace: ns,
+					Cluster:   clusterName,
+					Pod:       pod.Name,
+					Address:   addr,
+					Source:    collector.SourcePoolerRuntime,
 				})
 			}
 			// The pooler-level endpoint, gated on there being no pods. Without the

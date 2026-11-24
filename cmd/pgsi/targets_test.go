@@ -111,8 +111,9 @@ func TestCollectTargetsSkipsFencedAndAddressless(t *testing.T) {
 	}
 }
 
-// TestCollectTargetsPoolerPerPod pins the S5 shape: one target per pooler pod,
-// and no pooler-level target once the pods are listed.
+// TestCollectTargetsPoolerPerPod pins the pooler shape: two targets per pooler
+// pod — the S5 exporter scrape on 9127 and the S6 pgbouncer console on 5432 — and
+// no pooler-level target once the pods are listed.
 func TestCollectTargetsPoolerPerPod(t *testing.T) {
 	inv := discovery.Inventory{Clusters: []dto.ClusterView{
 		{
@@ -141,10 +142,25 @@ func TestCollectTargetsPoolerPerPod(t *testing.T) {
 			Address: kube.PoolerMetricsURL("10.42.1.21"),
 			Source:  collector.SourcePoolerMetrics,
 		},
+		// The S6 half of the same pod. The address is the literal rather than
+		// kube.URLFor(...) — the producer calls that function, so a want built by
+		// calling it too would compare the copy against itself and pass on a table
+		// whose 5432 row had moved. transport.go:180-182 fixes what a postgres row
+		// renders as: `host + ":" + strconv.Itoa(port)`, no scheme.
+		{
+			Namespace: "db", Cluster: "pg", Pod: "pg-pooler-7d9-aaa",
+			Address: "10.42.1.21:5432",
+			Source:  collector.SourcePoolerRuntime,
+		},
 		{
 			Namespace: "db", Cluster: "pg", Pod: "pg-pooler-7d9-bbb",
 			Address: kube.PoolerMetricsURL("10.42.1.22"),
 			Source:  collector.SourcePoolerMetrics,
+		},
+		{
+			Namespace: "db", Cluster: "pg", Pod: "pg-pooler-7d9-bbb",
+			Address: "10.42.1.22:5432",
+			Source:  collector.SourcePoolerRuntime,
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -212,8 +228,12 @@ func TestCollectTargetsPoolerIdentityFallback(t *testing.T) {
 	want := []collector.Target{
 		{Namespace: "apps", Cluster: "gateway", Pod: "gw-pooler-x1",
 			Address: kube.PoolerMetricsURL("10.42.2.31"), Source: collector.SourcePoolerMetrics},
+		{Namespace: "apps", Cluster: "gateway", Pod: "gw-pooler-x1",
+			Address: "10.42.2.31:5432", Source: collector.SourcePoolerRuntime},
 		{Namespace: "messaging", Cluster: "broker", Pod: "gw-pooler-ro-x2",
 			Address: kube.PoolerMetricsURL("10.42.2.32"), Source: collector.SourcePoolerMetrics},
+		{Namespace: "messaging", Cluster: "broker", Pod: "gw-pooler-ro-x2",
+			Address: "10.42.2.32:5432", Source: collector.SourcePoolerRuntime},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("collectTargets() =\n %+v\nwant\n %+v", got, want)
@@ -295,10 +315,11 @@ func TestCollectTargetsEveryTargetIsValidAndAddressed(t *testing.T) {
 	}}
 
 	got := collectTargets(inv)
-	// 2 clusters: pg has 2 S2 (pg-3 fenced) + 1 S5 (pod) + 1 S5 (ro endpoint);
-	// pg2 has 1 S2. Total 5.
-	if len(got) != 5 {
-		t.Fatalf("len(got) = %d, want 5:\n %+v", len(got), got)
+	// 2 clusters: pg has 2 S2 (pg-3 fenced) + 1 S5 and 1 S6 (the one pooler pod,
+	// two ports) + 1 S5 (the ro endpoint, which has no pods and so no S6 half);
+	// pg2 has 1 S2. Total 6.
+	if len(got) != 6 {
+		t.Fatalf("len(got) = %d, want 6:\n %+v", len(got), got)
 	}
 	for i, tg := range got {
 		if !tg.Valid() {
@@ -318,8 +339,10 @@ func TestCollectTargetsEveryTargetIsValidAndAddressed(t *testing.T) {
 	for _, tg := range got {
 		counts[tg.Source]++
 	}
-	if counts[collector.SourceSQL] != 3 || counts[collector.SourcePoolerMetrics] != 2 {
-		t.Errorf("source counts = %v, want map[S2:3 S5:2]", counts)
+	if counts[collector.SourceSQL] != 3 ||
+		counts[collector.SourcePoolerMetrics] != 2 ||
+		counts[collector.SourcePoolerRuntime] != 1 {
+		t.Errorf("source counts = %v, want map[S2:3 S5:2 S6:1]", counts)
 	}
 }
 

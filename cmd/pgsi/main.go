@@ -575,9 +575,17 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 	// /metrics endpoint, which is R8.7's shape (a process that answers 200 and is
 	// not actually working) reproduced inside the registry. Gating here makes the
 	// registry's contents say what the process can actually do.
+	//
+	// pooler-clients joins this branch rather than riding with its S5 sibling above
+	// it, and the branch is chosen by what the collector needs, not by which §3.3
+	// row it came from: pooler_clients.go's constructor takes an SQLOpener because
+	// SHOW CLIENTS is a psql round-trip on 5432, so with no opener it cannot
+	// collect, which is the exact condition this gate exists to detect. pooler.go
+	// above needs kc.GetDirect and nothing else, which is why it is outside.
 	if opener != nil {
 		cfg := collector.SQLConfig{}
 		collectors = append(collectors,
+			collector.NewPoolerClientsCollector(opener, cfg),
 			collector.NewActivityCollector(opener, cfg),
 			collector.NewDatabaseCollector(opener, cfg),
 			collector.NewLocksCollector(opener, cfg),

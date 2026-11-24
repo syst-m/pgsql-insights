@@ -40,9 +40,9 @@ func (e errString) Error() string { return string(e) }
 // is the whole reason newRegistry has an opener parameter.
 //
 // The assertion is a sorted name list rather than a count, because a count is the
-// weaker instrument: `len == 8` passes if a collector is registered twice and one
+// weaker instrument: `len == 9` passes if a collector is registered twice and one
 // is missing, and NewRegistry itself rejects duplicates, so the only failure the
-// count can hide is a wrong name. Naming all eight means a constructor that
+// count can hide is a wrong name. Naming all nine means a constructor that
 // changes its Descriptor.Name, or a collector added without this test being
 // updated, fails here.
 //
@@ -57,6 +57,7 @@ func TestNewRegistryShapes(t *testing.T) {
 		collector.CollectorDatabase,
 		collector.CollectorLocks,
 		collector.CollectorPooler,
+		collector.CollectorPoolerClients,
 		collector.CollectorReplication,
 		collector.CollectorSettings,
 		collector.CollectorStatement,
@@ -84,7 +85,9 @@ func TestNewRegistryShapes(t *testing.T) {
 		}
 	})
 
-	// Shape 2: an opener. All eight.
+	// Shape 2: an opener. All nine — the seven §3.3 SQL collectors plus the two
+	// pooler names, because pooler-clients needs an opener (SHOW CLIENTS is a
+	// psql round-trip) and so belongs to this shape rather than to shape 1.
 	t.Run("with opener", func(t *testing.T) {
 		reg, err := newRegistry((*kube.Client)(nil), fakeSQLOpener{}, collector.Overrides{})
 		if err != nil {
