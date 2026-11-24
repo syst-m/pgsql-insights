@@ -83,11 +83,12 @@ type Config struct {
 	// longer serves. This is D9's reserved `api` role expressed as a flag, the
 	// same role whose sink-less StoreSize is documented below.
 	//
-	// A2's own annotation for this route
-	// (internal/api/openapi_annotations.go:1978) sized the gap as "one bool in
-	// `Config` plus one `if` around this registration"; this field and the gate in
-	// Handler are the two halves of that sentence. The annotation's "The flag is
-	// not implemented yet" sentence is A2's file to update, not this one's.
+	// A2's annotation for this route
+	// (internal/api/openapi_annotations.go:1978) records this field and the gate
+	// in Handler as R8.6's implementation. It cites the file by line and does not
+	// quote it: a quoted sentence in a sibling's file is a second contract with no
+	// checker, so it rots the day they rewrite the sentence, whereas a line cite
+	// either resolves or a reviewer sees that it does not.
 	ServeUI *bool
 
 	// Auth is R8.8's per-route-group policy. Nil means every route is
