@@ -102,16 +102,23 @@ func TestOpenFile(t *testing.T) {
 	}
 	// A file store keeps a pool: §3.4:223's "many-reader" half needs more than
 	// one connection, unlike the memory profile.
-	if got := s.DB().Stats().MaxOpenConnections; got != DefaultFileConns {
+	// The literal, not DefaultFileConns: store.go:204 sets the pool *from* that
+	// constant, so the constant ends up on both sides of the comparison and
+	// 4 -> 5 passes (measured: DefaultFileConns = 5 left the package green).
+	if got := s.DB().Stats().MaxOpenConnections; got != 4 {
 		t.Errorf("MaxOpenConnections = %d, want %d (DefaultFileConns; 0 would mean an unbounded pool)",
-			got, DefaultFileConns)
+			got, 4)
 	}
 	// The explicit retention set from §3.4:222, not just the statement one.
-	if got := s.cfg.PlanRetention; got != DefaultPlanRetention {
-		t.Errorf("PlanRetention = %v, want %v", got, DefaultPlanRetention)
+	if got := s.cfg.PlanRetention; got != 7*24*time.Hour {
+		t.Errorf("PlanRetention = %v, want %v", got, 7*24*time.Hour)
 	}
-	if got := s.cfg.MaxBytes; got != DefaultMaxFileBytes {
-		t.Errorf("MaxBytes = %d, want %d (retention.maxBytes: 1Gi)", got, DefaultMaxFileBytes)
+	// 1<<30, not DefaultMaxFileBytes: store.go:298 assigns that constant to
+	// cfg.MaxBytes when the config leaves it zero, so the constant is on both
+	// sides here too (measured: 1<<29 left the package green). The literal is
+	// the §3.4:222 value the message cites.
+	if got := s.cfg.MaxBytes; got != 1<<30 {
+		t.Errorf("MaxBytes = %d, want %d (retention.maxBytes: 1Gi)", got, 1<<30)
 	}
 }
 
