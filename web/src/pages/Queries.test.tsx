@@ -270,10 +270,16 @@ describe("QueriesPage", () => {
   it("renders the range control the URL contract needs", () => {
     const { container } = renderPage();
     const select = within(container).getByRole("combobox", { name: "Range" }) as HTMLSelectElement;
-    expect(select.value).toBe("24h");
+    // The list is spelled out rather than imported from `TIME_RANGES`: a test
+    // that renders the same array the component maps is checking the array
+    // against itself. This is the spec's list (R10.15, as A3 ruled — `24h` was
+    // minted here and `series.go` rejects it, so it is `1d`, and `6h` was the
+    // preset the picker never offered), and the component's is the one under test.
+    expect(select.value).toBe("1d");
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
       "1h",
-      "24h",
+      "6h",
+      "1d",
       "7d",
       "30d",
     ]);

@@ -347,12 +347,13 @@ export async function fetchQueryDetail(
  *  Mirrors `internal/api/series.go:63-68`'s constants and the openapi `Range`
  *  enum (`[1h, 6h, 1d, 7d, 30d, custom]`, default `1h`).
  *
- *  Deliberately not `TimeRange` from `state/urlState.ts`, which lists
- *  `1h | 24h | 7d | 30d` — a fourth spelling that matches neither R10.15's five
- *  presets nor this enum (it has `24h` where both say `6h` and `1d`, and no
- *  `custom`). The fetcher takes the API's word list because the request is the
- *  API's; the URL's vocabulary is a UI question, and `urlState.ts` owns
- *  settling it. */
+ *  `state/urlState.ts`'s `TimeRange` is this list minus `custom` — A3's ruling
+ *  on R10.15 phased `custom` with the auto-refresh-disable rule the same cell
+ *  welds it to, so the UI offers five presets while the API has six. The fetcher
+ *  keeps its own type rather than importing the UI's because the request is the
+ *  API's, and because importing it would have to import the five-member version
+ *  until `custom` lands. When it does, the two sets are identical and this type
+ *  can become `TimeRange` — the phasing note is the only thing keeping them apart. */
 export type SeriesRange = "1h" | "6h" | "1d" | "7d" | "30d" | "custom";
 
 /** `GET /api/v1/insights/queries/series` — R8.11's batch.

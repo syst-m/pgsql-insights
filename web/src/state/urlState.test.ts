@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_STATE,
+  TIME_RANGES,
   formatUrl,
   parseUrl,
   pushState,
@@ -43,8 +44,25 @@ describe("parseUrl", () => {
     const s = parseUrl("/?sort=colour&dir=sideways&range=99y&tab=bogus");
     expect(s.sort).toBe("health");
     expect(s.dir).toBe("desc");
-    expect(s.range).toBe("24h");
+    expect(s.range).toBe("1d");
     expect(s.tab).toBe("overview");
+  });
+
+  it("retires `24h` without breaking the URLs that still carry it", () => {
+    // A3's ruling on R10.15: `24h` was minted here, and `internal/api/series.go`
+    // answers 400 `InvalidRequest` for it, so the window is now `1d`. A bookmarked
+    // `?range=24h` is a URL this app used to mint, and `pick`'s rule is that an
+    // unrecognised value opens the app on the default rather than blanking it —
+    // so the old link lands on `1d`, which is the same window it meant.
+    expect(parseUrl("/?range=24h").range).toBe("1d");
+
+    // Every value the cell does name parses to itself, and encodes back. The
+    // encode side has to account for `formatQuery` omitting the default, or the
+    // loop would pass on a `formatUrl` that dropped every range.
+    for (const range of TIME_RANGES) {
+      expect(parseUrl(`/?range=${range}`).range).toBe(range);
+      expect(formatUrl({ ...DEFAULT_STATE, range })).toBe(range === "1d" ? "/" : `/?range=${range}`);
+    }
   });
 
   it("normalises a percent-encoded cluster id", () => {

@@ -48,9 +48,9 @@ export type SortKey =
 
 export type SortDir = "asc" | "desc";
 
-/** R10.4's metric window. Phase 1b has no metrics, but the control is part of
- *  the URL contract now so the Phase 5 charts do not change the schema. */
-export type TimeRange = "1h" | "24h" | "7d" | "30d";
+/** R10.15's time-range vocabulary: the set and the order are on `TIME_RANGES`
+ *  below, and this type is derived from that array. See the note there. */
+export type TimeRange = (typeof TIME_RANGES)[number];
 
 /** R10.12's cluster-detail tabs. */
 export type ClusterTab = "overview" | "instances" | "replication" | "storage" | "config" | "findings";
@@ -89,7 +89,9 @@ export const DEFAULT_STATE: UrlState = {
   ns: [],
   q: "",
   health: [],
-  range: "24h",
+  /** `24h`'s successor — the same one-day window, spelled the way the API spells
+   *  it (A3's ruling on R10.15; `24h` was a value `series.go` rejects). */
+  range: "1d",
   fixtureFlag: "",
   delayFlag: "",
 };
@@ -116,7 +118,27 @@ const TABS: readonly ClusterTab[] = [
   "findings",
 ];
 
-const RANGES: readonly TimeRange[] = ["1h", "24h", "7d", "30d"];
+/** The ranges the picker offers, in order — the single declaration that the
+ *  `TimeRange` type above is derived from, and that `Fleet.tsx` and
+ *  `Queries.tsx` now import instead of each restating.
+ *
+ *  A3's ruling on R10.15 (requirements.md, asked by A4): the cell names six
+ *  values, this file offered four, and one of the four — `24h` — is a minted
+ *  token the API has no entry for, so `parseSeriesQuery` fails on it and
+ *  `internal/api/series.go:289` answers 400 `InvalidRequest`. In the ruling's
+ *  words, "a value the UI can put in the URL that the UI's own request builder
+ *  cannot send".
+ *
+ *  The ruling's phasing is what this array implements: `24h` → `1d` and the `6h`
+ *  addition ship now; `custom`, the sixth, is welded to the cell's
+ *  auto-refresh-disable rule and ships with it, not before it. So this is five
+ *  of the six, and landing the sixth later is one string here and no type change.
+ *
+ *  It used to be a `type TimeRange` at :53 *and* a `const RANGES` here — two
+ *  copies of one list, which is how a list drifts from its spec while both copies
+ *  still compile. `../routes.ts`'s page table gets the same treatment for `Page`:
+ *  one declaration, everyone else imports it. */
+export const TIME_RANGES = ["1h", "6h", "1d", "7d", "30d"] as const;
 
 /** Unknown values from a hand-edited URL fall back to the default rather than
  *  throwing — a bad link should open the app, not blank it. */
@@ -154,7 +176,7 @@ export function parseUrl(loc: string): UrlState {
     ns: splitList(params.get("ns")),
     q: params.get("q") ?? "",
     health: parseHealthList(params.get("health")),
-    range: pick(params.get("range"), RANGES, "24h"),
+    range: pick(params.get("range"), TIME_RANGES, "1d"),
     fixtureFlag: params.get("fixture") ?? "",
     delayFlag: params.get("delay") ?? "",
   };

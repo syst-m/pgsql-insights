@@ -67,7 +67,7 @@ import { toQueriesResponse } from "../api/envelope";
 import { FIXTURE_QUERIES } from "../api/fixtures";
 import type { QueryResponse, QuerySeries, QueryView } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
-import type { SortDir, SortKey, TimeRange, UrlState } from "../state/urlState";
+import { TIME_RANGES, type SortDir, type SortKey, type TimeRange, type UrlState } from "../state/urlState";
 import { formatTimestamp } from "../lib/format";
 import { ColumnMenu, useColumnVisibility } from "../components/ColumnMenu";
 import { ExtensionNotInstalled } from "../components/ExtensionNotInstalled";
@@ -141,8 +141,6 @@ export function databaseOptions(rows: readonly QueryView[]): { value: string; co
     .map(([value, count]) => ({ value, count }))
     .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
 }
-
-const RANGES: readonly TimeRange[] = ["1h", "24h", "7d", "30d"];
 
 /** The sort the table shows. `isQuerySortKey` is the single place the two
  *  vocabularies meet: a fleet key arriving here (which is every value today —
@@ -373,7 +371,7 @@ function PageHeader({
         <label className="field">
           <span className="field-label">Range</span>
           <select value={state.range} onChange={(e) => patch({ range: e.target.value as TimeRange })}>
-            {RANGES.map((r) => (
+            {TIME_RANGES.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>

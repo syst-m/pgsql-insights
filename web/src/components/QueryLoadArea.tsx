@@ -347,13 +347,16 @@ export interface QueryLoadAreaProps {
   points: readonly QueryLoadPoint[];
   /** The window the batch was fetched for, in the API's own vocabulary.
    *
-   *  Optional, and the optionality *is* the `24h` problem: `urlState.ts:53`'s
-   *  `TimeRange` is `1h | 24h | 7d | 30d` while `SeriesRange` is
-   *  `1h | 6h | 1d | 7d | 30d | custom`, and `24h` is a value the API rejects.
-   *  A3 is ruling R10.15's five presets before anyone renames the URL's
-   *  spelling, so hardcoding the URL's word here would bake a rejected value
-   *  into a second file and make the ruling cost more than it should. Omitting
-   *  it renders the chart without a window label rather than with a wrong one. */
+   *  Optional because a stacked area can be drawn from a `QueryLoadPoint[]`
+   *  whose window the caller never learned: the prop labels the chart, it does
+   *  not feed it, and a missing label is cheaper than a wrong one.
+   *
+   *  It used to be optional for a second, worse reason — `urlState.ts:53`'s
+   *  `TimeRange` was `1h | 24h | 7d | 30d`, and `24h` is a value the API
+   *  rejects, so there was no spelling here that could name the URL's own
+   *  default. A3's ruling on R10.15 fixed that (the `24h` → `1d` rename,
+   *  shipped from A4's slot); the two vocabularies now differ only by `custom`,
+   *  which the picker has not gained yet. */
   range?: SeriesRange;
   /** Accessible name for the `<svg role="img">`. */
   label?: string;

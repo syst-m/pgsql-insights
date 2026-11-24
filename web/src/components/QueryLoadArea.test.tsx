@@ -310,9 +310,11 @@ describe("QueryLoadArea", () => {
   });
 
   it("labels the window in the API's vocabulary and renders none when omitted", () => {
-    // The `24h` problem: `urlState.ts:53`'s `TimeRange` and `SeriesRange`
-    // disagree and A3's R10.15 ruling is still open, so the prop is optional and
-    // this test pins that omitting it renders no window label at all.
+    // The prop is optional and this test pins what that means: no window known,
+    // no window label. It used to be optional because `urlState.ts:53`'s
+    // `TimeRange` and `SeriesRange` disagreed (`24h` versus `1d`) with no ruling
+    // yet — A3 has since ruled R10.15 and the rename shipped, so the two lists
+    // are now the same minus `custom`, and the optionality is just the label.
     const withRange = render(<QueryLoadArea points={POINTS} range="7d" />);
     expect(withRange.container.querySelector(".qla-scope")?.textContent).toContain("last 7d");
 

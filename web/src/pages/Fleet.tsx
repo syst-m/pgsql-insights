@@ -22,7 +22,7 @@ import type { ClusterHealth, FleetResponse } from "../api/types";
 import { HEALTH_ORDER, presentationFor } from "../api/health";
 import { formatTimestamp } from "../lib/format";
 import { filterClusters, namespaceOptions, sortClusters } from "../lib/sort";
-import type { SortDir, SortKey, TimeRange, UrlState } from "../state/urlState";
+import { TIME_RANGES, type SortDir, type SortKey, type TimeRange, type UrlState } from "../state/urlState";
 import { useFleet } from "../state/useFleet";
 import { HealthBar } from "../components/HealthBar";
 import { ClusterTable, COLUMNS } from "../components/ClusterTable";
@@ -36,8 +36,6 @@ export interface FleetPageProps {
   /** The visual suite renders a named fixture directly instead of fetching. */
   fixtureOverride?: FleetResponse;
 }
-
-const RANGES: readonly TimeRange[] = ["1h", "24h", "7d", "30d"];
 
 export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPageProps) {
   const { state: data, refresh } = useFleet(cfg);
@@ -154,7 +152,7 @@ function PageHeader({
             value={state.range}
             onChange={(e) => onPatch({ range: e.target.value as TimeRange })}
           >
-            {RANGES.map((r) => (
+            {TIME_RANGES.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
