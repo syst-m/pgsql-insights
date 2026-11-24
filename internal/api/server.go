@@ -204,6 +204,24 @@ type Config struct {
 	// (2b63f1e) applies here too.
 	ActiveQueries ActiveQueriesSource
 
+	// Tags is R3.12's tag rollups (GET /api/v1/insights/tags, implemented in
+	// tags.go). Nil selects the empty source, so the route answers 200 with an
+	// empty list — the list-route rule Queries and ActiveQueries follow, not the
+	// rule QueryDetail and QueryPlans follow, for the reason they give: a list with
+	// no store behind it can answer "no tags", a question that names a row cannot.
+	//
+	// It is a separate field from Queries because TagsSource is a separate
+	// interface, and the two read different tables of the same store: R3.2's
+	// fingerprint rollups there, R3.12's dimension rollups here. The store satisfies
+	// both — internal/store/rollups.go asserts each on its own line, which is what
+	// lets a build wire one and not the other.
+	//
+	// The default is applied in tagsSource rather than in New, the way the five
+	// source fields above it do it, so assigning a store after New takes effect
+	// without rebuilding the server; their shared typed-nil caveat (2b63f1e)
+	// applies here too.
+	Tags TagsSource
+
 	// Metrics is the collector self-observability state whose two R2.2 families
 	// (pgsi_collector_duration_seconds, pgsi_collector_errors_total) /metrics
 	// renders alongside pgsi_build_info — R9.8's composition, and the call
@@ -447,6 +465,13 @@ func (s *Server) Handler() http.Handler {
 	// one api/x-planned-paths.yaml carried until this commit moved it up to `paths`
 	// (R14.7 — and the two lists being disjoint is what makes that checkable).
 	mux.HandleFunc("GET "+QueryPlansPath, s.handleQueryPlans)
+	// R3.12's tag rollups (tags.go), last of the four /insights/* list routes: the
+	// path comes from TagsPath, which is the string api/openapi.yaml carries now and
+	// the one api/x-planned-paths.yaml carried under r8.2-catalogue until this commit
+	// moved it up to `paths` (R14.7 — the two lists being disjoint is what makes that
+	// checkable, and the promotion deletes the line in both files because the
+	// generator re-emits the planned manifest into the document).
+	mux.HandleFunc("GET "+TagsPath, s.handleTags)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	// R8.3's pair registers four patterns of its own (GET and POST on each of
 	// /api/v1/metrics/query and /api/v1/metrics/system), so it mounts here

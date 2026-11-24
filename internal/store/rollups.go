@@ -45,6 +45,14 @@ import (
 	"github.com/frankellis/pgsql-insights/internal/api/dto"
 )
 
+// The one-line assertion the header's "Which api interface Tags satisfies, and when"
+// section promised: "When A2 writes the route, the assertion goes in with it; if the
+// signature that ships differs, this file changes by one line and the rows it reads do
+// not change at all." The route landed as api.TagsSource with exactly the predicted
+// signature — Tags(ctx, api.ListQuery) ([]dto.TagView, error) — so this is that one
+// line and nothing else in this file moved.
+var _ api.TagsSource = (*Store)(nil)
+
 // The dimension kinds R3.7 and R3.12 name.
 //
 // R3.7:311 names four — "which database, which user, which application name,

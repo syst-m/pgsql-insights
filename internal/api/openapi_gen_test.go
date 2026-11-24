@@ -160,6 +160,7 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/insights/queries/{fingerprint}",
 		"GET /api/v1/insights/queries/{fingerprint}/plans",
+		"GET /api/v1/insights/tags",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
 		"GET /api/v1/version",
@@ -181,18 +182,33 @@ func TestRouteTable(t *testing.T) {
 	}
 
 	// The constant-resolution case, called out separately because it is the one
-	// a grep-based generator gets wrong: five of these paths exist only as
-	// constants concatenated onto the method (the fifth is QueryPlansPath, the
-	// R3.10 route this commit registers; GET /api/v1/metrics/query stays in the
-	// list as the control — it is a literal in promql.go, so it pins that the walk
-	// reads plain strings as well as concatenated ones).
+	// a grep-based generator gets wrong. Nine of the twenty distinct paths in
+	// `want` are registered as a method concatenated onto a path constant — seven
+	// in server.go (ActiveQueriesPath, ClusterDetailPath, QueriesPath,
+	// QuerySeriesPath, QueryDetailPath, QueryPlansPath and TagsPath, the R3.12
+	// route this commit registers) and two in promql.go (QueryMetricsPath and
+	// SystemMetricsPath, each registered twice, GET and POST) — and this loop names
+	// all nine. The other eleven are plain strings, which the `want` comparison
+	// above already pins; this loop exists for the nine a text-only generator would
+	// read as `"GET "`.
+	//
+	// The comment here used to say "five of these paths", and name
+	// GET /api/v1/metrics/query as "the control — it is a literal in promql.go".
+	// Both halves went stale: promql.go's two paths are constants now, and
+	// active-queries was a seventh server.go constant that the five-item list
+	// never named. The count is measured from the registrations rather than kept,
+	// because a count in a comment is a second copy of the list this test generates
+	// — which is the project's own R16.8 argument, turned on the test suite.
 	for _, s := range []string{
+		"GET /api/v1/active-queries",
 		"GET /api/v1/clusters/{namespace}/{name}",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/insights/queries/{fingerprint}",
 		"GET /api/v1/insights/queries/{fingerprint}/plans",
+		"GET /api/v1/insights/tags",
 		"GET /api/v1/metrics/query",
+		"GET /api/v1/metrics/system",
 	} {
 		found := false
 		for _, r := range routes {

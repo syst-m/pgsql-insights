@@ -1519,6 +1519,141 @@ paths:
         '503':
           $ref: '#/components/responses/NotReady'
 
+  /api/v1/insights/tags:
+    get:
+      tags: [insights]
+      operationId: listTags
+      summary: R3.12's tag rollups over HTTP
+      description: |
+        R8.2's tags route and R10.3's Tags tab: the per-tag rollup R3.12
+        defines, paged. The path string is not authored here either — it is
+        `api.TagsPath`, which is what server.go registers, what
+        web/src/routes.ts:259's `endpoint:` field has always carried, and
+        what this file's r8.2-catalogue listed until this commit moved the
+        entry up to `paths` (the delete-rather-than-mark rule every earlier
+        promotion states, and the disjointness R14.7 checks).
+
+        The row is `dto.TagView`: the (a) trio (`application`, `database`,
+        `user`, from application_name/usename/datname) and the (b) five the
+        `/* pgsi:action=…,route=…,controller=…,framework=…,dbDriver=… */`
+        comment grammar names, hashed together into `tag_hash` by
+        dto.TagDigest (R3.12's key, and R9.6's metric label); plus the eight
+        embedded LoadColumns and `lockWaitMs`. The (b) five are omitempty, so
+        a query with no pgsi comment has those keys *absent*, not empty — the
+        second example row is that case, and it is why the fixture's three
+        rows do not all carry the same key set.
+
+        Sort keys are all eighteen of TagView's json tags — the eight load
+        columns, `lockWaitMs`, `tagHash` and the eight tag-identity strings —
+        which is exhaustive where the queries entry's list is curated (that
+        list omits four of QueryView's fields). The reason for being
+        exhaustive here is the shared pager's: a key the parser accepts but
+        the route's sort-key function has no case for does not error, it sorts
+        on the row identity alone and returns a page ordered by hash. Making
+        the accepted set exactly the field set is what makes that checkable by
+        counting. Default is `-loadByTotalTime` for the reason R3.7 gives — a
+        rollup answers "which X accounts for the most load", so a
+        cheapest-first first page answers it backwards.
+
+        Served by an empty source until cmd/pgsi assigns `Config.Tags`, the
+        interim the queries and active-queries entries document for the same
+        reason (R14.7 forbids a documented route that 404s). The store's read
+        side already exists — internal/store/rollups.go's `Tags` — and now
+        asserts `api.TagsSource` at compile time, which is the one-line
+        assertion its own header pre-authorised for this commit.
+      x-status: implemented
+      parameters:
+        - $ref: '#/components/parameters/Namespace'
+        - $ref: '#/components/parameters/Cluster'
+        - $ref: '#/components/parameters/DB'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of tag rows, plus the envelope metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagsEnvelope'
+              example:
+                # All three of testdata/api/tags.json's rows, verbatim, with the
+                # fixture's own meta: three rows and total 3, so the page is
+                # whole — truncated false and no nextCursor (dto.Meta's
+                # invariant). TagsEnvelope is the generated alias over
+                # dto.Envelope[dto.TagView], so this example and the schema it
+                # $refs cannot be two spellings of the row (R16.8).
+                data:
+                  - tagHash: "76201a9fd0e48236038c7a35c976341e9ef42abd016e9078ab93d98efb912665"
+                    application: "openwebui"
+                    database: "openwebui"
+                    user: "openwebui"
+                    action: "session.load"
+                    route: "/api/v1/users/{user_id}"
+                    controller: "UsersController"
+                    framework: "fastapi"
+                    dbDriver: "pgx"
+                    loadByTotalTime: 88.3
+                    pctLoadByQueries: 88.3
+                    avgExecTimeMs: 43.9
+                    totalExecTimeMs: 189244.6
+                    avgRowsReturned: 1
+                    timesCalled: 4311
+                    loadByCPUMs: 174622.5
+                    loadByIOWaitMs: 14622.1
+                    lockWaitMs: 3120.4
+                  # No action/route/controller/framework/dbDriver keys: the
+                  # (b) five are omitempty and this tag has no pgsi comment.
+                  - tagHash: "3761097502d5b815875d42a7ff8e0a532451400b212d5d42dc862966aa1b4bda"
+                    application: "gateway"
+                    database: "gateway"
+                    user: "gateway"
+                    loadByTotalTime: 88.7
+                    pctLoadByQueries: 88.7
+                    avgExecTimeMs: 8.1
+                    totalExecTimeMs: 112110.5
+                    avgRowsReturned: 14
+                    timesCalled: 13914
+                    loadByCPUMs: 104485.5
+                    loadByIOWaitMs: 7625
+                    lockWaitMs: 198.2
+                  # action and route present, controller/framework/dbDriver
+                  # absent: a partial comment is representable, and this is the
+                  # row that makes the empty-string sort order visible.
+                  - tagHash: "27826ba5182963232f18580e3647e3c52fad072a513af3200addc47d6e02c4da"
+                    application: "cookbook"
+                    database: "cookbook"
+                    user: "cookbook"
+                    action: "recipe.list"
+                    route: "/api/recipes"
+                    loadByTotalTime: 64.1
+                    pctLoadByQueries: 64.1
+                    avgExecTimeMs: 323.2
+                    totalExecTimeMs: 305120.8
+                    avgRowsReturned: 1
+                    timesCalled: 944
+                    loadByCPUMs: 16420.7
+                    loadByIOWaitMs: 288700.1
+                    lockWaitMs: 4410.9
+                meta:
+                  total: 3
+                  truncated: false
+                  generatedAt: "2026-11-20T09:12:00Z"
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        # Two 503 bodies in code, one response key in OpenAPI, the limitation
+        # every list entry above spells out: the readiness gate answers
+        # NotReady and a store read that errors answers Unavailable. NotReady
+        # is the one reachable today, because the empty source cannot error.
+        '503':
+          $ref: '#/components/responses/NotReady'
+
   /healthz:
     get:
       tags: [probes]
@@ -1861,11 +1996,24 @@ x-planned-paths:
   # set and the citation graph, not this file's inline annotations — so a wrong one is
   # wrong silently, which is why the fix is its own commit rather than a line inside
   # the active-queries commit that happened to notice.
+  #
+  # /api/v1/insights/tags (R3.12, R10.3) was the sixth route from this list — the
+  # fifth was /api/v1/active-queries, the four before it are named above — and
+  # internal/api/tags.go implements it and server.go registers it, so this commit
+  # deletes the entry rather than marking it, same rule as the five above. The
+  # handler is the last piece of the route set that already existed: dto.TagView and
+  # dto.TagDigest (dto/queries.go), testdata/api/tags.json (which
+  # web/src/api/fixtures.ts:115 has imported as Envelope<TagView> since the fixture
+  # landed), and internal/store/rollups.go's Tags — whose header predicted this
+  # route's signature and whose `var _ api.TagsSource = (*Store)(nil)` assertion
+  # lands in the same commit as the interface it names, for the reason that header
+  # gives. Twelve entries remain: the four other R3.7 rollups (databases, users,
+  # client-addresses, and the R4.3 wait-events), the two /insights/system routes,
+  # recommendations, the two poolers routes, events, explain and search.
   r8.2-catalogue:
     - /api/v1/insights/wait-events          # R4.3, R10.9 (was: R4, R10.7)
     - /api/v1/insights/databases            # R3.7, R10.3 (was: R10.8)
     - /api/v1/insights/users                # R3.7, R10.3 (was: R10.9)
-    - /api/v1/insights/tags                 # R3.12, R10.3 (was: R7, R10.11)
     - /api/v1/insights/client-addresses     # R3.7, R6.4, R10.3 (was: R6, R10.12)
     - /api/v1/insights/system               # R5, R10.10 (was: R5, R10.13)
     - /api/v1/insights/system/{metric}      # R8.2, R10.10 (was: R8.2, R10.13)
@@ -4041,3 +4189,159 @@ components:
             than null on the wire for the usual reason.
           items:
             $ref: '#/components/schemas/SessionView'
+
+    # ---- Tags (R3.12, R10.3) ----------------------------------------------
+
+    TagsEnvelope:
+      type: object
+      description: |
+        `dto.Envelope[TagView]` — the fourth projection of the Go generic
+        `Envelope[T any]`, named the way `FleetEnvelope` names the clusters one,
+        `QueriesEnvelope` the query-list one and `QueryPlansEnvelope` the plans
+        one. Declared in Go as a type *alias*
+        (`type TagsEnvelope = dto.Envelope[dto.TagView]`), not as a struct with
+        the same fields: R8.4's envelope has exactly one definition in this
+        codebase and an alias creates no second type for the two names to
+        disagree about. The name exists so this document has something to `$ref`.
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          description: |
+            The page of tag rows. `[]`, never null, when there are none — the
+            house rule `FleetEnvelope.data` states for its own array.
+          items:
+            $ref: '#/components/schemas/TagView'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    TagView:
+      type: object
+      description: |
+        One row of R3.12's tag rollup: the tag's identity (the (a) trio and the
+        (b) five, hashed) plus the load columns R3.7 requires of every rollup.
+        `testdata/api/tags.json` is the authority for the shape and
+        `web/src/api/types.ts` imports it (R16.8), so this entry describes a
+        projection that already exists rather than authoring a second spelling
+        of it — and `dto/queries_test.go`'s TestTagViewCarriesR312sDimensions is
+        what keeps the field list against R3.12's own wording.
+
+        The row carries no `namespace` or `cluster` field: the route scopes by
+        query parameter instead of repeating the scope on every row (the store
+        groups by `(dim_hash, namespace, cluster)`, so the same tag in two
+        clusters is two rows the query told it apart, not the row).
+      required:
+        - tagHash
+        - loadByTotalTime
+        - pctLoadByQueries
+        - avgExecTimeMs
+        - totalExecTimeMs
+        - avgRowsReturned
+        - timesCalled
+        - loadByCPUMs
+        - loadByIOWaitMs
+        - lockWaitMs
+      properties:
+        tagHash:
+          type: string
+          description: |
+            R3.12's `tag_hash` and R9.6's family key: the SHA-256 of the
+            populated dimensions as sorted `key=value` pairs joined by a pipe,
+            (`dto.TagDigest`), hex-encoded. Sorting the keys and dropping the
+            empty ones is what makes `/* pgsi:route=/x,action=y */` and
+            `/* pgsi:action=y,route=/x */` one tag.
+        application:
+          type: string
+          description: |
+            R3.12's (a) `application_name`. omitempty, so absent rather than
+            empty when the session had none.
+        database:
+          type: string
+          description: R3.12's (a) `datname`.
+        user:
+          type: string
+          description: R3.12's (a) `usename`.
+        action:
+          type: string
+          description: |
+            R3.12's (b) — the comment grammar's `action`. Absent, not empty, on
+            a tag with no `/* pgsi:… */` comment.
+        route:
+          type: string
+          description: R3.12's (b) `route`.
+        controller:
+          type: string
+          description: R3.12's (b) `controller`.
+        framework:
+          type: string
+          description: R3.12's (b) `framework`.
+        dbDriver:
+          type: string
+          description: |
+            R3.12's (b), spelled `dbdriver` in the comment grammar and
+            `db_driver` on the metric side; the field is `dbDriver` for the
+            metric-side reason dto/queries.go gives.
+        loadByTotalTime:
+          type: number
+          description: |
+            R3.2's load columns, embedded as on QueryView (an embedded struct is
+            flat on the wire).
+        pctLoadByQueries:
+          type: number
+          description: |
+            PctLoadByQueries is R3.2's `% load by Queries`: the same numerator
+            as LoadByTotalTime expressed against the Queries category rather
+            than against total load.
+
+            Flagged for A3: R3.2 names both columns and gives a formula for
+            neither. Cloud SQL's load model attributes load to categories
+            (queries, locks, …) and this is the percentage attributed to the
+            queries category, which for a per-query row is the same measurement
+            as LoadByTotalTime restated. The two are separate fields because
+            R3.2 lists them as separate columns; the wording that distinguishes
+            them is the spec's to supply, not ours to invent. Until it does,
+            both carry the R3.2 value and the UI renders both.
+        avgExecTimeMs:
+          type: number
+          description: |
+            AvgExecTimeMs is R3.2's `Avg execution time (ms)`: the window's
+            mean, which is pg_stat_statements' `mean_exec_time` for the window
+            — an R3.3 delta, not the view's cumulative mean (see the window
+            note on QueryView).
+        totalExecTimeMs:
+          type: number
+          description: |
+            TotalExecTimeMs is R3.2's `Total execution time (ms)`: the window's
+            `total_exec_time` delta. It is the numerator of every load column
+            here.
+        avgRowsReturned:
+          type: number
+          description: |
+            AvgRowsReturned is R3.2's `Avg rows returned`. A float64 because it
+            is a mean over a delta (R3.3), not a count: 12.5 rows per call is a
+            real answer and an int would round it to 12.
+        timesCalled:
+          type: integer
+          description: |
+            TimesCalled is R3.2's `Times called`: executions in the window, from
+            the `calls` delta. Integral, because a call count is integral even
+            when the rates derived from it are not.
+        loadByCPUMs:
+          type: number
+          description: |
+            LoadByCPUMs is R3.2's `Load by CPU`, derived per R3.2 as
+            `total_exec_time` minus block I/O time. See the struct doc for the
+            per-major derivation and PGMajor for which one applies to this row.
+        loadByIOWaitMs:
+          type: number
+          description: |
+            LoadByIOWaitMs is R3.2's `Load by IO wait`, derived per R3.2 from
+            `blk_read_time`/`blk_write_time` on PG 15–16 and
+            `shared_blk_read_time`/`shared_blk_write_time` on PG 17+.
+        lockWaitMs:
+          type: number
+          description: |
+            The column R3.2 denies to a per-query row but grants at this level:
+            R3.7 sources `Load by lock wait` at database/user level from
+            `pg_locks` + `pg_stat_activity` and says so in the same sentence
+            that withholds it per query.

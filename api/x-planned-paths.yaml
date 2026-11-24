@@ -71,11 +71,24 @@ x-planned-paths:
   # set and the citation graph, not this file's inline annotations — so a wrong one is
   # wrong silently, which is why the fix is its own commit rather than a line inside
   # the active-queries commit that happened to notice.
+  #
+  # /api/v1/insights/tags (R3.12, R10.3) was the sixth route from this list — the
+  # fifth was /api/v1/active-queries, the four before it are named above — and
+  # internal/api/tags.go implements it and server.go registers it, so this commit
+  # deletes the entry rather than marking it, same rule as the five above. The
+  # handler is the last piece of the route set that already existed: dto.TagView and
+  # dto.TagDigest (dto/queries.go), testdata/api/tags.json (which
+  # web/src/api/fixtures.ts:115 has imported as Envelope<TagView> since the fixture
+  # landed), and internal/store/rollups.go's Tags — whose header predicted this
+  # route's signature and whose `var _ api.TagsSource = (*Store)(nil)` assertion
+  # lands in the same commit as the interface it names, for the reason that header
+  # gives. Twelve entries remain: the four other R3.7 rollups (databases, users,
+  # client-addresses, and the R4.3 wait-events), the two /insights/system routes,
+  # recommendations, the two poolers routes, events, explain and search.
   r8.2-catalogue:
     - /api/v1/insights/wait-events          # R4.3, R10.9 (was: R4, R10.7)
     - /api/v1/insights/databases            # R3.7, R10.3 (was: R10.8)
     - /api/v1/insights/users                # R3.7, R10.3 (was: R10.9)
-    - /api/v1/insights/tags                 # R3.12, R10.3 (was: R7, R10.11)
     - /api/v1/insights/client-addresses     # R3.7, R6.4, R10.3 (was: R6, R10.12)
     - /api/v1/insights/system               # R5, R10.10 (was: R5, R10.13)
     - /api/v1/insights/system/{metric}      # R8.2, R10.10 (was: R8.2, R10.13)
