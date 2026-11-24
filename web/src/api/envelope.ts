@@ -297,38 +297,69 @@ export function parseQueryDetailView(raw: unknown): QueryDetailView {
   return raw as unknown as QueryDetailView;
 }
 
-/** Check one `QuerySeriesPoint`'s six fields, naming the owning fingerprint.
+/** Check one `QuerySeriesPoint`'s seven fields, naming the owning fingerprint.
  *
  *  A checker, not a constructor — same shape as the `require` closures in the
  *  other two parsers: it throws or returns, and the caller casts.
  *
- *  All six are required. `series.go:112` gives every field a plain json tag with
- *  no `omitempty`, and the openapi schema lists all six under `required`, so an
- *  absent key is a contract break rather than an omitted optional. The five
- *  metric fields are `number` because Go types them all `float64` — including
- *  `rows`, which is a per-minute delta off a cumulative counter (R3.3) and so is
- *  not narrowable to an int even though rows are countable. */
+ *  Required and nullable are two questions, and this note used to answer the
+ *  first with the second. `dto/series.go:69-76` declares seven fields, every one
+ *  with a plain json tag and no `omitempty`, and `api/openapi.yaml:2930-2937`
+ *  lists all seven under `required` — so an absent key is a contract break for
+ *  every field. Two of the seven are separately marked `nullable: true`
+ *  (`api/openapi.yaml:2958` and `:2968`), because R8.3's ruling at `7cecc49` —
+ *  shipped in Go by A1's `d0ea2c4` — made `lockTimeSeconds` and `ioTimeSeconds`
+ *  `*float64` (`dto/series.go:75-76`): the wire says "no value" with `null`, not
+ *  with a sentinel number. So a null is a contract break for five fields and the
+ *  documented answer for two, which is what the two entry points below encode.
+ *  The four plain metric fields are `number` because Go types them `float64` —
+ *  including `rows`, which is a per-minute delta off a cumulative counter (R3.3)
+ *  and so is not narrowable to an int even though rows are countable.
+ *
+ *  The sentence this replaced said "the five metric fields are `number` because
+ *  Go types them all `float64`": true of five until `d0ea2c4`, true of four
+ *  after, and it never mentioned that the parser checked six fields against a
+ *  struct declaring seven. `ioTimeSeconds` was the one never checked, so a point
+ *  with no `ioTimeSeconds` key parsed and the returned row asserted a field its
+ *  own type says is there. A2 filed both halves; the fixture could not have
+ *  caught either — `testdata/api/query-series.json` contains zero nulls
+ *  (`grep -c null` → `0`), so fixture mode only ever exercised the case where
+ *  both nullable fields carry values. */
 function checkQuerySeriesPoint(raw: unknown, where: string, index: number): void {
   if (!isRecord(raw)) {
     throw new ContractError(`query ${where}: points[${index}] is ${typeName(raw)}, expected object`);
   }
-  const require = (field: string, type: "string" | "number") => {
+  // One implementation, two entry points, so the two error strings cannot drift
+  // apart the way the two sentences above did.
+  const check = (field: string, type: "string" | "number", nullable: boolean) => {
     const v = raw[field];
     if (v === undefined) {
       throw new ContractError(`query ${where}: points[${index}] missing required field "${field}"`);
     }
-    if (typeof v !== type) {
+    // `typeof null === "object"`, so a null never satisfies `typeof v === "number"`
+    // and cannot be judged by the typeof test at all — `nullable` decides it
+    // first. Widening `require` itself instead would make the four non-nullable
+    // fields accept a null, and refusing nulls is the reason this file exists.
+    const ok = v === null ? nullable : typeof v === type;
+    if (!ok) {
       throw new ContractError(
-        `query ${where}: points[${index}].${field} is ${typeName(v)}, expected ${type}`,
+        `query ${where}: points[${index}].${field} is ${typeName(v)}, expected ${type}${nullable ? " or null" : ""}`,
       );
     }
   };
+  /** A field whose type is exactly `type`: a null is a contract break here. */
+  const require = (field: string, type: "string" | "number") => check(field, type, false);
+  /** A field whose type is `type | null` (Go `*float64`, R8.3): a null is the
+   *  documented way to say "no value". */
+  const requireNullable = (field: string, type: "string" | "number") => check(field, type, true);
+
   require("timestamp", "string");
   require("executionTimeSeconds", "number");
   require("rows", "number");
   require("sharedBlocksHit", "number");
   require("sharedBlocksRead", "number");
-  require("lockTimeSeconds", "number");
+  requireNullable("lockTimeSeconds", "number");
+  requireNullable("ioTimeSeconds", "number");
 }
 
 /** Check one `/insights/queries/series` row and name it in the error.

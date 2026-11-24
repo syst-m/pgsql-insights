@@ -351,6 +351,60 @@ describe("parseQuerySeries", () => {
     ).toThrow(/points\[0\]\.rows is string, expected number/);
   });
 
+  it("accepts null in the two nullable slots, which is what R8.3's absence looks like", () => {
+    // The case the fixture cannot express, and the reason this test exists apart
+    // from the ones above: `testdata/api/query-series.json` has zero nulls
+    // (`grep -c null` → `0`), so every other assertion in this block runs on a
+    // payload where both nullable fields carry values. R8.3's ruling at
+    // `7cecc49` (A1's `d0ea2c4`) made `lockTimeSeconds` and `ioTimeSeconds`
+    // `*float64` — `dto/series.go:75-76`, `nullable: true` at
+    // `api/openapi.yaml:2958` and `:2968` — so a fingerprint with no lock waits
+    // answers with a null, and until this commit that response failed the parse:
+    // `typeof null === "object"`, which is not `"number"`.
+    const point = { ...EXAMPLE.points[0]!, lockTimeSeconds: null, ioTimeSeconds: null };
+    expect(() => parseQuerySeries({ ...EXAMPLE, points: [point] })).not.toThrow();
+  });
+
+  it("checks ioTimeSeconds, the field this parser never checked", () => {
+    // `dto/series.go:69-76` declares seven fields and `api/openapi.yaml:2930-2937`
+    // requires seven; the parser checked six, and `ioTimeSeconds` was the
+    // missing one (A2 filed it). Before this commit a point with no
+    // `ioTimeSeconds` key parsed, and the returned row asserted a field its own
+    // type says is there — the sibling of the `lockTimeSeconds` case above,
+    // which is the only one of the two that used to be checked.
+    const { ioTimeSeconds, ...rest } = EXAMPLE.points[0]!;
+    expect(ioTimeSeconds).toBeDefined();
+    expect(() => parseQuerySeries({ ...EXAMPLE, points: [rest] })).toThrow(
+      new RegExp(`query ${PREFIX}: points\\[0\\] missing required field "ioTimeSeconds"`),
+    );
+  });
+
+  it("still rejects null in a non-nullable slot", () => {
+    // The half that keeps the parser a parser: teaching two slots to accept null
+    // must not teach the other four. `executionTimeSeconds` is a plain `float64`
+    // (`dto/series.go:71`), so a null there is a contract break, not an absence —
+    // and the message says `expected number`, with no `or null`.
+    expect(() =>
+      parseQuerySeries({
+        ...EXAMPLE,
+        points: [{ ...EXAMPLE.points[0]!, executionTimeSeconds: null }],
+      }),
+    ).toThrow(/points\[0\]\.executionTimeSeconds is null, expected number/);
+  });
+
+  it("names the union in the message when a nullable field has the wrong type", () => {
+    // `expected number or null`, not `expected number`: the message is the only
+    // place a caller learns which kind of slot rejected the value, and the
+    // nullable entry point has to say so or the two entry points are
+    // indistinguishable in a stack trace.
+    expect(() =>
+      parseQuerySeries({
+        ...EXAMPLE,
+        points: [{ ...EXAMPLE.points[0]!, lockTimeSeconds: "0.0031" }],
+      }),
+    ).toThrow(/points\[0\]\.lockTimeSeconds is string, expected number or null/);
+  });
+
   it("accepts the cluster-aggregated answer, with all five omitempty labels absent", () => {
     // The non-obvious legal shape, and the one the Detail chart actually asks
     // for: QueryDetailView's chart has no pod (dto/queries.go:11-34 points it at
