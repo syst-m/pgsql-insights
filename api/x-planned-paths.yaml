@@ -28,11 +28,18 @@ x-planned-paths:
   # file lists them separately, and why the list's commit deleted one line and not
   # two. This commit deletes the second.
   #
-  # /api/v1/insights/queries/{fingerprint}/plans (R3.10) stays planned even though
-  # the detail response carries the same list inline in `plans`: R8.2 counts the
-  # route separately, and an inline array on one response is not the route.
+  # /api/v1/insights/queries/{fingerprint}/plans (R3.10) was the fourth route from
+  # this list, and the note here used to say it "stays planned even though the
+  # detail response carries the same list inline in `plans`: R8.2 counts the route
+  # separately, and an inline array on one response is not the route." That sentence
+  # is now the reason the route exists rather than the reason it is planned:
+  # internal/api/query_plans.go implements it and server.go registers it, so the
+  # entry is deleted rather than marked, same rule as the three above. The route is
+  # served by a not-found source until R3.10's capture lands (Phase 6b's), which is
+  # not the same thing as being unimplemented — the handler answers, and what it
+  # answers is 404 for every fingerprint, which is what R14.7 requires of a
+  # documented route whose store is not yet populated.
   r8.2-catalogue:
-    - /api/v1/insights/queries/{fingerprint}/plans
     - /api/v1/insights/wait-events          # R4, R10.7
     - /api/v1/insights/databases            # R10.8
     - /api/v1/insights/users                # R10.9

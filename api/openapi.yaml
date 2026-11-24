@@ -1313,6 +1313,108 @@ paths:
         '503':
           $ref: '#/components/responses/NotReady'
 
+  /api/v1/insights/queries/{fingerprint}/plans:
+    get:
+      tags: [insights]
+      operationId: getQueryPlans
+      summary: R3.10's captured plan samples for one query
+      description: |
+        R8.2's plan-samples route: the EXPLAIN output R3.10 captures for one
+        fingerprint, served as `QueryPlansEnvelope`.
+
+        The detail route above embeds the same array in its own body, and the
+        manifest's note on this path — the note that kept it in
+        `x-planned-paths` after the detail route moved up — is why the route is
+        not folded into that response: "R8.2 counts the route separately, and
+        an inline array on one response is not the route." The reason R8.2
+        counts it separately is the one the detail route gives for not inlining
+        the series array: the client's questions cost different amounts on the
+        server. R3.10's capture is rate-limited independently of R3.2's row (5
+        plans/minute/cluster by default), so a page that renders the table row
+        must not pay for EXPLAIN output, and R8.2's answer is a route, not a
+        field.
+
+        What a sample is stays R3.10's, and the three constraints in
+        `PlanSampleView`'s docblock are the shape: the normalised-and-truncated
+        template cannot be EXPLAINed, so the sample carries the raw first-seen
+        text; parameterized statements go through PREPARE + EXPLAIN EXECUTE, so
+        the sample carries a `method`; and a pg_monitor-only deployment answers
+        `permission denied for table …`, so the sample carries an `availability`
+        that is a state, not an error.
+
+        The route does not page, and the reason is R3.10's own bound rather than
+        an omission: capture is 5 plans/minute/cluster, so the sample set for
+        one fingerprint is bounded by the retention window, not by how many
+        plans the cluster has. `meta.total` is therefore the length of `data`,
+        `meta.truncated` is false by construction and `meta.nextCursor` is
+        always empty — the three-field agreement `dto.Meta` requires.
+
+        `namespace` and `cluster` are required here for R3.4's reason, exactly
+        as on the detail route: a fingerprint is canonical *within* a cluster,
+        so the pair plus the path parameter is the row. All three parameters are
+        inline rather than `$ref`s because the shared Namespace and Cluster
+        components say `required: false` and this route requires both.
+
+        Served today by a not-found source — the interface-plus-default shape
+        the entries above document — because R3.10's capture is Phase 6b's: every
+        fingerprint answers 404 `NotFound` until a store is assigned to
+        `Config.QueryPlans`. An empty `data` would be the honest answer for a
+        query row with no samples captured yet, and the default cannot tell that
+        row from one that does not exist; a real source can, and the two answers
+        are documented on `emptyQueryPlansSource`.
+      x-status: implemented
+      parameters:
+        - name: fingerprint
+          in: path
+          description: |
+            The query whose plans these are (R3.10). R3.4's normalisation hash —
+            the same value the list's rows carry as `fingerprint` and the detail
+            route addresses.
+          required: true
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          description: |
+            The namespace of the cluster the statement ran in. Required here, as
+            on the detail route, and for the same reason: the fingerprint is
+            canonical within one cluster, so this and `cluster` together resolve
+            `{fingerprint}` to a row.
+          required: true
+          schema:
+            type: string
+        - name: cluster
+          in: query
+          description: |
+            The CloudNativePG Cluster the statement ran on.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: |
+            The query's captured plans, in an envelope. An empty `data` is a
+            valid answer for a query row with no samples captured yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryPlansEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        # Two 503 bodies in code, one response key in OpenAPI, exactly the
+        # limitation the queries, series and detail entries above spell out:
+        # the readiness gate answers NotReady and a store read that errors
+        # answers Unavailable. NotReady is the one reachable today, because the
+        # default source cannot error — its only answer is the 404 above.
+        '503':
+          $ref: '#/components/responses/NotReady'
+
   /healthz:
     get:
       tags: [probes]
@@ -1609,11 +1711,18 @@ x-planned-paths:
   # file lists them separately, and why the list's commit deleted one line and not
   # two. This commit deletes the second.
   #
-  # /api/v1/insights/queries/{fingerprint}/plans (R3.10) stays planned even though
-  # the detail response carries the same list inline in `plans`: R8.2 counts the
-  # route separately, and an inline array on one response is not the route.
+  # /api/v1/insights/queries/{fingerprint}/plans (R3.10) was the fourth route from
+  # this list, and the note here used to say it "stays planned even though the
+  # detail response carries the same list inline in `plans`: R8.2 counts the route
+  # separately, and an inline array on one response is not the route." That sentence
+  # is now the reason the route exists rather than the reason it is planned:
+  # internal/api/query_plans.go implements it and server.go registers it, so the
+  # entry is deleted rather than marked, same rule as the three above. The route is
+  # served by a not-found source until R3.10's capture lands (Phase 6b's), which is
+  # not the same thing as being unimplemented — the handler answers, and what it
+  # answers is 404 for every fingerprint, which is what R14.7 requires of a
+  # documented route whose store is not yet populated.
   r8.2-catalogue:
-    - /api/v1/insights/queries/{fingerprint}/plans
     - /api/v1/insights/wait-events          # R4, R10.7
     - /api/v1/insights/databases            # R10.8
     - /api/v1/insights/users                # R10.9
@@ -3308,6 +3417,42 @@ components:
           type: integer
           description: |
             The number of sampled executions at or below `le`.
+
+    # ---- Query plans (R3.10) ----------------------------------------------
+
+    QueryPlansEnvelope:
+      type: object
+      description: |
+        `dto.Envelope[PlanSampleView]` — the fourth projection of the Go
+        generic `Envelope[T any]`, named the way `FleetEnvelope` names the
+        clusters one, `QueriesEnvelope` the query-list one and
+        `QuerySeriesEnvelope` the series one.
+
+        Declared in Go as a type *alias*
+        (`type QueryPlansEnvelope = dto.Envelope[dto.PlanSampleView]`), not as a
+        struct with the same fields: R8.4's envelope has exactly one definition
+        in this codebase and an alias creates no second type for the two names to
+        disagree about. The name exists so this document has something to `$ref`.
+
+        The `meta` pair this body carries is R3.10's own bound rather than a
+        page: capture is 5 plans/minute/cluster, so `total` is the length of
+        `data`, `truncated` is false by construction and `nextCursor` is empty —
+        the three-field agreement `dto.Meta` requires. The route's entry under
+        `paths` gives the argument; the point here is that the shared envelope is
+        not a reason to invent paging the requirement bounds away.
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          description: |
+            The query's captured plans. `[]`, never null, for a query row with
+            none captured yet — the house rule `FleetEnvelope.data` states for
+            its own array, and R3.10's rate limit is why the empty case is
+            ordinary rather than exceptional.
+          items:
+            $ref: '#/components/schemas/PlanSampleView'
+        meta:
+          $ref: '#/components/schemas/Meta'
 
     PlanSampleView:
       type: object

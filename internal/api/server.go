@@ -110,6 +110,27 @@ type Config struct {
 	// assigns whichever of the two it has implemented without stubbing the other).
 	QueryDetail QueryDetailSource
 
+	// QueryPlans is R3.10's plan samples (GET /api/v1/insights/queries/
+	// {fingerprint}/plans, implemented in query_plans.go). Nil selects the
+	// not-found source, so the route answers 404 for every fingerprint — the rule
+	// QueryDetail follows for keyed routes, and the one Queries does not: a list
+	// with no store behind it can answer 200 with an empty page, a question that
+	// names a row cannot. R3.10's capture is Phase 6b's, so this field stays nil
+	// until then, and the route is registered anyway because the document lists it
+	// and R14.7 forbids a documented route that 404s for the wrong reason.
+	//
+	// It is a separate field from QueryDetail because R8.2 counts the two routes
+	// separately and QueryPlansSource is a separate interface — the manifest's own
+	// words were that the detail response "carries the same list inline in `plans`"
+	// and an inline array on one response is not the route — so a store can serve
+	// one without the other. The default is applied in queryPlansSource rather than
+	// in New, which is the pattern the two fields above it set and which is also
+	// where the typed-nil caveat from 2b63f1e lives for this field: `cfg.QueryPlans
+	// = (*store.Store)(nil)` is not == nil, so the accessor hands back the typed nil
+	// and the implementation must answer on a nil receiver, the way
+	// store.RenderPerQuery does for PerQueryMetrics.
+	QueryPlans QueryPlansSource
+
 	// Metrics is the collector self-observability state whose two R2.2 families
 	// (pgsi_collector_duration_seconds, pgsi_collector_errors_total) /metrics
 	// renders alongside pgsi_build_info — R9.8's composition, and the call
@@ -291,6 +312,13 @@ func (s *Server) Handler() http.Handler {
 	// QueryDetailPath, which is also the string A4's web/src/routes.ts:193 carries
 	// as the query-detail page's endpoint (R14.7).
 	mux.HandleFunc("GET "+QueryDetailPath, s.handleQueryDetail)
+	// R3.10's plan samples (query_plans.go), listed after the detail route because
+	// that is the order the four /insights/queries patterns resolve in: the two
+	// literals first, then {fingerprint}, then {fingerprint}/plans. The path comes
+	// from QueryPlansPath, which is the string api/openapi.yaml carries now and the
+	// one api/x-planned-paths.yaml carried until this commit moved it up to `paths`
+	// (R14.7 — and the two lists being disjoint is what makes that checkable).
+	mux.HandleFunc("GET "+QueryPlansPath, s.handleQueryPlans)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	// R8.3's pair registers four patterns of its own (GET and POST on each of
 	// /api/v1/metrics/query and /api/v1/metrics/system), so it mounts here

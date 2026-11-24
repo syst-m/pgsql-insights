@@ -158,6 +158,7 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/insights/queries/{fingerprint}",
+		"GET /api/v1/insights/queries/{fingerprint}/plans",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
 		"GET /api/v1/version",
@@ -179,13 +180,17 @@ func TestRouteTable(t *testing.T) {
 	}
 
 	// The constant-resolution case, called out separately because it is the one
-	// a grep-based generator gets wrong: four of these paths exist only as
-	// constants concatenated onto the method.
+	// a grep-based generator gets wrong: five of these paths exist only as
+	// constants concatenated onto the method (the fifth is QueryPlansPath, the
+	// R3.10 route this commit registers; GET /api/v1/metrics/query stays in the
+	// list as the control — it is a literal in promql.go, so it pins that the walk
+	// reads plain strings as well as concatenated ones).
 	for _, s := range []string{
 		"GET /api/v1/clusters/{namespace}/{name}",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/insights/queries/{fingerprint}",
+		"GET /api/v1/insights/queries/{fingerprint}/plans",
 		"GET /api/v1/metrics/query",
 	} {
 		found := false
