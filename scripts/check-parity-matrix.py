@@ -602,9 +602,21 @@ def check_table_widths(root):
 # large one is not a strong one -- it counts sentences written in a shape the
 # regex recognises, and prose that cites a row without the connector ("see the
 # table", "per requirements.md") is outside it by design. The row count is the
-# census: every requirement row's own cite in every phase table, re-checked on
-# every edit. Only .md targets are in either, matching check_path_citations'
-# scan set -- a wrong cite in a Go docblock is still caught by whoever typed it.
+# census -- of the four files in WIDTH_DOC: every requirement row's own cite in
+# the phase tables that live in those four, re-checked on every run. A row in a
+# markdown file outside WIDTH_DOC is neither counted nor checked, which is the
+# same boundary as the .md-only target rule it sits next to: the scan set is a
+# list of files, and every number this section prints is a number about those
+# files and not about markdown in general.
+#
+# The two forms are not equally strong per line. Form 2 (the table row) is the
+# stronger: a requirement row's first cell *is* the id, so the check needs no
+# syntax to know what the cite should point at, and it validates 279 pairings for
+# the cost of parsing rows the width check already parses. Form 1 (adjacency)
+# exists only to cover prose outside a table, where the connector words are the
+# only signal of what a cite is being claimed to be -- which is why its pattern is
+# narrow and its count small, and why widening it further buys false positives
+# before it buys coverage.
 IDCITE_RX = re.compile(
     # "R16.5 (`requirements.md:521`)", "R9.8 (requirements.md:401)", and the prose
     # forms "the R9.8 row at `requirements.md:401`" / "this R2.2 cell, in
