@@ -10,7 +10,7 @@
 // copy that sentence existed to prevent, and R16.8 files a second copy of a
 // contract more often than this project files anything else.
 //
-// # The eight families, and which five render here
+// # The eight families, and which six render here
 //
 // R9.8 names eight. IMPLEMENTATION.md §3.9's R9.8 row is the authority on the
 // count; this is the same accounting read from the package's side:
@@ -19,7 +19,7 @@
 //	here      pgsi_collector_duration_seconds     R2.2    collector.Stats.RenderDuration
 //	here      pgsi_collector_errors_total         R2.2    collector.Stats.RenderErrors
 //	here      pgsi_up{namespace,cluster,pod,instance_role}  R9.12  collector.UpTracker.Render
-//	pending   pgsi_store_size_bytes               R13.5   collector.MemSink.Used — no route to it yet
+//	here      pgsi_store_size_bytes               R13.5   StoreSize (store.go)
 //	here      pgsi_http_request_duration_seconds  R9.8    HTTPRequests.Render (http.go)
 //	pending   pgsi_scheduler_queue_depth          R2.9    needs the scheduler queue and its budget
 //	pending   pgsi_scheduler_shed_total           R2.9    needs the scheduler queue and its budget
@@ -31,7 +31,7 @@
 // collector.UpTracker renders. The table follows the code and R9.12, the newer
 // of the two texts and the one the collector implements.
 //
-// The three pending families are not stubbed, and a stub is the wrong move here
+// The two pending families are not stubbed, and a stub is the wrong move here
 // for a reason the exposition format states rather than one this package
 // invents: a family with no series is absent, not a HELP/TYPE pair beside a
 // value the process never measured. collector.Stats.Render and
@@ -44,17 +44,21 @@
 // `# HELP` and `# TYPE` lines, so the hub is a strings.Builder over N calls
 // with no per-family special-casing".
 //
-// Two of the four are blocked on a subsystem, not on a metric. The store's size
-// is measurable today (collector.MemSink.Used exists and returns bytes), but
-// nothing hands it to the hub: *collector.Scheduler exposes Up() and Stats()
-// and no sink accessor, and api.Config carries no sink field, so the sink a
-// running server writes to is not reachable from where the exposition is
-// composed. The two scheduler families need R2.9's global budget with its shed
-// counter, which does not exist yet. The HTTP duration family needed a renderer
-// rather than a subsystem, and it is in http.go; the api-side middleware that
-// feeds it is the one line in internal/api not yet wired, and until it is, the
-// family has no observations and renders absent — the same answer the rule above
-// gives for any family with no series.
+// What is left pending is the scheduler pair, and both halves are blocked on the
+// subsystem rather than on a metric: they need R2.9's global budget with its shed
+// counter, which does not exist yet, so there is no queue depth to report and
+// nothing to increment. The two families that were blocked on something other
+// than the scheduler are now both rendered, and each one's blocker names what it
+// was. The HTTP duration family needed a renderer, and it is in http.go; the
+// api-side middleware that feeds it compiles and is tested but is still the one
+// line in internal/api not yet wired, so that family has no observations and
+// renders absent — the same answer the rule above gives for any family with no
+// series. The store-size family needed a route to a number that already exists,
+// and it is in store.go: the route is a one-method interface rather than
+// collector.Sink, because that interface declares Publish and Samples only,
+// which is the whole reason this row used to read "no route to it yet". A hub
+// with no source passed to WithStoreSize renders it absent, which is the state
+// every server is in until api.Config grows the sink field.
 //
 // # Catalogue families, and why one is here too
 //
@@ -132,10 +136,10 @@ type PerQueryFamily interface {
 
 // Option configures a Hub beyond its two collector sources. Options exist so
 // that adding a family never changes New's signature again: 0f4b154 shipped
-// New(collectors, up), and every family this package gains since — R9.5's and
-// R9.8's HTTP-duration one, with the store-size family still pending — would
-// otherwise cost a signature change plus a call-site change in internal/api,
-// which is how a one-line addition turns into a two-package commit.
+// New(collectors, up), and every family this package gains since — R9.5's,
+// R9.8's HTTP-duration one and R13.5's store-size one — would otherwise cost a
+// signature change plus a call-site change in internal/api, which is how a
+// one-line addition turns into a two-package commit.
 type Option func(*Hub)
 
 // WithPerQuery adds R9.5's per-query family to the hub. The zero value (no
@@ -152,6 +156,16 @@ func WithPerQuery(f PerQueryFamily) Option {
 // served a request.
 func WithHTTPRequests(m *HTTPRequests) Option {
 	return func(h *Hub) { h.http = m }
+}
+
+// WithStoreSize adds R13.5's pgsi_store_size_bytes family, R9.8's sixth
+// (store.go). The source is a StoreSizer rather than a sink type so the option is
+// passable today: *collector.MemSink satisfies it and collector.Sink — the
+// interface api.Config and the scheduler hold — does not, so the option does not
+// have to wait on A1 deciding which sink type Config carries. A nil source
+// renders the family absent, which is the state of a hub built by New alone.
+func WithStoreSize(src StoreSizer) Option {
+	return func(h *Hub) { h.store = src }
 }
 
 // Hub composes the self-observability families one process can render (R9.8).
@@ -174,6 +188,12 @@ type Hub struct {
 	// A nil *collector.UpTracker is legal and renders nothing.
 	up *collector.UpTracker
 
+	// store is R13.5's pgsi_store_size_bytes — R9.8's sixth family — supplied
+	// through WithStoreSize. StoreSize handles both nil shapes itself (the
+	// untyped nil, and the typed-nil *collector.MemSink that `== nil` misses), so
+	// this needs no check of its own.
+	store StoreSizer
+
 	// perQuery is R9.5's catalogue family, supplied through WithPerQuery. A nil
 	// interface — the state of a hub built by New alone — renders the family
 	// absent rather than empty, and that is also the state of a server whose
@@ -193,8 +213,8 @@ type Hub struct {
 // collector still has a hub, and it renders exactly BuildInfo.
 //
 // Families that arrive from outside the collector package are passed as Options
-// (WithPerQuery and WithHTTPRequests today, and the pending store-size family
-// later), which is what lets this signature stay put while the hub grows.
+// (WithPerQuery, WithHTTPRequests and WithStoreSize today), which is what lets
+// this signature stay put while the hub grows.
 func New(collectors *collector.Stats, up *collector.UpTracker, opts ...Option) *Hub {
 	h := &Hub{collectors: collectors, up: up}
 	for _, opt := range opts {
@@ -213,7 +233,8 @@ func (h *Hub) Render() string { return h.RenderContext(context.Background()) }
 
 // RenderContext concatenates the families this hub can render, in R9.8's listed
 // order: build info, then the collector pair, then the scrape-target gauge, then
-// the HTTP-duration family, then the catalogue families.
+// the store-size gauge, then the HTTP-duration family, then the catalogue
+// families.
 //
 // A source with nothing to say contributes no bytes rather than an empty family.
 // That rule is not this package's invention — collector.Stats.Render and
@@ -254,6 +275,21 @@ func (h *Hub) RenderContext(ctx context.Context) string {
 	b.WriteString(BuildInfo())
 	b.WriteString(h.collectors.Render())
 	b.WriteString(h.up.Render(""))
+	// R13.5's store-size gauge, R9.8's sixth family. No nil check here:
+	// StoreSize returns "" for a nil source, and for the typed-nil
+	// *collector.MemSink that an `== nil` on this field would not catch.
+	b.WriteString(StoreSize(h.store, ""))
+	// R9.8's HTTP-duration family. No nil check: HTTPRequests.Render is defined
+	// on a nil receiver and returns "", which is this package's answer for a
+	// family with no series and the same shape the two collector sources get.
+	b.WriteString(h.http.Render(""))
+	// The catalogue families are last, and they are last in the body as well as in
+	// the sentence above: 7a8e158 appended the HTTP render after this block rather
+	// than before it, which contradicted both this doc and
+	// TestHubPerQueryFamilyGetsR9_5sDefaults' "catalogue families come after the
+	// eight" — the store-size line is what put the order back, since R9.8 lists
+	// store_size before http_request_duration and does not list the catalogue
+	// families at all.
 	if h.perQuery != nil {
 		// R9.5's default N and R9.2's default prefix, both as arguments: the
 		// constants are the single home of each default (collector.DefaultTopN,
@@ -263,9 +299,5 @@ func (h *Hub) RenderContext(ctx context.Context) string {
 			b.WriteString(body)
 		}
 	}
-	// R9.8's HTTP-duration family. No nil check: HTTPRequests.Render is defined
-	// on a nil receiver and returns "", which is this package's answer for a
-	// family with no series and the same shape the two collector sources get.
-	b.WriteString(h.http.Render(""))
 	return b.String()
 }
