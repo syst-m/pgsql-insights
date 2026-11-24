@@ -117,13 +117,23 @@ func TestR36LengthProfiles(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		n    int
+		// want is R3.6's literal, not the constant: `n` *is* the constant, so
+		// every check below compares a value against what it was assigned from.
+		// Measured — DefaultQueryStringLength 1024 -> 1025 and
+		// EnterprisePlusQueryStringLength 10000 -> 10001 both left the package
+		// green; min and max were caught only via the `long` input their
+		// byte-count derivation feeds the truncation check with.
+		want int
 	}{
-		{"min", MinQueryStringLength},
-		{"default-enterprise", DefaultQueryStringLength},
-		{"default-enterprise-plus", EnterprisePlusQueryStringLength},
-		{"max", MaxQueryStringLength},
+		{"min", MinQueryStringLength, 256},
+		{"default-enterprise", DefaultQueryStringLength, 1024},
+		{"default-enterprise-plus", EnterprisePlusQueryStringLength, 10000},
+		{"max", MaxQueryStringLength, 100000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.n != tc.want {
+				t.Errorf("%s = %d, want %d (R3.6's literal)", tc.name, tc.n, tc.want)
+			}
 			if !ValidLength(tc.n) {
 				t.Errorf("ValidLength(%d) = false, R3.6's range includes it", tc.n)
 			}
