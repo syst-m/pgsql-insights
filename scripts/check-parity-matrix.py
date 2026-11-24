@@ -602,12 +602,20 @@ def check_table_widths(root):
 # large one is not a strong one -- it counts sentences written in a shape the
 # regex recognises, and prose that cites a row without the connector ("see the
 # table", "per requirements.md") is outside it by design. The row count is the
-# census -- of the four files in WIDTH_DOC: every requirement row's own cite in
-# the phase tables that live in those four, re-checked on every run. A row in a
-# markdown file outside WIDTH_DOC is neither counted nor checked, which is the
-# same boundary as the .md-only target rule it sits next to: the scan set is a
-# list of files, and every number this section prints is a number about those
-# files and not about markdown in general.
+# census of every tracked .md file -- 53 files and 279 requirement rows at
+# 80a09eb -- and it is NOT the four files in WIDTH_DOC. 8cdf27a scoped this
+# sentence to WIDTH_DOC, which described a number this function never computes:
+# check_table_widths iterates WIDTH_DOC (:563) and check_id_cites iterates
+# tracked_files filtered to .md (:664), so the printed 279 is 268 from
+# WIDTH_DOC's two .md files plus 11 from docs/reviews/round-1-product.md -- a
+# file the WIDTH_DOC comment names as deliberately excluded from the width scan.
+# The exclusion does not carry over, and the reason is the two checks' different
+# failure modes: width-checking a frozen document can only produce exemptions,
+# because its tables are prose-shaped the way the exempt §11 rows are, while
+# cite-checking it can still find a live defect, because a wrong pairing is not
+# frozen by the document being point-in-time. Four files is right for widths and
+# every tracked .md is right for cites; the numbers each section prints are
+# numbers about its own scan set and not about markdown in general.
 #
 # The two forms are not equally strong per line. Form 2 (the table row) is the
 # stronger: a requirement row's first cell *is* the id, so the check needs no
