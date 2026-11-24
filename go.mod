@@ -13,14 +13,14 @@ go 1.26.0
 //
 // github.com/jackc/pgx/v5 is the Postgres driver, imported only through its
 // database/sql-compatible pgx/stdlib subpackage and only by
-// internal/collector/pgxopener. It is the answer to the decision sql.go:34-40
-// deferred, not a new one: that paragraph named three candidates ("choosing
-// between lib/pq, pgx, and the kubelet pod-proxy is a separate decision from
-// writing the collectors") and this is the choice, made so the seven SQL
-// collectors can be given an opener. The driver stays out of internal/collector
-// itself — pgxopener imports collector, never the reverse — which is what the
-// interface was written to achieve. The kubelet pod-proxy option was a transport
-// question, not a driver question, and is not foreclosed by this.
+// internal/collector/pgxopener. It is the answer to the decision
+// sql.go:34-48 records — "the choice between lib/pq, pgx, and the kubelet
+// pod-proxy was deferred as a separate decision from writing the collectors",
+// and this is that choice, made so the seven SQL collectors can be given an
+// opener. The driver stays out of internal/collector itself — pgxopener
+// imports collector, never the reverse — which is what the interface was
+// written to achieve. The kubelet pod-proxy option was a transport question,
+// not a driver question, and is not foreclosed by this.
 //
 // R13.10 forbids `replace` directives; `make tidy-check` enforces tidiness in CI.
 
