@@ -66,6 +66,7 @@ const SERIES: QuerySeries = {
       sharedBlocksHit: 40,
       sharedBlocksRead: 7,
       lockTimeSeconds: 0.2,
+      ioTimeSeconds: 0.024,
     },
     {
       timestamp: "2026-11-20T09:12:00Z",
@@ -74,6 +75,7 @@ const SERIES: QuerySeries = {
       sharedBlocksHit: 2044,
       sharedBlocksRead: 61,
       lockTimeSeconds: 1.4,
+      ioTimeSeconds: 0.2092,
     },
     {
       timestamp: "2026-11-20T09:13:00Z",
@@ -82,6 +84,7 @@ const SERIES: QuerySeries = {
       sharedBlocksHit: 310,
       sharedBlocksRead: 12,
       lockTimeSeconds: 0.1,
+      ioTimeSeconds: 0.0412,
     },
   ],
 };

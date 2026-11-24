@@ -645,6 +645,12 @@ export interface QuerySeriesPoint {
   sharedBlocksRead: number;
   /** R9.4 `lock_time`. */
   lockTimeSeconds: number;
+  /** R9.4 `io_time` for the minute, in seconds. This one is *derived* rather than
+   *  a sixth sample (R9.11): it is the sum of the two block counters above, the
+   *  same derivation R3.2's Load by IO column publishes as `loadByIOWaitMs` on a
+   *  list row. The store's batched read does not select the column yet, so the
+   *  value is the zero its type gives it until that select lands. */
+  ioTimeSeconds: number;
 }
 
 /** `primary` or `replica` — the role half of R5.7's (namespace, cluster, pod)

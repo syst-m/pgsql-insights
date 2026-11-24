@@ -41,6 +41,7 @@ const SERIES: QuerySeries = {
       sharedBlocksHit: 40,
       sharedBlocksRead: 7,
       lockTimeSeconds: 0.2,
+      ioTimeSeconds: 0.024,
     },
     {
       timestamp: "2026-11-20T09:12:00Z",
@@ -49,6 +50,7 @@ const SERIES: QuerySeries = {
       sharedBlocksHit: 2044,
       sharedBlocksRead: 61,
       lockTimeSeconds: 1.4,
+      ioTimeSeconds: 0.2092,
     },
     {
       timestamp: "2026-11-20T09:13:00Z",
@@ -57,6 +59,7 @@ const SERIES: QuerySeries = {
       sharedBlocksHit: 8,
       sharedBlocksRead: 0,
       lockTimeSeconds: 0,
+      ioTimeSeconds: 0.0,
     },
   ],
 };
@@ -82,6 +85,7 @@ const SERIES_B: QuerySeries = {
       sharedBlocksHit: 3,
       sharedBlocksRead: 0,
       lockTimeSeconds: 0,
+      ioTimeSeconds: 0.0,
     },
     {
       timestamp: "2026-11-20T09:14:00Z",
@@ -90,6 +94,7 @@ const SERIES_B: QuerySeries = {
       sharedBlocksHit: 3,
       sharedBlocksRead: 0,
       lockTimeSeconds: 0,
+      ioTimeSeconds: 0.0,
     },
   ],
 };
@@ -145,6 +150,7 @@ describe("stackSeries", () => {
       sharedBlocksHit: 0,
       sharedBlocksRead: 0,
       lockTimeSeconds: 0,
+      ioTimeSeconds: 0.0,
     };
     // The NaN bucket still exists (the good series has a value for it) and its
     // total is the good value alone, not NaN.
