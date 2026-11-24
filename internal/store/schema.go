@@ -270,7 +270,7 @@ CREATE INDEX IF NOT EXISTS idx_rollup_cluster
 // # The PK, and why it is six columns plus a timestamp
 //
 // It was (fingerprint, captured_at) until A3's R10.7 extension (requirements.md
-// R10.7: "Extension (S26's second half): the same identity has to reach the two
+// R10.7: "Extension (A3's S26 second half): the same identity has to reach the two
 // plan tables or this ruling is unimplementable for plans"). Two users' plans
 // captured in one round share a fingerprint and a captured_at, so the two-column
 // key gave them one row and INSERT OR REPLACE kept the last — the cell's own proof

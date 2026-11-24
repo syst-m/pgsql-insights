@@ -1,4 +1,4 @@
-// detail_test.go is S29's per-file test for detail.go: R10.7's Query Detail.
+// detail_test.go is A3's S29 per-file test for detail.go: R10.7's Query Detail.
 //
 // The file has two halves and they fail for different reasons. Half is SQL — the
 // three SELECTs, their WHERE clauses and their LIMIT — and its failures look like
@@ -116,7 +116,7 @@ func rowWithPlan(queryid, sql, usename string, calls int64, totalMs float64, at 
 //
 // The error must be ErrUnknownFingerprint (so api's mapping answers 404) and not a
 // bare fmt.Errorf — a store that returned errors.New("not found") here gets a 503
-// for a query that simply does not exist, which is the failure store.go's S35 split
+// for a query that simply does not exist, which is the failure A3's S35 split on store.go
 // exists to prevent. And the message must carry the triple, which is what api's
 // doc asks a wrapping store to add: the fingerprint alone tells a caller nothing
 // about which of the two namespaces it looked in.
@@ -690,7 +690,7 @@ func TestDetailSourcesFilter(t *testing.T) {
 	// The joined columns: the query-table fields arrive on every source row, which
 	// is what proves the JOIN is not dropping rows and what fills the QueryView's
 	// Query with the stored display_text — the template, not the raw statement.
-	// Asserting `display == topnSQL` (S44, the first draft's bug) reads the wrong
+	// Asserting `display == topnSQL` (A3's S44, the first draft's bug) reads the wrong
 	// column: topnSQL is the raw text, which lives in first_seen_text, and the two
 	// are not re-derivable from each other (schema.go's argument). The same
 	// $1-not-17 pair topn_test.go asserts for the list route.

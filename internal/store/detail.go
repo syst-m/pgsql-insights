@@ -267,7 +267,7 @@ func (s *Store) queryDetail(
 		// own 400 path covers the only malformed case it checks (an empty
 		// fingerprint), and R3.4's shape rule is enforced on the write side by
 		// validFingerprint, so a read cannot tell "bad key" from "no row" any
-		// better than the store could before S35 split the two sentinels.
+		// better than the store could before A3's S35 split the two sentinels.
 		return dto.QueryDetailView{}, fmt.Errorf("store: no row for %s in %s/%s: %w",
 			fingerprint, namespace, cluster, ErrUnknownFingerprint)
 	}

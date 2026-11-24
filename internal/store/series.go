@@ -69,7 +69,7 @@ var _ api.QuerySeriesSource = (*Store)(nil)
 // fold into the one entry the contract asks for.
 //
 // lock_wait_ms is the one column that cannot be summed. The schema's -1 is a code
-// meaning "this source has no lock_time" (S25's interim encoding, statements.go's
+// meaning "this source has no lock_time" (A3's S25 interim encoding, statements.go's
 // noLockWait), and a code is not a duration: SUM of -1 and 5.0 is 4.0, a number
 // that looks like a measurement and isn't. The CASE poisons the group the way an
 // unknown should — one source that cannot answer makes the minute unable to answer —

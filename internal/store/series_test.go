@@ -1,4 +1,4 @@
-// series_test.go is S29's test file for series.go — R8.11's batched series read
+// series_test.go is A3's S29 test file for series.go — R8.11's batched series read
 // behind GET /api/v1/insights/queries/series.
 //
 // Like detail_test.go, it splits the source into the half that is SQL and the half
@@ -451,7 +451,7 @@ func TestSeriesSumsAcrossPodsAndUsers(t *testing.T) {
 }
 
 // TestSeriesLockWaitPoisoning covers the one column seriesSQL cannot SUM: the
-// schema's -1 means "this source has no lock_time" (S25's interim encoding), and
+// schema's -1 means "this source has no lock_time" (A3's S25 interim encoding), and
 // SUM of -1 and 5.0 is 4.0 — a number that looks like a measurement and isn't.
 // The CASE makes one unanswerable source poison the minute, which is R3.14's
 // answer-not-available-rather-than-zero, while two real per-pod deltas still sum.

@@ -543,10 +543,10 @@ func TestStddevValueEncoding(t *testing.T) {
 
 func ptr(f float64) *float64 { return &f }
 
-// TestPutSnapshotPlanChange pins R3.11:315's event row and, with it, the S26
+// TestPutSnapshotPlanChange pins R3.11:315's event row and, with it, A3's S26
 // fix: the previous hash is read for samples *older than the one being written*.
 //
-// Without S26's second argument the read-back returns the row the insert loop
+// Without A3's S26 second argument the read-back returns the row the insert loop
 // just wrote, prev equals the current hash, and no change is ever recorded —
 // which compiles, and passes every test that does not look. So this test looks:
 // two rounds with different hashes must produce exactly one plan_change row

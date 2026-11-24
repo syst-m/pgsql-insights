@@ -301,7 +301,7 @@ type DimensionRollup struct {
 
 	// Namespace and Cluster are which cluster this row belongs to, and they are
 	// not part of the dimension set: the same /* pgsi:route=/orders */ tag in two
-	// clusters is two rows (schema.go's S27 fix, which added both columns to the
+	// clusters is two rows (A3's S27 fix on schema.go, which added both columns to the
 	// PK), and Dimensions has no cluster fields precisely so one tag's dimensions
 	// can be computed once and written to each cluster it was seen in.
 	Namespace string

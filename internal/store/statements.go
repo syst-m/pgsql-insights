@@ -742,7 +742,7 @@ func (s *Store) existingSources(ctx context.Context, src QuerySource) (existingS
 
 // detectPlanChange is R3.11:315's event for one freshly written sample: the
 // previous hash for the sample's own row — the row, not the fingerprint, which is
-// S43 and is what the widened PK means — and whether it differs from this one. ok is
+// A3's S43 and is what the widened PK means — and whether it differs from this one. ok is
 // false when there is no previous hash (the first sample, so nothing changed) or
 // when the sample carries no hash (an unavailable plan — R3.11's hash exists
 // "whenever there is a plan", and dto.PlanSampleView's omitempty says the
@@ -755,8 +755,8 @@ func detectPlanChange(tx *sql.Tx, p planRow) (planChange, bool) {
 	// The last argument is the bound A3's S26 asked for. Without it the read-back
 	// returns the row the insert loop above just wrote, prev equals p.planHash, the
 	// check below returns false, and no plan change is ever recorded — a compile
-	// green, test-green (until S29's tests exist) way to miss the requirement. The
-	// six before it are S43's identity: the row whose previous hash we want is the
+	// green, test-green (until A3's S29 tests exist) way to miss the requirement. The
+	// six before it are A3's S43 identity: the row whose previous hash we want is the
 	// row this sample belongs to, not the newest one the fingerprint happens to have
 	// somewhere else.
 	err := tx.QueryRow(previousPlanHashSQL,
