@@ -141,6 +141,7 @@ import { scaleLinear } from "d3-scale";
 import type { SeriesRange } from "../api/client";
 import type { QuerySeries } from "../api/types";
 import { formatDurationMs, formatTimestamp } from "../lib/format";
+import { axisTimeLabel } from "./Sparkline";
 
 /** x-axis label row, in px. The same value as `Sparkline.tsx`'s private
  *  `X_AXIS_ROW`; the two charts want the same axis height, and the constant is
@@ -392,6 +393,10 @@ export function QueryLoadArea({
   const y = scaleLinear()
     .domain([domain[0], domain[1]])
     .range([height, 0]);
+  // Same clamp as `Sparkline.tsx`: a label centred on the top gridline has half
+  // its glyphs above the viewBox and renders cut in half, so the baseline is
+  // clamped inside the frame (8px below the top, 4px above the bottom).
+  const yLabelY = (v: number): number => Math.min(Math.max(y(v) + 3, 8), totalH - 4);
 
   const name = label ?? "Query load";
 
@@ -517,7 +522,7 @@ export function QueryLoadArea({
 
             <g className="spark-y-labels">
               {[domain[0], (domain[0] + domain[1]) / 2, domain[1]].map((v) => (
-                <text key={`y-${n(v)}`} className="spark-axis-label" x={Y_GUTTER - 6} y={n(y(v) + 3)} textAnchor="end">
+                <text key={`y-${n(v)}`} className="spark-axis-label" x={Y_GUTTER - 6} y={n(yLabelY(v))} textAnchor="end">
                   {formatSec(v)}
                 </text>
               ))}
@@ -532,7 +537,7 @@ export function QueryLoadArea({
                   y={height + X_AXIS_ROW - 3}
                   textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}
                 >
-                  {formatTimestamp(points[i]?.t ?? null)}
+                  {axisTimeLabel(points[i]?.t ?? null)}
                 </text>
               ))}
             </g>

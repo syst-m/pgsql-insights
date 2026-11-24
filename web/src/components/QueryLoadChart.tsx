@@ -75,7 +75,7 @@ import type { ReactElement } from "react";
 
 import type { QuerySeries, QuerySeriesPoint } from "../api/types";
 import { formatDurationMs, formatNumber, formatTimestamp } from "../lib/format";
-import { Sparkline } from "./Sparkline";
+import { axisTimeLabel, Sparkline } from "./Sparkline";
 
 /** Seconds → the house duration string, via the ms formatter.
  *
@@ -118,6 +118,14 @@ export const SERIES_METRICS: readonly SeriesMetric[] = [
  *  `Sparkline`'s tick selection can label the right minute. */
 export function seriesXLabels(points: readonly QuerySeriesPoint[]): string[] {
   return points.map((p) => formatTimestamp(p.timestamp));
+}
+
+/** The same points in `Sparkline`'s short axis form (`HH:mm`), passed alongside
+ *  `seriesXLabels` so the axis stops overlapping itself while the tooltip keeps
+ *  the full R10.21 string. See `Sparkline.tsx`'s `axisTimeLabel` for why the two
+ *  are different strings. */
+export function seriesAxisLabels(points: readonly QuerySeriesPoint[]): string[] {
+  return points.map((p) => axisTimeLabel(p.timestamp));
 }
 
 export interface QueryLoadChartProps {
@@ -174,6 +182,7 @@ export function QueryLoadChart({ series, width = 720, height = 64 }: QueryLoadCh
                 framed
                 formatValue={m.format}
                 xLabels={seriesXLabels(points)}
+                xAxisLabels={seriesAxisLabels(points)}
                 label={`${m.label} per minute`}
               />
             </figure>

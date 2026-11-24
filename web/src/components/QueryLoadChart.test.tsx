@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
 
 import type { QuerySeries, QuerySeriesPoint } from "../api/types";
 import { formatTimestamp } from "../lib/format";
-import { formatSec, QueryLoadChart, SERIES_METRICS, seriesXLabels } from "./QueryLoadChart";
+import { formatSec, QueryLoadChart, SERIES_METRICS, seriesAxisLabels, seriesXLabels } from "./QueryLoadChart";
+import { axisTimeLabel } from "./Sparkline";
 
 /** Three minutes of a fingerprint, each field a different number so a metric
  *  reading the wrong field is visible in the assertion rather than hidden by
@@ -113,6 +114,20 @@ describe("seriesXLabels", () => {
 
   it("returns nothing for no points", () => {
     expect(seriesXLabels([])).toEqual([]);
+  });
+});
+
+describe("seriesAxisLabels", () => {
+  it("gives the axis the short form of the same points, in the same order", () => {
+    // The axis and the tooltip want two different strings for one point (see
+    // `Sparkline.tsx`'s `axisTimeLabel`); this pins that the axis array is that
+    // short form over the same points in the same order, not a re-derived subset.
+    expect(seriesAxisLabels(POINTS)).toEqual(POINTS.map((p) => axisTimeLabel(p.timestamp)));
+    for (const label of seriesAxisLabels(POINTS)) expect(label).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it("returns nothing for no points", () => {
+    expect(seriesAxisLabels([])).toEqual([]);
   });
 });
 

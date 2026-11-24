@@ -10,7 +10,8 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { linePath, Sparkline } from "./Sparkline";
+import { formatTimestamp, NULL_VALUE } from "../lib/format";
+import { axisTimeLabel, linePath, Sparkline } from "./Sparkline";
 
 describe("linePath", () => {
   it("emits one vertex per value, first as a moveto and the rest as linetos", () => {
@@ -70,6 +71,31 @@ describe("linePath", () => {
   });
 });
 
+describe("axisTimeLabel", () => {
+  const TS = "2026-11-20T09:11:00Z";
+
+  it("renders a clock and nothing else", () => {
+    // The axis form is `HH:mm` in the viewer's zone: no date, no zone suffix.
+    // Six full R10.21 strings (~130 px each, ~112 px apart on a 720 px frame)
+    // overlap into one unreadable run, which is the collision this function
+    // exists to end. The full string stays on the tooltip and in the twins.
+    expect(axisTimeLabel(TS)).toMatch(/^\d{2}:\d{2}$/);
+    expect(axisTimeLabel(TS)).not.toMatch(/Nov|GMT|UTC/);
+  });
+
+  it("is strictly shorter than the R10.21 string it replaces on the axis", () => {
+    expect(axisTimeLabel(TS).length).toBeLessThan(formatTimestamp(TS).length);
+  });
+
+  it("returns the em dash for a value that does not parse", () => {
+    // Same rule as every other formatter here: a missing timestamp is a fact
+    // about the data, and a guessed clock on the axis would be a lie about it.
+    expect(axisTimeLabel(null)).toBe(NULL_VALUE);
+    expect(axisTimeLabel("")).toBe(NULL_VALUE);
+    expect(axisTimeLabel("not a timestamp")).toBe(NULL_VALUE);
+  });
+});
+
 describe("Sparkline", () => {
   const values = [1, 4, 2, 8, 5];
 
@@ -122,6 +148,29 @@ describe("Sparkline", () => {
     expect(tip?.querySelector(".tt-label")?.textContent).toBe("d");
     // and the crosshair appears at the hovered x
     expect(container.querySelector(".spark-crosshair")).not.toBeNull();
+  });
+
+  it("draws the axis from xAxisLabels while the tooltip keeps xLabels", () => {
+    // R10.21 asks for two strings at once — the absolute timestamp on hover and
+    // something short enough to fit six of on the axis — and one prop cannot be
+    // both. This pins the split: the tooltip reads `xLabels`, the axis reads
+    // `xAxisLabels` when given, and neither falls back to the other silently.
+    const { container } = render(
+      <Sparkline
+        values={values}
+        label="x"
+        framed
+        formatValue={(v) => `${v} ms`}
+        xLabels={["a", "b", "c", "d", "e"]}
+        xAxisLabels={["A", "B", "C", "D", "E"]}
+      />,
+    );
+    const hits = container.querySelectorAll(".spark-hit");
+    fireEvent.mouseEnter(hits[1] as Element);
+    expect(container.querySelector(".viz-tooltip")?.querySelector(".tt-label")?.textContent).toBe("b");
+    const axis = Array.from(container.querySelectorAll(".spark-x-labels text")).map((t) => t.textContent);
+    expect(axis).toContain("B");
+    expect(axis).not.toContain("b");
   });
 
   it("clears the tooltip on mouse leave", () => {

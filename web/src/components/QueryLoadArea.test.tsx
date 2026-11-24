@@ -25,6 +25,7 @@ import {
   ticksFor,
 } from "./QueryLoadArea";
 import type { QueryLoadPoint } from "./QueryLoadArea";
+import { axisTimeLabel } from "./Sparkline";
 
 /** Three minutes of one fingerprint, every field a different number so a band
  *  reading the wrong field shows up in the assertion. */
@@ -347,13 +348,18 @@ describe("QueryLoadArea", () => {
     const twin = Array.from(rows).map((r) => r.querySelector("td")?.textContent ?? null);
     // No invented rows: every cell is one of the 20 buckets.
     for (const cell of twin) expect(formatted).toContain(cell);
-    // The axis's ends and the twin's ends are the same two buckets, which is
-    // the shared part of the two selections.
+    // The axis's ends are the same two buckets as the twin's ends — the shared
+    // part of the two selections — but in the axis's own short form. Asserting
+    // both strings for one bucket is what pins them to a single bucket list.
     const axis = Array.from(container.querySelectorAll(".spark-x-labels text")).map(
       (t) => t.textContent,
     );
-    expect(axis[0]).toBe(twin[0]);
-    expect(axis[axis.length - 1]).toBe(twin[twin.length - 1]);
+    expect(axis[0]).toBe(axisTimeLabel(many[0]?.t ?? null));
+    expect(axis[axis.length - 1]).toBe(axisTimeLabel(many[many.length - 1]?.t ?? null));
+    // The axis form is a clock and nothing else: `HH:mm`, no date, no zone.
+    // ~30 px per label is what stops six of them smearing into one run, which is
+    // the collision the full R10.21 string produces at this width.
+    expect(axis[0]).toMatch(/^\d{2}:\d{2}$/);
     // The IO column renders the null, not a zero: R10.23's state conveyed by a
     // value that means "no source" rather than one that means "none".
     expect(rows[0]?.querySelectorAll("td")[2]?.textContent).toBe(formatDurationMs(null));

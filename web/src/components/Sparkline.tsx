@@ -68,6 +68,8 @@ import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { scaleLinear } from "d3-scale";
 
+import { formatTimestamp, localZone, NULL_VALUE, parseDate } from "../lib/format";
+
 /** x-axis label row, framed only. */
 const X_AXIS_ROW = 14;
 /** y-axis label gutter, framed only. The plot starts after it so a wide y
@@ -81,6 +83,41 @@ const MAX_X_TICKS = 6;
  *  string with 17-digit floats is unreadable and costs bytes per point. */
 function n(v: number): string {
   return String(Math.round(v * 100) / 100);
+}
+
+/** The short form for an x-axis tick: `HH:mm` in the viewer's zone, no date and
+ *  no zone suffix.
+ *
+ *  R10.21 asks for the local zone *labelled* and the absolute timestamp *on
+ *  hover*, and `formatTimestamp` is the function that does both — that is what
+ *  the tooltip and the table twins render, and it stays what `xLabels` carries.
+ *  On the axis the same 26-character string is the collision this file's own
+ *  `MAX_X_TICKS` comment warns about without measuring for it: six labels ~130
+ *  px wide, ~112 px apart on a 720 px frame, so they overlap into one unreadable
+ *  run (seen in the rendered pass on both this component and `QueryLoadChart`,
+ *  which passes those full strings). The axis therefore carries the clock alone
+ *  — 5 characters, ~30 px — and the date and zone stay one hover away. A tick
+ *  whose timestamp does not parse gets the shared em dash, never a guessed clock.
+ *
+ *  Lives here rather than in `lib/format.ts` (A4's file) because it is an axis
+ *  concern, not a formatting rule the whole app shares: every caller that wants
+ *  the R10.21 string asks `formatTimestamp` for it.
+ */
+export function axisTimeLabel(value: string | null): string {
+  const date = parseDate(value);
+  if (date === null) return NULL_VALUE;
+  const zone = localZone();
+  // `formatTimestamp` degrades in exactly one way when Intl resolves no zone
+  // (empty parts, so an empty-ish string) and every other caller accepts that
+  // degradation; inventing a second fallback here would give the axis a rule the
+  // rest of the app does not have.
+  if (zone === "") return formatTimestamp(value);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 /** The y domain: the caller's if given, else the values' own min/max.
@@ -150,8 +187,14 @@ export interface SparklineProps {
   /** Formats a value for the y labels and the tooltip. Required when `framed`;
    *  a bare sparkline has no labels, so it may be omitted. */
   formatValue?: (v: number) => string;
-  /** Index-aligned x labels (R10.21-formatted timestamps). Framed only. */
+  /** Index-aligned x labels (R10.21-formatted timestamps). Framed only. This is
+   *  what the tooltip shows, and it is what the axis shows unless `xAxisLabels`
+   *  overrides it. */
   xLabels?: readonly string[];
+  /** Index-aligned labels for the *axis* when the axis wants a shorter string
+   *  than the tooltip does — `axisTimeLabel`, for any caller whose `xLabels` are
+   *  full R10.21 timestamps. Framed only; defaults to `xLabels`. */
+  xAxisLabels?: readonly string[];
   /** Accessible name for the `<svg role="img">`. */
   label: string;
 }
@@ -165,6 +208,7 @@ export function Sparkline({
   framed = false,
   formatValue,
   xLabels = [],
+  xAxisLabels,
   label,
 }: SparklineProps): ReactElement | null {
   // Index-aligned pairs, so a hover state can name both the point and its value
@@ -188,6 +232,17 @@ export function Sparkline({
   const y = scaleLinear()
     .domain([lo, hi])
     .range([height, 0]);
+
+  // The axis's strings: `xAxisLabels` when the caller supplies the short form,
+  // otherwise the tooltip's own labels.
+  const axisLabels = xAxisLabels ?? xLabels;
+  // A text baseline sits ~7px below the top of its glyphs, so a y label centred
+  // on the *top* gridline — where `y(v)` is 0 — has its upper half outside the
+  // viewBox and renders cut in half, which is what the rendered pass showed on
+  // every framed chart, the highest value being the one that loses its top. The
+  // clamp keeps the glyph inside the frame: the label hangs just under its own
+  // gridline at the top and is centred on it everywhere else.
+  const yLabelY = (v: number): number => Math.min(Math.max(y(v) + 3, 8), totalH - 4);
 
   // Which indices get an x label: up to MAX_X_TICKS, evenly spaced, always
   // including the first and last. Choosing indices rather than measuring text
@@ -270,7 +325,7 @@ export function Sparkline({
         {framed && (
           <g className="spark-y-labels">
             {[lo, (lo + hi) / 2, hi].map((v) => (
-              <text key={`y-${n(v)}`} className="spark-axis-label" x={Y_GUTTER - 6} y={n(y(v) + 3)} textAnchor="end">
+              <text key={`y-${n(v)}`} className="spark-axis-label" x={Y_GUTTER - 6} y={n(yLabelY(v))} textAnchor="end">
                 {formatValue === undefined ? n(v) : formatValue(v)}
               </text>
             ))}
@@ -287,7 +342,7 @@ export function Sparkline({
                 y={height + X_AXIS_ROW - 3}
                 textAnchor={i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle"}
               >
-                {xLabels[i] ?? ""}
+                {axisLabels[i] ?? ""}
               </text>
             ))}
           </g>
