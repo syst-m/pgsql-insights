@@ -780,7 +780,13 @@ export interface SessionView {
   /** The collector leaves this empty and the handler fills it (sessions.go:
    *  "R4.1's rule for that column depends on `--allow-actions` (R12.8), which
    *  is a runtime flag on the API server and not a fact about the session"),
-   *  but it is on the wire either way, so it is required here. */
+   *  but it is on the wire either way, so it is required here.
+   *
+   *  The requirement behind that flag is R4.5 (requirements.md:330) — `POST
+   *  /api/v1/sessions/{pid}/terminate`, gated behind `--allow-actions=true`,
+   *  default false — which R12.8 (:473) generalises to every mutation the
+   *  product performs; sessions.go cites the generalised form. R4.6 (:331) is
+   *  the idle-in-transaction-age and `backend_type` row, not this gate. */
   action: string;
   /** Go `time.Time` → RFC3339 string, as every other `sourceTime` in this file. */
   sourceTime: string;
