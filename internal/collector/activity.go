@@ -134,11 +134,16 @@ const MaxChainDepth = 3
 // "query text, plan bodies, active-session rows, blocking chains" are "API +
 // store only" and that "Metrics carry the numbers; the API carries the text" — so
 // the row is a struct with strings in it, not a set of labelled floats, and the
-// reason is in R9.3: the label contract is a closed set (namespace, cluster, pod,
-// instance_role, pooler, datname, usename) and a session's identity is a pid,
-// which R9.3 does not allow as a label. naming.go says the same thing from the
-// other side, calling `pgsi_pg_stat_activity_pid` the artefact you get when you
-// export an identifier as a number.
+// reason is in R9.3 — and the sentence has to be read with the two clauses apart,
+// which is A3's ruling on it. "every series carries `namespace`, `cluster`, `pod`,
+// and `instance_role`" is closed: that is the base set and no family may drop it,
+// and a session's identity is a pid, which is not in it. "pooler series carry
+// `pooler`; database series add `datname`; user series add `usename`" is a mapping
+// from family-kind to label, and it enumerates the extras so far rather than
+// capping them. Reading the second clause as closed is what would make R9.5b's
+// `fingerprint` and `queryid` labels a violation, and they are not one. naming.go
+// says the same thing from the other side, calling `pgsi_pg_stat_activity_pid` the
+// artefact you get when you export an identifier as a number.
 type Session struct {
 	// Pid is Cloud SQL's `Process ID`, from the matrix's `pid`.
 	Pid int
@@ -821,7 +826,7 @@ func rankOf(s Session) int {
 
 // ActivitySamples derives the metrics half of R9.1's split from a session set.
 //
-// Three families, and the reason there are three and not twenty-two is naming.go's
+// Two families, and the reason there are two and not twenty-two is naming.go's
 // classification of pg_stat_activity's columns: every one of the 22 columns the
 // matrix selects is TypeNotExported. pid, usesysid and client_port are
 // identifiers — naming.go names `pgsi_pg_stat_activity_pid` as the artefact you get
@@ -831,36 +836,40 @@ func rankOf(s Session) int {
 // query_start and state_change are per-session start times, not the view's
 // stats_reset (pg_stat_activity has no epoch, which clock.go says outright).
 //
-// So the numbers R9.7 asks this view for are the grouped counts, and they are
-// named by the two entries R9.7's catalogue already carries —
-// pgsi_db_backends_by_state and pgsi_db_backends_by_application_name, both marked
-// provisional in internal/api/promql_catalogue.go with "no further story worth
-// inventing" for their absence. This collector is the story. The third family,
-// pgsi_db_backends_by_wait_event, is named here rather than there because R4.3,
-// not R9.7, is the requirement that asks for it.
+// So the numbers R9.7 asks this view for are the grouped counts, and they are the
+// two families R9.7's catalogue carries: pgsi_db_backends_by_state and
+// pgsi_db_backends_by_application_name. They were provisional there until this
+// collector shipped; A2 deleted the provisional rows at a826f84, and
+// naming_catalogue_test.go's biconditional is what stops that pair drifting again.
 //
-// Spec judgement, flagged rather than resolved silently: all three families carry
-// a label R9.3's closed set does not have (`state`, `application_name`,
-// `wait_event_type`+`wait_event`). R9.3 enumerates label additions per family
-// ("database series add `datname`; user series add `usename`") and does not name
-// these three, and R9.7 names the families without saying what labels they take.
-// The alternative — one family per state value — would mint seven families to
-// express one grouped count and is the same over-naming R9.4's table avoids by
-// using labels for the database dimension. A3 should rule on whether R9.3's set is
-// closed against further per-family labels or merely enumerates the ones so far.
+// R9.3's label contract, as A3 ruled it — the ruling this function used to ask
+// for, now in the cell itself: the base set (namespace, cluster, pod,
+// instance_role) is closed, and the per-family half ("database series add
+// `datname`; user series add `usename`") enumerates the extras so far rather than
+// capping them. The proof is inside the spec — R9.5b mints `fingerprint` and
+// `queryid` as labels of the per-query family and has never been filed as a
+// violation. What binds `state` and `application_name` here is the shape rule in
+// R9.3's purpose clause: a per-family label must be a dimension the family's own
+// source view groups by, and the family name must name that dimension. The
+// rejected alternative — one family per state value — would mint seven families to
+// express one grouped count, the same over-naming R9.4's table avoids by using
+// labels for the database dimension.
+//
+// The third family this function emitted, pgsi_db_backends_by_wait_event, no
+// longer exists. R4.3's rollup is the Wait Events page's payload and not a metric
+// family (A3's S50, ruling on the naming row A2 had asked about): R9.1 puts
+// active-session rows on the API plane, and a count derived from rows the API
+// already carries is not a second product. The data is not lost — Session
+// carries wait_event_type and wait_event per row, which is what the page renders.
 func ActivitySamples(sessions []Session, now time.Time) []Sample {
 	byState := map[string]int{}
 	byApp := map[string]int{}
-	byWait := map[waitKey]int{}
 	for _, s := range sessions {
 		byState[s.Status]++
 		byApp[s.ApplicationName]++
-		if s.WaitEventType != "" || s.WaitEvent != "" {
-			byWait[waitKey{Type: s.WaitEventType, Event: s.WaitEvent}]++
-		}
 	}
 
-	out := make([]Sample, 0, len(byState)+len(byApp)+len(byWait))
+	out := make([]Sample, 0, len(byState)+len(byApp))
 	for state, n := range byState {
 		out = append(out, Sample{
 			Metric:     MetricName(pgversion.ViewStatActivity, "backends_by_state"),
@@ -874,17 +883,6 @@ func ActivitySamples(sessions []Session, now time.Time) []Sample {
 			Metric:     MetricName(pgversion.ViewStatActivity, "backends_by_application_name"),
 			Labels:     map[string]string{"application_name": app},
 			Value:      float64(n),
-			IngestTime: now,
-		})
-	}
-	for k, n := range byWait {
-		out = append(out, Sample{
-			Metric: MetricName(pgversion.ViewStatActivity, "backends_by_wait_event"),
-			Labels: map[string]string{"wait_event_type": k.Type, "wait_event": k.Event},
-			Value:  float64(n),
-			// IngestTime only: pg_stat_activity has no stats_reset, and clock.go's
-			// rule is that a zero StatsReset means "this view has no epoch", not
-			// "the epoch is missing".
 			IngestTime: now,
 		})
 	}

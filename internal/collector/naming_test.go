@@ -57,8 +57,11 @@ func TestMetricNameTable(t *testing.T) {
 		// checks the promise against the function.
 		{pgversion.ViewStatActivity, "backends_by_state", "db_backends_by_state"},
 		{pgversion.ViewStatActivity, "backends_by_application_name", "db_backends_by_application_name"},
-		// R4.3's rollup family, which R9.7 does not name and this table does.
-		{pgversion.ViewStatActivity, "backends_by_wait_event", "db_backends_by_wait_event"},
+		// There is no third case. backends_by_wait_event was here as
+		// db_backends_by_wait_event until A3's S50 ruled R4.3's rollup is the
+		// Wait Events page's payload and not a family; the row is now
+		// TypeNotExported with an empty name, so MetricName has nothing to
+		// return for it and a case here would assert the empty string.
 		{pgversion.ViewDatabase, "size", "db_size_bytes"},
 		{pgversion.ViewStatWAL, "wal_bytes", "wal_generated_bytes_total"},
 		{pgversion.ViewStatCheckpointer, "num_timed", "checkpoints_timed_total"},

@@ -902,13 +902,15 @@ func TestActivitySamples(t *testing.T) {
 	}
 	got := ActivitySamples(sessions, fixedClock)
 
-	// 2 states (active, idle in transaction) + 2 application names ("" and "worker")
-	// + 1 wait pair = 5.
+	// Two families: 2 states (active, idle in transaction) + 2 application names
+	// ("" and "worker"). The wait pair this test used to assert went with the
+	// family (A3's S50 ruling on R4.3), and it is still covered where it lives
+	// now: the Session rows themselves, which TestCollectSessions checks.
 	byMetric := map[string][]Sample{}
 	for _, s := range got {
 		byMetric[s.Metric] = append(byMetric[s.Metric], s)
 	}
-	wantMetrics := []string{"db_backends_by_state", "db_backends_by_application_name", "db_backends_by_wait_event"}
+	wantMetrics := []string{"db_backends_by_state", "db_backends_by_application_name"}
 	if len(byMetric) != len(wantMetrics) {
 		t.Errorf("got families %v, want %v", keysOf(byMetric), wantMetrics)
 	}
@@ -947,13 +949,6 @@ func TestActivitySamples(t *testing.T) {
 	// pids 1 and 2 have no application_name, pids 3 and 4 are "worker".
 	if apps["worker"] != 2 || apps[""] != 2 {
 		t.Errorf("db_backends_by_application_name = %v, want worker=2 and the empty name=2", apps)
-	}
-	waits := map[string]float64{}
-	for _, s := range byMetric["db_backends_by_wait_event"] {
-		waits[s.Labels["wait_event_type"]+"/"+s.Labels["wait_event"]] = s.Value
-	}
-	if len(waits) != 1 || waits["Lock/transactionid"] != 1 {
-		t.Errorf("db_backends_by_wait_event = %v, want one Lock/transactionid=1 (the three no-wait sessions contribute no row)", waits)
 	}
 }
 

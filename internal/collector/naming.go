@@ -170,21 +170,32 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// disagreement in its purest form: the name existed in a comment and in the
 	// catalogue, and nothing connected it to the function that had to return it.
 	//
-	// The third family, backends_by_wait_event, is named here and not in the
-	// catalogue because R4.3, not R9.7, is the requirement that asks for the
-	// wait-event counts. R14.7's "no metric in code with no doc" is answered by
-	// this row plus R4.3, which is what `src` is for.
+	// There is no third family, and there never was one. This table used to carry
+	// backends_by_wait_event as a TypeGauge here, which minted
+	// pgsi_db_backends_by_wait_event from a table row alone: R5.2 names exactly
+	// two backends families, R9.7's published set is R5.2's union with R2.4's
+	// columns, and this name is in neither — so it was a metric in code with no
+	// doc, which is the R14.7 violation this table exists to prevent, and the row
+	// itself was the only thing passing for a document. A3 ruled it (R4.3, filed
+	// as S50): R4.3's rollup is the Wait Events page's payload, not a metric
+	// family, because R9.1 puts active-session rows on the API plane and a count
+	// derived from them is a number about rows the API already carries. The row
+	// survives below as TypeNotExported, beside the real wait_event column it
+	// was derived from; activity.go no longer emits the sample.
 	//
-	// All three carry a label R9.3's closed set does not enumerate (`state`,
-	// `application_name`, `wait_event_type`+`wait_event`), which activity.go's
-	// doc on ActivitySamples flags to A3 rather than resolving silently: R9.7
-	// names the families without saying what labels they take, and R9.3's
-	// per-family enumeration ("database series add `datname`; user series add
-	// `usename`") stops short of these. The alternative — one family per state
-	// value — mints seven families to express one grouped count.
+	// Both families above carry a label R9.3's per-family list does not name
+	// (`state`, `application_name`). R9.3's base set (namespace, cluster, pod,
+	// instance_role) is closed and these are not in it; its per-family half
+	// ("database series add `datname`; user series add `usename`") enumerates the
+	// extras so far rather than capping them — the proof is R9.5b, which mints
+	// `fingerprint` and `queryid` as labels of the per-query family and has never
+	// been filed as a violation of R9.3. What does bind them is the shape rule in
+	// the purpose clause: a per-family label must be a dimension the family's own
+	// source view groups by, and the family name must name that dimension — which
+	// `db_backends_by_state` + `state` satisfies. The alternative, one family per
+	// state value, mints seven families to express one grouped count.
 	{View: pgversion.ViewStatActivity, Column: "backends_by_state"}:            {name: "db_backends_by_state", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_state"},
 	{View: pgversion.ViewStatActivity, Column: "backends_by_application_name"}: {name: "db_backends_by_application_name", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_application_name"},
-	{View: pgversion.ViewStatActivity, Column: "backends_by_wait_event"}:       {name: "db_backends_by_wait_event", typ: TypeGauge, src: "R4.3 wait-event rollup; R9.7 names no family for it"},
 	// Every one of the view's own columns is TypeNotExported, and that is the
 	// requirement rather than an omission. R9.1 lists "active-session rows" among
 	// the things that are "API + store only" and says "Metrics carry the numbers;
@@ -218,13 +229,20 @@ var exportNames = map[pgversion.Source]exportEntry{
 	{View: pgversion.ViewStatActivity, Column: "xact_start"}:       {name: "", typ: TypeNotExported, src: "R4.1 Transaction duration operand, not a metric"},
 	{View: pgversion.ViewStatActivity, Column: "query_start"}:      {name: "", typ: TypeNotExported, src: "R4.1 Query duration operand, not a metric"},
 	{View: pgversion.ViewStatActivity, Column: "state_change"}:     {name: "", typ: TypeNotExported, src: "R9.1: a timestamp, and not this view's epoch (it has none)"},
-	{View: pgversion.ViewStatActivity, Column: "wait_event_type"}:  {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_wait_event family above is its metric form"},
-	{View: pgversion.ViewStatActivity, Column: "wait_event"}:       {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_wait_event family above is its metric form"},
-	{View: pgversion.ViewStatActivity, Column: "state"}:            {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_state family above is its metric form"},
-	{View: pgversion.ViewStatActivity, Column: "backend_xid"}:      {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xid)"},
-	{View: pgversion.ViewStatActivity, Column: "backend_xmin"}:     {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xmin)"},
-	{View: pgversion.ViewStatActivity, Column: "query_id"}:         {name: "", typ: TypeNotExported, src: "R4.7's link to the R3 detail; R9.5's id, not a value"},
-	{View: pgversion.ViewStatActivity, Column: "query"}:            {name: "", typ: TypeNotExported, src: "R9.1: query text is API-plane"},
+	// The synthetic column R4.3 asked for, kept as a row so the table stays the
+	// complete enumeration R14.7 checks. It has no name because the ruling that
+	// removed it from the exported block (S50) is a ruling that the family does
+	// not exist, and a row with a name and no family is the exact artefact S50
+	// filed: MetricName would return the name, ExportedMetricNames would publish
+	// it, and no document would have to agree.
+	{View: pgversion.ViewStatActivity, Column: "backends_by_wait_event"}: {name: "", typ: TypeNotExported, src: "R4.3; ruled not a metric family (A3's S50) — it is the Wait Events page's payload"},
+	{View: pgversion.ViewStatActivity, Column: "wait_event_type"}:        {name: "", typ: TypeNotExported, src: "R9.1 text half; R4.3's rollup of it is API-plane, not a family (S50)"},
+	{View: pgversion.ViewStatActivity, Column: "wait_event"}:             {name: "", typ: TypeNotExported, src: "R9.1 text half; R4.3's rollup of it is API-plane, not a family (S50)"},
+	{View: pgversion.ViewStatActivity, Column: "state"}:                  {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_state family above is its metric form"},
+	{View: pgversion.ViewStatActivity, Column: "backend_xid"}:            {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xid)"},
+	{View: pgversion.ViewStatActivity, Column: "backend_xmin"}:           {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xmin)"},
+	{View: pgversion.ViewStatActivity, Column: "query_id"}:               {name: "", typ: TypeNotExported, src: "R4.7's link to the R3 detail; R9.5's id, not a value"},
+	{View: pgversion.ViewStatActivity, Column: "query"}:                  {name: "", typ: TypeNotExported, src: "R9.1: query text is API-plane"},
 	// blocking_pids is activity.go's Extra, not a matrix column — the same
 	// category as database.go's three pg_database Extras, which are also listed.
 	{View: pgversion.ViewStatActivity, Column: "blocking_pids"}: {name: "", typ: TypeNotExported, src: "R4.4's edge list; an array of identifiers, not a value"},
