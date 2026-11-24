@@ -53,18 +53,32 @@ x-planned-paths:
   # internal/api/active_queries.go implements it and server.go registers it, so the
   # entry is deleted rather than marked, same rule as the four above.
   #
-  # The six remaining `# R…` annotations on this list are also wrong in the same way
-  # (seven of the twelve annotated entries name an id whose text is not that path's
-  # requirement); that set is fixed in its own commit, whose subject is the fix, so
-  # this commit's diff stays the size of the route it lands.
+  # The other `# R…` annotations on this list were wrong in the same way, and this
+  # commit fixes them: thirteen of its fourteen pre-fix entries carried one
+  # (poolers/{namespace}/{name} has none) and eight named an id whose text is not that
+  # path's requirement — six wholly, active-queries among them (the note above), and
+  # two in part, /insights/system and /api/v1/insights/system/{metric}, which named
+  # R5 and R8.2 correctly and R10.13 (responsive/themes) where the page is R10.10
+  # (System Insights). The `(was: …)` on each corrected line is the old id; the new
+  # ones are web/src/routes.ts's `requirement:` field for each page — the
+  # machine-readable page→requirement→endpoint table, which is the source a comment
+  # like this should be copied from rather than written from memory — unioned with the
+  # requirements.md §4 row that names the endpoint (R4.3 for wait-events,
+  # R3.7/R3.12/R6.4 for the four rollups), because routes.ts names pages and R8.2
+  # names routes and those are not the same set.
+  #
+  # Nothing checks these comments — scripts/check-parity-matrix.py validates §4's id
+  # set and the citation graph, not this file's inline annotations — so a wrong one is
+  # wrong silently, which is why the fix is its own commit rather than a line inside
+  # the active-queries commit that happened to notice.
   r8.2-catalogue:
-    - /api/v1/insights/wait-events          # R4, R10.7
-    - /api/v1/insights/databases            # R10.8
-    - /api/v1/insights/users                # R10.9
-    - /api/v1/insights/tags                 # R7, R10.11
-    - /api/v1/insights/client-addresses     # R6, R10.12
-    - /api/v1/insights/system               # R5, R10.13
-    - /api/v1/insights/system/{metric}      # R8.2, R10.13
+    - /api/v1/insights/wait-events          # R4.3, R10.9 (was: R4, R10.7)
+    - /api/v1/insights/databases            # R3.7, R10.3 (was: R10.8)
+    - /api/v1/insights/users                # R3.7, R10.3 (was: R10.9)
+    - /api/v1/insights/tags                 # R3.12, R10.3 (was: R7, R10.11)
+    - /api/v1/insights/client-addresses     # R3.7, R6.4, R10.3 (was: R6, R10.12)
+    - /api/v1/insights/system               # R5, R10.10 (was: R5, R10.13)
+    - /api/v1/insights/system/{metric}      # R8.2, R10.10 (was: R8.2, R10.13)
     - /api/v1/insights/recommendations      # R8.2
     - /api/v1/poolers                       # R6; PoolerView is already defined (R8.2 reuses it)
     - /api/v1/poolers/{namespace}/{name}
