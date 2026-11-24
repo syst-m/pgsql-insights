@@ -11,13 +11,24 @@ package metrics_test
 // composition order.
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/metrics"
+	"github.com/frankellis/pgsql-insights/internal/store"
 	"github.com/frankellis/pgsql-insights/internal/version"
 )
+
+// The interface's whole risk is drift: metrics declares a method signature and
+// the real provider is A5's store method, in a package the hub cannot import.
+// An external test package can, so this is the compile-time proof that the
+// declared shape and the provided one are still the same signature — if
+// internal/store/perquery.go:271 changes, this line stops compiling rather than
+// silently leaving the hub with a family nothing satisfies.
+var _ metrics.PerQueryFamily = (*store.Store)(nil)
 
 // withVersion sets the two ldvars the way the test binary's defaults do not:
 // every test here needs a known pair, and R11.3's acceptance is that the metric
@@ -191,5 +202,111 @@ func TestHubOmitsAnAbsentFamilyWithoutOmittingItsNeighbour(t *testing.T) {
 	}
 	if strings.Contains(body, "pgsi_up{") {
 		t.Errorf("pgsi_up present though the tracker is nil\nbody:\n%s", body)
+	}
+}
+
+// stubPerQuery is a test double for the one store method the hub composes. It
+// records its arguments so a test can pin what the hub passes, not just what it
+// prints: topN and prefix are the hub's R9.5/R9.2 choices, and an error return
+// is a policy decision rather than a string, so both need a fake to be
+// observable.
+type stubPerQuery struct {
+	body string
+	err  error
+
+	gotCtx    context.Context
+	gotTopN   int
+	gotPrefix string
+	calls     int
+}
+
+func (s *stubPerQuery) RenderPerQuery(ctx context.Context, topN int, prefix string) (string, error) {
+	s.calls++
+	s.gotCtx, s.gotTopN, s.gotPrefix = ctx, topN, prefix
+	return s.body, s.err
+}
+
+// The stub's body is shaped like a real exposition family so a test that
+// searches for it is searching for something promtool would accept.
+const stubPerQueryBody = "# HELP pgsi_query_execution_time_total Total execution time of tracked queries.\n" +
+	"# TYPE pgsi_query_execution_time_total counter\n" +
+	`pgsi_query_execution_time_total{cluster="pg",fingerprint="0a1b2c3d"} 1.25` + "\n"
+
+// TestHubPerQueryFamilyGetsR9_5sDefaults pins the two arguments the hub passes
+// and where the family lands. topN is collector.DefaultTopN — R9.5's default of
+// 50, whose single home is the constant in collector/statements.go, so the
+// assertion here is against the constant and not the number 50 — and prefix is
+// "", which is how every source in this package asks for collector.DefaultPrefix
+// while R11.8's config chain is still pending. The exact-equality form also
+// pins placement: catalogue families come after the eight, so a hub that
+// interleaved them would fail here.
+func TestHubPerQueryFamilyGetsR9_5sDefaults(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	stub := &stubPerQuery{body: stubPerQueryBody}
+	got := metrics.New(nil, nil, metrics.WithPerQuery(stub)).Render()
+
+	if want := metrics.BuildInfo() + stubPerQueryBody; got != want {
+		t.Errorf("New(nil, nil, WithPerQuery(stub)).Render()\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("family rendered %d times, want 1", stub.calls)
+	}
+	if stub.gotTopN != collector.DefaultTopN {
+		t.Errorf("topN = %d, want collector.DefaultTopN", stub.gotTopN)
+	}
+	if stub.gotPrefix != "" {
+		t.Errorf("prefix = %q, want \"\" (collector.DefaultPrefix's selector)", stub.gotPrefix)
+	}
+}
+
+// TestHubRenderContextPlumbsItsContext is the reason Render exists in two forms:
+// the per-query family reads the store, so the caller's context has to reach it.
+// Render's own body is one line of delegation, and this is the line's test.
+func TestHubRenderContextPlumbsItsContext(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	stub := &stubPerQuery{body: stubPerQueryBody}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "req")
+	metrics.New(nil, nil, metrics.WithPerQuery(stub)).RenderContext(ctx)
+
+	if stub.gotCtx != ctx {
+		t.Errorf("RenderContext passed %v, want the caller's ctx", stub.gotCtx)
+	}
+	if got, want := metrics.New(nil, nil, metrics.WithPerQuery(stub)).Render(), ""; got == want {
+		t.Error("Render() with no args rendered nothing")
+	}
+}
+
+type ctxKey struct{}
+
+// TestHubOmitsPerQueryFamilyWhenItErrors is the error policy Render documents:
+// a family that fails contributes no bytes, and the rest of the exposition is
+// unaffected. The assertion is exact equality with BuildInfo so a partial write
+// (the body written before the error was known) fails the test — the hub must
+// not emit half a family, which is the same reason a nil source emits nothing.
+func TestHubOmitsPerQueryFamilyWhenItErrors(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	stub := &stubPerQuery{body: stubPerQueryBody, err: errors.New("database is closed")}
+	got := metrics.New(nil, nil, metrics.WithPerQuery(stub)).Render()
+
+	if want := metrics.BuildInfo(); got != want {
+		t.Errorf("an errored family still wrote bytes\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if stub.calls != 1 {
+		t.Errorf("family rendered %d times, want 1", stub.calls)
+	}
+}
+
+// TestHubOmitsAnEmptyPerQueryFamily covers the third of the three states — the
+// store is open but has no rows, so store returns ("", nil). R9.5's family is
+// absent then, and the hub must not turn "" into a blank line between families.
+func TestHubOmitsAnEmptyPerQueryFamily(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	got := metrics.New(nil, nil, metrics.WithPerQuery(&stubPerQuery{})).Render()
+	if want := metrics.BuildInfo(); got != want {
+		t.Errorf("empty family wrote bytes\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }

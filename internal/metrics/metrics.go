@@ -54,6 +54,23 @@
 // response-writing middleware that would observe request durations, which
 // IMPLEMENTATION.md §3.9's R9.8 row files as shipping with this hub.
 //
+// # Catalogue families, and why one is here too
+//
+// R9.5's per-query family is not one of the eight. It is a catalogue family —
+// top-N only, `metrics.topN` default 50, range 0..1000, N=0 disabling it — and
+// requirements.md's own repo layout at :245 names this package "MetricHub: our
+// registry, label contract, top-N (R9)", which is the spec assigning top-N to
+// the hub rather than to a handler. IMPLEMENTATION.md §3.11 files the family's
+// absence as "R14.7's inverse: a metric documented and absent", so composing it
+// here closes the gap that sentence records.
+//
+// The body is A5's internal/store/perquery.go (3418da3), and metrics cannot
+// import store: store imports api and api imports metrics, so that edge closes
+// a cycle. The consumer-side interface is the answer — PerQueryFamily declares
+// only the method store already has, so *store.Store satisfies it without
+// importing anything, and the exposition keeps one composition point instead of
+// the handler composing hub-plus-family, which is the split 0f4b154 removed.
+//
 // R9.2's configurable `metrics.prefix` is the config half of the same contract,
 // and IMPLEMENTATION.md §3.9's R9.2/R9.3 row assigns that config key to this
 // package. Until R11.8's flag/env/ConfigMap chain lands, the hub renders with
@@ -62,6 +79,7 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -93,6 +111,38 @@ func BuildInfo() string {
 		fmt.Sprintf("pgsi_build_info{version=%q,commit=%q} 1\n", version.Version, version.Commit)
 }
 
+// PerQueryFamily is R9.5's per-query family as its owner provides it — the one
+// method internal/store/perquery.go:271 defines, declared here rather than
+// imported because importing store from here closes the cycle
+// api→metrics→store→api. Declaring an interface in the consuming package is the
+// Go answer to that shape and it is the one that keeps R16.8 intact: the family
+// body stays A5's, the hub stays the single composition point, and neither
+// package gains a second copy of the render.
+//
+// The signature is store's exactly — ctx, topN, prefix — so *store.Store
+// satisfies it with no adapter. topN and prefix are arguments rather than Hub
+// fields for the reason store's own docblock gives ("the value belongs to the
+// exposition, not to the database"); Render passes R9.5's defaults and the
+// Option below is where a configured value arrives once R11.8's chain lands.
+type PerQueryFamily interface {
+	RenderPerQuery(ctx context.Context, topN int, prefix string) (string, error)
+}
+
+// Option configures a Hub beyond its two collector sources. Options exist so
+// that adding a family never changes New's signature again: 0f4b154 shipped
+// New(collectors, up), and every family this package gains since — R9.5's, and
+// the store-size and HTTP-duration families still pending — would otherwise cost
+// a signature change plus a call-site change in internal/api, which is how a
+// one-line addition turns into a two-package commit.
+type Option func(*Hub)
+
+// WithPerQuery adds R9.5's per-query family to the hub. The zero value (no
+// option passed) renders the family absent, which is the same rule the two
+// collector sources follow when they have nothing to say.
+func WithPerQuery(f PerQueryFamily) Option {
+	return func(h *Hub) { h.perQuery = f }
+}
+
 // Hub composes the self-observability families one process can render (R9.8).
 //
 // It is a value over its sources, not a registry: every family arrives as a
@@ -112,18 +162,41 @@ type Hub struct {
 	// up is R9.12's pgsi_scrape_target_up: one series per discovered instance.
 	// A nil *collector.UpTracker is legal and renders nothing.
 	up *collector.UpTracker
+
+	// perQuery is R9.5's catalogue family, supplied through WithPerQuery. A nil
+	// interface — the state of a hub built by New alone — renders the family
+	// absent rather than empty, and that is also the state of a server whose
+	// store has not been constructed.
+	perQuery PerQueryFamily
 }
 
 // New returns the hub over the given sources. Both are nil-safe —
 // *collector.Stats and *collector.UpTracker each define Render on a nil
 // receiver, returning "" — so a server with no scheduler and no recorded
 // collector still has a hub, and it renders exactly BuildInfo.
-func New(collectors *collector.Stats, up *collector.UpTracker) *Hub {
-	return &Hub{collectors: collectors, up: up}
+//
+// Families that arrive from outside the collector package are passed as Options
+// (WithPerQuery today, and the pending store-size and HTTP-duration families
+// later), which is what lets this signature stay put while the hub grows.
+func New(collectors *collector.Stats, up *collector.UpTracker, opts ...Option) *Hub {
+	h := &Hub{collectors: collectors, up: up}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
-// Render concatenates the families this hub can render, in R9.8's listed order:
-// build info, then the collector pair, then the scrape-target gauge.
+// Render is RenderContext with a background context — the form every existing
+// call site uses, kept as its own method so a caller with no context to hand
+// (internal/api's metricsBody today, a test, a CLI dump) does not have to
+// invent one. A caller that has a request context should call RenderContext
+// with it: the per-query family reads the store, and a scrape whose client goes
+// away should cancel that read rather than finish it.
+func (h *Hub) Render() string { return h.RenderContext(context.Background()) }
+
+// RenderContext concatenates the families this hub can render, in R9.8's listed
+// order: build info, then the collector pair, then the scrape-target gauge, then
+// the catalogue families.
 //
 // A source with nothing to say contributes no bytes rather than an empty family.
 // That rule is not this package's invention — collector.Stats.Render and
@@ -143,7 +216,16 @@ func New(collectors *collector.Stats, up *collector.UpTracker) *Hub {
 // chain lands, the prefix becomes a Hub field threaded to both sources, and the
 // collector side takes it at construction (collector.NewStatsWithPrefix), which
 // is the other reason New takes a *Stats rather than a rendered string.
-func (h *Hub) Render() string {
+//
+// A family that errors is absent too, and its error is not returned. Render's
+// contract is a string because /metrics' contract is a body with a 200, and the
+// only errors the one family that can fail returns are an out-of-range topN
+// (a construction bug, caught by TestHubPerQueryFamilyGetsR9_5sDefaults) and a
+// closed store (shutdown, where the endpoint is already failing readiness).
+// Returning an error would make the handler choose between dropping the whole
+// exposition and inventing a status code R9.1 does not define; omitting the
+// family is the same call the nil sources already get.
+func (h *Hub) RenderContext(ctx context.Context) string {
 	if h == nil {
 		// The zero hub has no sources, and the only family a sourceless process
 		// has is its own build info. Reachable because api.Config's Scheduler can
@@ -155,5 +237,14 @@ func (h *Hub) Render() string {
 	b.WriteString(BuildInfo())
 	b.WriteString(h.collectors.Render())
 	b.WriteString(h.up.Render(""))
+	if h.perQuery != nil {
+		// R9.5's default N and R9.2's default prefix, both as arguments: the
+		// constants are the single home of each default (collector.DefaultTopN,
+		// collector.DefaultPrefix), so passing them here is not a second copy of
+		// either number.
+		if body, err := h.perQuery.RenderPerQuery(ctx, collector.DefaultTopN, ""); err == nil {
+			b.WriteString(body)
+		}
+	}
 	return b.String()
 }
