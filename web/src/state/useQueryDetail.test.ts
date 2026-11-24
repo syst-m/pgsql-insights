@@ -229,6 +229,35 @@ describe("useQueryDetail refetch behaviour (R10.22)", () => {
     expect(result.current.state.error).toBe("GET → 500 Internal: store unavailable — collector");
   });
 
+  it("keeps the payload holdable after a failed refresh, so the next refresh still shows it", async () => {
+    // The catch writes `last.current = { key, detail: held }` (:150) — the
+    // *held* detail, not the failed response. Writing `detail: null` there is
+    // invisible to the test above, which reads `state.detail` and still sees the
+    // right value; the difference surfaces on the next refresh, where `held` is
+    // read back out of the ref at :133 and decides between `ready` and `loading`.
+    stub(FIXTURE_QUERY_DETAIL);
+    const { result } = renderHook(() => useQueryDetail(http, A, 0));
+    await waitFor(() => expect(result.current.state.phase).toBe("ready"));
+
+    stub(
+      { error: { code: "Internal", message: "store unavailable", details: ["collector"] } },
+      false,
+      500,
+      "Internal Server Error",
+    );
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.state.error).not.toBeNull());
+
+    const box = pending();
+    act(() => result.current.refresh());
+    expect(result.current.state.phase).toBe("ready");
+    expect(result.current.state.detail).not.toBeNull();
+    expect(result.current.state.refreshing).toBe(true);
+
+    box.resolve(detailFor(FP_A));
+    await waitFor(() => expect(result.current.state.refreshing).toBe(false));
+  });
+
   it("is `error` with no detail when the first request fails", async () => {
     stub({ error: { code: "NotFound", message: "no such fingerprint", details: ["ns/c"] } }, false, 404, "Not Found");
     const { result } = renderHook(() => useQueryDetail(http, A, 0));

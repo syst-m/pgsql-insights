@@ -49,12 +49,37 @@ function stub(body: unknown, ok = true, status = 200, statusText = "OK"): void {
 }
 
 /** A fetch whose answer the test hands over by hand. */
-function pending(): { resolve: (body: unknown, ok?: boolean, status?: number, statusText?: string) => void } {
-  let resolve!: (res: Response) => void;
-  globalThis.fetch = () => new Promise<Response>((r) => { resolve = r; });
+function pending(): {
+  urls: string[];
+  resolve: (body: unknown, ok?: boolean, status?: number, statusText?: string) => void;
+  resolveAt: (n: number, body: unknown, ok?: boolean, status?: number, statusText?: string) => void;
+} {
+  const open: { done: boolean; resolve: (res: Response) => void }[] = [];
+  const urls: string[] = [];
+  globalThis.fetch = (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return new Promise<Response>((r) => {
+      open.push({ done: false, resolve: r });
+    });
+  };
+  const settle = (
+    slot: { done: boolean; resolve: (res: Response) => void } | undefined,
+    body: unknown,
+    ok = true,
+    status = 200,
+    statusText = "OK",
+  ) => {
+    if (slot === undefined || slot.done) return;
+    slot.done = true;
+    slot.resolve(responseOf(body, ok, status, statusText));
+  };
   return {
-    resolve: (body, ok = true, status = 200, statusText = "OK") => {
-      resolve(responseOf(body, ok, status, statusText));
+    urls,
+    resolve: (body, ok, status, statusText) => {
+      settle(open.find((s) => !s.done), body, ok, status, statusText);
+    },
+    resolveAt: (n, body, ok, status, statusText) => {
+      settle(open.filter((s) => !s.done)[n], body, ok, status, statusText);
     },
   };
 }
@@ -94,6 +119,33 @@ describe("useQueries refetch behaviour (R10.22)", () => {
     await waitFor(() => expect(result.current.state.phase).toBe("ready"));
     expect(result.current.state.queries?.meta.total).toBe(3);
     expect(result.current.state.refreshing).toBe(false);
+  });
+
+  it("ignores a response whose request was superseded", async () => {
+    // `useFleet.ts:36-38`'s abort-previous, copied. The first version of this
+    // file had a single-slot `pending()` (one `let resolve`), so the second
+    // fetch overwrote the first's resolver and the superseded request could not
+    // be answered at all — the rule had no test in this file, only in
+    // `useQueryDetail.test.ts`, which had already grown the multi-slot version.
+    const box = pending();
+    const { result } = renderHook(() => useQueries(http, NO_PARAMS, 0));
+    expect(box.urls).toHaveLength(1);
+
+    act(() => result.current.refresh());
+    expect(box.urls).toHaveLength(2);
+
+    // Answer the superseded request and flush its continuation: with the
+    // `ctrl.signal.aborted` check deleted, envelope(9) would land here and the
+    // assertion below would see it before the real answer ever arrives.
+    box.resolveAt(0, envelope(9));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.state.queries).toBeNull();
+    expect(result.current.state.phase).toBe("loading");
+
+    box.resolve(envelope(3));
+    await waitFor(() => expect(result.current.state.queries?.meta.total).toBe(3));
   });
 
   it("holds the previous payload and sets `refreshing` while a refresh is in flight", async () => {

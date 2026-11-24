@@ -51,22 +51,36 @@ function stub(body: unknown, ok = true, status = 200, statusText = "OK"): { urls
 
 /** A fetch whose answer the test hands over by hand. */
 function pending(): {
-  resolve: (body: unknown, ok?: boolean, status?: number, statusText?: string) => void;
   urls: string[];
+  resolve: (body: unknown, ok?: boolean, status?: number, statusText?: string) => void;
+  resolveAt: (n: number, body: unknown, ok?: boolean, status?: number, statusText?: string) => void;
 } {
-  const queue: ((res: Response) => void)[] = [];
+  const open: { done: boolean; resolve: (res: Response) => void }[] = [];
   const urls: string[] = [];
   globalThis.fetch = (input: RequestInfo | URL) => {
     urls.push(String(input));
     return new Promise<Response>((r) => {
-      queue.push(r);
+      open.push({ done: false, resolve: r });
     });
+  };
+  const settle = (
+    slot: { done: boolean; resolve: (res: Response) => void } | undefined,
+    body: unknown,
+    ok = true,
+    status = 200,
+    statusText = "OK",
+  ) => {
+    if (slot === undefined || slot.done) return;
+    slot.done = true;
+    slot.resolve(responseOf(body, ok, status, statusText));
   };
   return {
     urls,
-    resolve: (body, ok = true, status = 200, statusText = "OK") => {
-      const r = queue.shift();
-      if (r !== undefined) r(responseOf(body, ok, status, statusText));
+    resolve: (body, ok, status, statusText) => {
+      settle(open.find((s) => !s.done), body, ok, status, statusText);
+    },
+    resolveAt: (n, body, ok, status, statusText) => {
+      settle(open.filter((s) => !s.done)[n], body, ok, status, statusText);
     },
   };
 }
@@ -101,6 +115,17 @@ describe("seriesParamsFor", () => {
     expect(params.cluster).toBe("open-webui/open-webui-pg");
   });
 
+  it("keeps all 60 fingerprints, so the cap stays the server's to enforce", () => {
+    // The intersection the first version missed. The batch-cap block below
+    // renders the hook with a hoisted SIXTY and reads the URL, so it never
+    // calls seriesParamsFor; this describe's pass-through test calls it with 3,
+    // and 3 sliced to 50 is still 3. So a `slice(0, 50)` inside seriesParamsFor
+    // was invisible to both — the named case (R8.10's over-the-cap length) and
+    // the function that owns the rule had never been in the same test.
+    const list = fps(60);
+    expect(seriesParamsFor(list, state).fingerprints).toEqual(list);
+  });
+
   it("omits the namespace unless exactly one is selected", () => {
     expect(seriesParamsFor(fps(1), { ...DEFAULT_STATE, ns: [] }).namespace).toBeUndefined();
     expect(seriesParamsFor(fps(1), { ...DEFAULT_STATE, ns: ["a", "b"] }).namespace).toBeUndefined();
@@ -127,6 +152,36 @@ describe("useQuerySeries refetch behaviour (R10.22)", () => {
     box.resolve(FIXTURE_QUERY_SERIES);
     await waitFor(() => expect(result.current.state.phase).toBe("ready"));
     expect(result.current.state.series?.meta.total).toBe(FIXTURE_QUERY_SERIES.meta.total);
+  });
+
+  it("ignores a response whose request was superseded", async () => {
+    // `useFleet.ts:36-38`'s abort-previous, copied — and the reason `pending()`
+    // here went multi-slot: with one `resolve` slot, the second fetch overwrote
+    // the first's resolver, so the superseded request could not be answered at
+    // all and the `ctrl.signal.aborted` check was untestable.
+    const box = pending();
+    const { result, rerender } = renderHook(
+      ({ params }: { params: QuerySeriesParams }) => useQuerySeries(http, params, 0),
+      { initialProps: { params: ONE } },
+    );
+    expect(box.urls).toHaveLength(1);
+
+    rerender({ params: THREE });
+    expect(box.urls).toHaveLength(2);
+
+    // Answer the *superseded* request and flush its continuation. Deleting the
+    // aborted-check would land ONE's envelope here, so `series` would be
+    // non-null while THREE is still in flight.
+    box.resolveAt(0, FIXTURE_QUERY_SERIES);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.state.series).toBeNull();
+    expect(result.current.state.phase).toBe("loading");
+
+    box.resolve(FIXTURE_QUERY_SERIES);
+    await waitFor(() => expect(result.current.state.series).not.toBeNull());
+    expect(result.current.state.phase).toBe("ready");
   });
 
   it("holds the previous envelope and sets `refreshing` while a refresh is in flight", async () => {
