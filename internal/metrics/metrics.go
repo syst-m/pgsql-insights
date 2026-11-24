@@ -10,7 +10,7 @@
 // copy that sentence existed to prevent, and R16.8 files a second copy of a
 // contract more often than this project files anything else.
 //
-// # The eight families, and which four render here
+// # The eight families, and which five render here
 //
 // R9.8 names eight. IMPLEMENTATION.md §3.9's R9.8 row is the authority on the
 // count; this is the same accounting read from the package's side:
@@ -20,7 +20,7 @@
 //	here      pgsi_collector_errors_total         R2.2    collector.Stats.RenderErrors
 //	here      pgsi_up{namespace,cluster,pod,instance_role}  R9.12  collector.UpTracker.Render
 //	pending   pgsi_store_size_bytes               R13.5   collector.MemSink.Used — no route to it yet
-//	pending   pgsi_http_request_duration_seconds  R9.8    needs the HTTP instrumentation middleware
+//	here      pgsi_http_request_duration_seconds  R9.8    HTTPRequests.Render (http.go)
 //	pending   pgsi_scheduler_queue_depth          R2.9    needs the scheduler queue and its budget
 //	pending   pgsi_scheduler_shed_total           R2.9    needs the scheduler queue and its budget
 //
@@ -31,7 +31,7 @@
 // collector.UpTracker renders. The table follows the code and R9.12, the newer
 // of the two texts and the one the collector implements.
 //
-// The four pending families are not stubbed, and a stub is the wrong move here
+// The three pending families are not stubbed, and a stub is the wrong move here
 // for a reason the exposition format states rather than one this package
 // invents: a family with no series is absent, not a HELP/TYPE pair beside a
 // value the process never measured. collector.Stats.Render and
@@ -49,10 +49,12 @@
 // nothing hands it to the hub: *collector.Scheduler exposes Up() and Stats()
 // and no sink accessor, and api.Config carries no sink field, so the sink a
 // running server writes to is not reachable from where the exposition is
-// composed. The two scheduler families and the HTTP duration family need code
-// that does not exist yet — R2.9's global budget with its shed counter, and the
-// response-writing middleware that would observe request durations, which
-// IMPLEMENTATION.md §3.9's R9.8 row files as shipping with this hub.
+// composed. The two scheduler families need R2.9's global budget with its shed
+// counter, which does not exist yet. The HTTP duration family needed a renderer
+// rather than a subsystem, and it is in http.go; the api-side middleware that
+// feeds it is the one line in internal/api not yet wired, and until it is, the
+// family has no observations and renders absent — the same answer the rule above
+// gives for any family with no series.
 //
 // # Catalogue families, and why one is here too
 //
@@ -130,10 +132,10 @@ type PerQueryFamily interface {
 
 // Option configures a Hub beyond its two collector sources. Options exist so
 // that adding a family never changes New's signature again: 0f4b154 shipped
-// New(collectors, up), and every family this package gains since — R9.5's, and
-// the store-size and HTTP-duration families still pending — would otherwise cost
-// a signature change plus a call-site change in internal/api, which is how a
-// one-line addition turns into a two-package commit.
+// New(collectors, up), and every family this package gains since — R9.5's and
+// R9.8's HTTP-duration one, with the store-size family still pending — would
+// otherwise cost a signature change plus a call-site change in internal/api,
+// which is how a one-line addition turns into a two-package commit.
 type Option func(*Hub)
 
 // WithPerQuery adds R9.5's per-query family to the hub. The zero value (no
@@ -141,6 +143,15 @@ type Option func(*Hub)
 // collector sources follow when they have nothing to say.
 func WithPerQuery(f PerQueryFamily) Option {
 	return func(h *Hub) { h.perQuery = f }
+}
+
+// WithHTTPRequests adds R9.8's pgsi_http_request_duration_seconds family, the
+// one R9.8 family this package renders itself (http.go) rather than importing
+// from the collector package. A nil *HTTPRequests is legal and renders the
+// family absent, so a server can pass the option before its middleware has
+// served a request.
+func WithHTTPRequests(m *HTTPRequests) Option {
+	return func(h *Hub) { h.http = m }
 }
 
 // Hub composes the self-observability families one process can render (R9.8).
@@ -168,6 +179,12 @@ type Hub struct {
 	// absent rather than empty, and that is also the state of a server whose
 	// store has not been constructed.
 	perQuery PerQueryFamily
+
+	// http is R9.8's pgsi_http_request_duration_seconds, supplied through
+	// WithHTTPRequests. Unlike perQuery it is a concrete type, so its nil case
+	// is handled by HTTPRequests.Render's own nil receiver rather than by a
+	// check here — the same way collectors and up are handled above.
+	http *HTTPRequests
 }
 
 // New returns the hub over the given sources. Both are nil-safe —
@@ -176,7 +193,7 @@ type Hub struct {
 // collector still has a hub, and it renders exactly BuildInfo.
 //
 // Families that arrive from outside the collector package are passed as Options
-// (WithPerQuery today, and the pending store-size and HTTP-duration families
+// (WithPerQuery and WithHTTPRequests today, and the pending store-size family
 // later), which is what lets this signature stay put while the hub grows.
 func New(collectors *collector.Stats, up *collector.UpTracker, opts ...Option) *Hub {
 	h := &Hub{collectors: collectors, up: up}
@@ -196,7 +213,7 @@ func (h *Hub) Render() string { return h.RenderContext(context.Background()) }
 
 // RenderContext concatenates the families this hub can render, in R9.8's listed
 // order: build info, then the collector pair, then the scrape-target gauge, then
-// the catalogue families.
+// the HTTP-duration family, then the catalogue families.
 //
 // A source with nothing to say contributes no bytes rather than an empty family.
 // That rule is not this package's invention — collector.Stats.Render and
@@ -246,5 +263,9 @@ func (h *Hub) RenderContext(ctx context.Context) string {
 			b.WriteString(body)
 		}
 	}
+	// R9.8's HTTP-duration family. No nil check: HTTPRequests.Render is defined
+	// on a nil receiver and returns "", which is this package's answer for a
+	// family with no series and the same shape the two collector sources get.
+	b.WriteString(h.http.Render(""))
 	return b.String()
 }

@@ -319,3 +319,21 @@ func TestHubOmitsAnEmptyPerQueryFamily(t *testing.T) {
 		t.Errorf("empty family wrote bytes\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// TestHubRendersHTTPFamily is the half of R9.8's HTTP family that lives in the
+// hub rather than in http.go: the option has to reach the exposition, and a nil
+// *HTTPRequests has to contribute no bytes rather than an empty family. The
+// family's own bytes are pinned by TestHTTPRenderExact, so this compares against
+// the same value rather than re-checking them.
+func TestHubRendersHTTPFamily(t *testing.T) {
+	m := metrics.NewHTTPRequests()
+	m.Observe("GET", "/api/v1/clusters", 200, 0.03)
+
+	got := metrics.New(nil, nil, metrics.WithHTTPRequests(m)).Render()
+	if want := metrics.BuildInfo() + m.Render(""); got != want {
+		t.Errorf("hub with the HTTP option =\n%s\nwant\n%s", got, want)
+	}
+	if got := metrics.New(nil, nil, metrics.WithHTTPRequests(nil)).Render(); got != metrics.BuildInfo() {
+		t.Errorf("hub with a nil HTTP option =\n%s\nwant\n%s", got, metrics.BuildInfo())
+	}
+}
