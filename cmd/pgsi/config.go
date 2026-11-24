@@ -190,6 +190,15 @@ var settings = []setting{
 	{Flag: "max-concurrent-sql", Req: "R2.9"},
 	{Flag: "max-concurrent-http-scrapes", Req: "R2.9"},
 	{Flag: "scheduler-queue-depth", Req: "R2.9"},
+
+	// R11.6 — the store profile. requirements.md:219 is the only place the spec
+	// spells the flag (`--store=memory`), in §3.4's Alternative row whose
+	// rationale names the lab profile; chart/values.yaml:64 spells the same key's
+	// value set as `sqlite | memory`. R13.5's named flag is --max-store-bytes and
+	// R11.8 is the precedence rule this table implements, so neither is the row's
+	// requirement — the profile pair is. It sits last because that is where
+	// newServeFlags now declares it, after the R2.9 block.
+	{Flag: "store", Req: "R11.6"},
 }
 
 // EnvVar is R11.8's `PGSI_*` naming rule, stated as a function rather than as

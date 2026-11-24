@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -160,4 +161,57 @@ func TestNewRegistryOverrideNamesAnUnregisteredCollector(t *testing.T) {
 	if _, err := newRegistry((*kube.Client)(nil), fakeSQLOpener{}, ov); err != nil {
 		t.Errorf("newRegistry with a wal interval and an opener: err = %v, want nil (wal is registered with an opener)", err)
 	}
+}
+
+// TestOpenSinkProfiles pins the two shapes --store resolves to, which is the
+// half of R11.6's profile pair that cmd/pgsi owns: the memory profile fills two
+// of the three api.Config fields and leaves R9.5's family nil, and a file store
+// fills all three from one handle. The "sqlite" profile word itself is not
+// exercised here because it resolves to defaultStoreFile, a path that exists
+// only where the chart's PVC is mounted; the arm's body is openStoreFile, which
+// the explicit-path subtest covers directly.
+func TestOpenSinkProfiles(t *testing.T) {
+	t.Run("memory", func(t *testing.T) {
+		b, err := openSink(defaultStoreProfile)
+		if err != nil {
+			t.Fatalf("openSink(%q) = %v, want nil", defaultStoreProfile, err)
+		}
+		if _, ok := b.sink.(*collector.MemSink); !ok {
+			t.Errorf("sink = %T, want *collector.MemSink", b.sink)
+		}
+		if b.storeSize == nil {
+			t.Error("storeSize = nil, want the same MemSink the scheduler writes to")
+		}
+		if b.perQuery != nil {
+			t.Errorf("perQuery = %v, want nil (MemSink has no RenderPerQuery, so R9.5's family is absent)", b.perQuery)
+		}
+		if b.close != nil {
+			t.Error("close is set, want nil (a MemSink owns no handle to close)")
+		}
+	})
+
+	t.Run("explicit path", func(t *testing.T) {
+		b, err := openStoreFile(filepath.Join(t.TempDir(), "store.db"))
+		if err != nil {
+			t.Fatalf("openStoreFile = %v, want nil", err)
+		}
+		defer func() {
+			if err := b.close(); err != nil {
+				t.Errorf("close: %v", err)
+			}
+		}()
+		if b.sink == nil || b.storeSize == nil || b.perQuery == nil {
+			t.Errorf("file profile filled sink=%v storeSize=%v perQuery=%v, want all three non-nil",
+				b.sink != nil, b.storeSize != nil, b.perQuery != nil)
+		}
+		if b.close == nil {
+			t.Error("close = nil, want *store.Store's Close")
+		}
+	})
+
+	t.Run("unopenable path fails at startup", func(t *testing.T) {
+		if _, err := openStoreFile(filepath.Join(t.TempDir(), "missing", "store.db")); err == nil {
+			t.Error("openStoreFile in a missing directory = nil error, want one (fail at startup, not one round later in Publish)")
+		}
+	})
 }

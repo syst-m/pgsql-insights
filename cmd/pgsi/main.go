@@ -33,6 +33,8 @@ import (
 	"github.com/frankellis/pgsql-insights/internal/discovery"
 	"github.com/frankellis/pgsql-insights/internal/kube"
 	"github.com/frankellis/pgsql-insights/internal/logx"
+	"github.com/frankellis/pgsql-insights/internal/metrics"
+	"github.com/frankellis/pgsql-insights/internal/store"
 	"github.com/frankellis/pgsql-insights/internal/version"
 )
 
@@ -185,6 +187,13 @@ type serveFlags struct {
 	maxConcurrentSQL         *int
 	maxConcurrentHTTPScrapes *int
 	schedulerQueueDepth      *int
+
+	// store selects which store the process writes to: R11.6's two profiles,
+	// §3.4:218's SQLite file and §3.4:219's ring buffers. It is its own alignment
+	// group for the same reason the three fields above it are — a five-character
+	// name joined to that block re-pads all three, and the group boundary is the
+	// only thing gofmt respects.
+	store *string
 }
 
 // newServeFlags declares every `pgsi serve` flag and returns them as one value.
@@ -312,6 +321,20 @@ func newServeFlags(prefixed logx.Fields) *serveFlags {
 	sf.maxConcurrentSQL = fs.Int("max-concurrent-sql", 0, "global cap on concurrent Postgres-wire collections (R2.9); 0 selects 32")
 	sf.maxConcurrentHTTPScrapes = fs.Int("max-concurrent-http-scrapes", 0, "global cap on concurrent HTTP scrapes (R2.9); 0 selects 64")
 	sf.schedulerQueueDepth = fs.Int("scheduler-queue-depth", 0, "collections the scheduler queues before it starts shedding them (R2.9); 0 selects 512")
+
+	// --- R11.6 store profile ------------------------------------------------
+	// requirements.md spells the flag once — `--store=memory`, §3.4:219's
+	// Alternative row, whose rationale names the lab profile (R11.6) — and the
+	// chart spells the same key's value set as `sqlite | memory`
+	// (chart/values.yaml:64, still a commented Phase 2+ key under config.extra).
+	// Both spellings are accepted here, plus a bare path, because
+	// internal/store/store.go:314's isMemory already recognises ":memory:",
+	// "memory", "mem" and "" as one profile and treats any other string as a
+	// filename; a flag that rejected a value its own store accepts would be a
+	// second answer to "what did we configure". The default is memory, which is
+	// what the binary ran on before this flag existed and what R11.6's lab
+	// profile ships.
+	sf.store = fs.String("store", defaultStoreProfile, "query store (R11.6's two profiles, §3.4:218-219): memory (R13.5's ring buffers) | sqlite (the "+defaultStoreFile+" file) | an explicit SQLite path")
 	return sf
 }
 
@@ -472,11 +495,16 @@ func runServe(args []string) int {
 			log.Error("collector registry", "error", err.Error())
 			return 2
 		}
-		// The sink is the memory one (R13.5's --store=memory form, §3.4) at
-		// NewMemSink's own default ceiling, 64 MiB. The SQLite sink exists
-		// (internal/store/sink.go:60 asserts `var _ collector.Sink = (*Store)(nil)`)
-		// and is A5's; selecting between the two is R11.8's --store= flag, which
-		// serveFlags does not have yet, so the framework default is what runs.
+		// The sink comes from --store. The comment that used to sit here called
+		// the SQLite sink "A5's" and said selecting between the two was
+		// "R11.8's --store= flag, which serveFlags does not have yet" — this
+		// commit closes that gap and fixes two misattributions in the sentence
+		// with it: the requirement that names the flag is R11.6's
+		// (requirements.md:219's `--store=memory` row, whose rationale is the lab
+		// profile), while R11.8 is the config-*precedence* requirement the flag is
+		// listed under in config.go, and R13.5's named flag is --max-store-bytes,
+		// not --store. The selection is now openSink below rather than a permanent
+		// NewMemSink(0).
 		//
 		// The Stats is not passed in and then re-named — it is read back out of the
 		// scheduler, which is the only shape that cannot produce two of them.
@@ -488,7 +516,23 @@ func runServe(args []string) int {
 		// into NewScheduler and assigning the same variable to cfg.Metrics is
 		// equally correct; reading it back makes the equality structural instead of
 		// a thing to remember.
-		sink := collector.NewMemSink(0)
+		bundle, err := openSink(*sf.store)
+		if err != nil {
+			log.Error("store", "error", err.Error(), "store", *sf.store)
+			return 2
+		}
+		// The SQLite handle closes on the way out, after both loops are drained:
+		// the scheduler is the writer (R11.15's single-writer half), so closing
+		// before srv.Run returns would fail in-flight publishes rather than the
+		// ones after shutdown. The memory profile owns no handle, so bundle.close
+		// is nil and nothing is deferred for it.
+		if bundle.close != nil {
+			defer func() {
+				if err := bundle.close(); err != nil {
+					log.Error("store close", "error", err.Error())
+				}
+			}()
+		}
 		// The three R2.9 flags are read here, at the one place a Config is built for
 		// a real round. A flag declared and never passed is the failure R11.8's dump
 		// exists to expose — the dump would print --max-concurrent-sql 8 while the
@@ -500,7 +544,7 @@ func runServe(args []string) int {
 			MaxConcurrentSQL:         *sf.maxConcurrentSQL,
 			MaxConcurrentHTTPScrapes: *sf.maxConcurrentHTTPScrapes,
 			SchedulerQueueDepth:      *sf.schedulerQueueDepth,
-		}, reg, log, sink, nil)
+		}, reg, log, bundle.sink, nil)
 		cfg.Scheduler = sched
 		cfg.Metrics = sched.Stats()
 		// The store-size gauge gets the sink the scheduler writes into, for the
@@ -511,7 +555,19 @@ func runServe(args []string) int {
 		// that is being filled. It is inside the discovery branch with the sink
 		// itself, so --discover=false leaves it nil and the family absent — the same
 		// answer that branch already gives for the scheduler's two families.
-		cfg.StoreSize = sink
+		cfg.StoreSize = bundle.storeSize
+		// R9.5's per-query family is the third field fed by the same object, and
+		// the reason the two profiles cannot be assigned identically: only
+		// *store.Store has a RenderPerQuery, so the memory profile leaves this nil
+		// (the nil-interface case api.Config.PerQueryMetrics' docblock describes,
+		// not a typed nil) and /metrics renders the family absent. Assigning a
+		// store while the scheduler wrote to a MemSink — the shape A5's request
+		// asked for on its own — would give a family that renders nothing but
+		// exists: internal/store/perquery.go returns "" for a store with no rows,
+		// which TestRenderPerQueryEmptyStore pins, so the assignment is only
+		// meaningful once the store is the sink. That is why it lands in this commit
+		// rather than as the one-line change on its own.
+		cfg.PerQueryMetrics = bundle.perQuery
 		// The targets func is called once per round rather than snapshotted here,
 		// which is what makes R1.9's "drop collectors within one resync" work: a
 		// pod that scaled out appears in the next round's set and starts
@@ -561,6 +617,100 @@ func runServe(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// defaultStoreProfile is --store's default value: §3.4:219's memory profile,
+// spelled as requirements.md:219 spells it. It is a constant rather than the
+// literal "memory" in the flag declaration because openSink compares against
+// it, and a flag default and a switch case that are the same string in two
+// places is how a binary ends up defaulting to a profile its own switch does
+// not recognise.
+const defaultStoreProfile = "memory"
+
+// defaultStoreFile is the SQLite file the sqlite profile opens when --store
+// names the profile without a path. §3.4:218 names the engine and R11.15 names
+// the RWO PVC, but neither names a filename; the repo spells one in two places
+// that agree — chart/values.yaml:192's persistence.mountPath (/var/lib/pgsi)
+// and internal/store/store_test.go:257's Config{Path: "/var/lib/pgsi/store.db"}
+// — so this is the third copy of an existing agreement, not a new one. A future
+// --store-path flag would replace it rather than contradict it.
+const defaultStoreFile = "/var/lib/pgsi/store.db"
+
+// sinkBundle is one store resolved into every api.Config field that reads it.
+//
+// The three fields are separate types — collector.Sink for the scheduler,
+// metrics.StoreSizer for R13.5's gauge, metrics.PerQueryFamily for R9.5's
+// family — and a process that fills them with three different objects reports
+// the size of one store while serving queries from another.
+// api.Config.StoreSize's docblock states the rule ("cmd/pgsi assigns the sink it
+// already builds for the scheduler rather than a second one"); constructing the
+// bundle once is how the code enforces it instead of restating it. The field
+// types make each assignment a compile-time check that the concrete type
+// implements that interface, which is why the branches below assign concrete
+// values rather than passing a collector.Sink around and asserting it back at
+// the call site — an assertion without the ok form panics, and with the ok form
+// it silently degrades to "family absent" on a type the day someone adds a
+// fourth sink implementation.
+type sinkBundle struct {
+	sink      collector.Sink
+	storeSize metrics.StoreSizer
+	perQuery  metrics.PerQueryFamily
+
+	// close is the SQLite handle's Close, nil for the memory profile because a
+	// collector.MemSink owns no file. A func field rather than an io.Closer
+	// assertion so the nil case is a nil check, not a type switch.
+	close func() error
+}
+
+// openSink resolves --store's value into the sinkBundle the server and the
+// scheduler share.
+//
+// Three value shapes, tested in this order:
+//
+//   - "memory" (case-insensitive) → collector.NewMemSink(0), R13.5's ring-buffer
+//     store at its own DefaultMaxBytes. R9.5's family is nil here: MemSink has no
+//     RenderPerQuery to offer, so the field stays nil and /metrics renders the
+//     family absent.
+//   - "sqlite" / "sqlite:" (case-insensitive) → the §3.4:218 profile at
+//     defaultStoreFile, the path the chart's PVC mounts. All three fields fill
+//     from the one *store.Store. The trailing-colon spelling is accepted because
+//     store.Config.isMemory accepts "memory:" and a value that only half the
+//     spellings of one profile resolve to is how "sqlite:" ends up opening a
+//     file named "sqlite:" in the working directory.
+//   - anything else → that string as a SQLite path. This is what
+//     store.Config.Path takes, and it is what a deployment with a non-default
+//     mount needs; chart/values.yaml:64 says the value is passed through
+//     verbatim, and this arm is what honours that. One consequence is worth
+//     naming: --store=:memory: lands here rather than in the MemSink arm, so it
+//     opens a SQLite database in RAM instead of the ring buffers — which is what
+//     internal/store/store.go:314's isMemory does with that string, and the
+//     reason this switch recognises the profile *name* and lets the store
+//     interpret every other spelling of it.
+//
+// The sqlite arms open eagerly and hand back the handle's Close, so a bad path
+// fails `pgsi serve` at startup with the path in the error rather than one
+// collection round later inside a Publish.
+func openSink(spec string) (sinkBundle, error) {
+	switch strings.ToLower(strings.TrimSpace(spec)) {
+	case defaultStoreProfile:
+		sink := collector.NewMemSink(0)
+		return sinkBundle{sink: sink, storeSize: sink}, nil
+	case "sqlite", "sqlite:":
+		return openStoreFile(defaultStoreFile)
+	default:
+		return openStoreFile(spec)
+	}
+}
+
+// openStoreFile fills all three fields from one *store.Store, which is the whole
+// point: the sink the scheduler writes to, the gauge /metrics reads, and the
+// family R9.5 renders are one handle, opened once, closed once.
+func openStoreFile(path string) (sinkBundle, error) {
+	st, err := store.Open(store.Config{Path: path})
+	if err != nil {
+		return sinkBundle{}, err
+	}
+	return sinkBundle{sink: st, storeSize: st, perQuery: st, close: st.Close}, nil
 }
 
 // newRegistry builds this process's collector set: the []Collector argument

@@ -178,6 +178,9 @@ func TestConfigMapKeys(t *testing.T) {
 		"max-concurrent-sql":          "maxConcurrentSql",
 		"max-concurrent-http-scrapes": "maxConcurrentHttpScrapes",
 		"scheduler-queue-depth":       "schedulerQueueDepth",
+
+		// R11.6's store profile (chart/values.yaml:64's `store` key).
+		"store": "store",
 	}
 	for flagName, want := range tests {
 		if got := ConfigMapKey(flagName); got != want {
