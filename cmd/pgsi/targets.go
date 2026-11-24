@@ -77,9 +77,11 @@ func collectTargets(inv discovery.Inventory) []collector.Target {
 	// are `t.Cluster != "" && t.Namespace != "" && ValidSource(t.Source)`
 	// (collector.go:350-352) and ValidSource("") is false, so a target validated
 	// before its Source is assigned is invalid no matter how good its identity is.
-	// The first version of this function built a namespace+cluster "base" and
-	// called Valid() on it before the per-source fields were set; it returned zero
-	// targets for a well-formed two-instance cluster, and only the test caught it.
+	// The pre-commit draft of 74485a4 built a namespace+cluster "base" and called
+	// Valid() on it before the per-source fields were set; it returned zero targets
+	// for a well-formed two-instance cluster, and only the test caught it. "The
+	// first version" would name a state that exists in no commit — this file has one
+	// committed version, and the buggy shape was never among its revisions.
 	// The general rule is the one the type already states: Valid is a predicate on
 	// a whole Target, so it runs on a whole Target.
 	add := func(t collector.Target) {

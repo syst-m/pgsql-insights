@@ -226,13 +226,13 @@ func TestCollectTargetsPoolerIdentityFallback(t *testing.T) {
 // Inventory entry with a populated InstanceList contributes nothing, because
 // every target built from it inherits the empty Cluster.
 //
-// This test is the one that would have caught the first version's bug on its own:
-// that version validated a namespace+cluster base before setting Source, which
-// made Valid() reject every target, so this test passed for the wrong reason —
-// it expected zero targets and got zero. The pair that actually exposed the bug
-// is TestCollectTargetsSQLFromInstanceList and TestCollectTargetsPoolerPerPod,
-// which expect non-empty results. A zero-expecting test needs a non-zero sibling
-// to mean anything.
+// This test is the one that would have caught the pre-commit draft of 74485a4's
+// bug on its own: that draft validated a namespace+cluster base before setting
+// Source, which made Valid() reject every target, so this test passed for the
+// wrong reason — it expected zero targets and got zero. The pair that actually
+// exposed the bug is TestCollectTargetsSQLFromInstanceList and
+// TestCollectTargetsPoolerPerPod, which expect non-empty results. A
+// zero-expecting test needs a non-zero sibling to mean anything.
 func TestCollectTargetsInvalidCluster(t *testing.T) {
 	major := 16
 	inv := discovery.Inventory{Clusters: []dto.ClusterView{
