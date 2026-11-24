@@ -67,7 +67,7 @@ var _ StoreSizer = (*collector.MemSink)(nil)
 // (*collector.MemSink)(nil) that `src == nil` does not catch and whose Used()
 // would panic on m.mu. The second is the hazard d2415b1 removed from
 // store.RenderPerQuery and internal/api already carries in
-// TestNewAcceptsTypedNilPerQuery, so it is checked here rather than rediscovered.
+// TestNewAcceptsTypedNilPerQuery (22023a3), so it is checked here rather than rediscovered.
 //
 // A third typed nil exists and is handled by the source, not here: a StoreSizer
 // holding (*store.Store)(nil) fails the MemSink assertion, falls through to
@@ -80,10 +80,10 @@ var _ StoreSizer = (*collector.MemSink)(nil)
 // argument for putting the rule on the receiver. The two answers differ (a nil
 // MemSink renders the family absent, a nil Store renders it at 0) and that
 // asymmetry is store's to own; this function forwards whatever Used() says.
-// d2451de's TestStoreSizeOfNilStore pins the store half from inside store — the
-// same division that makes TestNewAcceptsTypedNilPerQuery the MemSink half's
-// test, and for the same reason: the package that names the type is the one that
-// can assert on it.
+// d2451de's TestStoreSizeOfNilStore pins the store half from inside store, and
+// 22023a3's TestNewAcceptsTypedNilPerQuery (internal/api/server_test.go) pins
+// the MemSink half from inside api — the same division, and for the same reason:
+// the package that names the type is the one that can assert on it.
 //
 // prefix follows R9.2 the way UpTracker and HTTPRequests do it: "" selects
 // collector.DefaultPrefix, any other value is used verbatim.

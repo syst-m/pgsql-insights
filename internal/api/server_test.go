@@ -139,9 +139,10 @@ var _ metrics.PerQueryFamily = (*nilPerQuerySource)(nil)
 
 // TestNewAcceptsTypedNilPerQuery is the test internal/metrics/store.go cites
 // twice — at :70 for the PerQueryMetrics half ("the hazard d2415b1 removed from
-// store.RenderPerQuery … internal/api already carries in
-// TestNewAcceptsTypedNilPerQuery") and at :84 for the StoreSize half ("the same
-// division that makes TestNewAcceptsTypedNilPerQuery the MemSink half's test").
+// store.RenderPerQuery and internal/api already carries in
+// TestNewAcceptsTypedNilPerQuery (22023a3)") and at :84 for the StoreSize half
+// ("d2451de's TestStoreSizeOfNilStore pins the store half from inside store, and
+// 22023a3's … pins the MemSink half from inside api").
 // Both citations name one test, so it covers both fields in one New call: the
 // point is that api passes a typed nil through to a renderer that handles it,
 // rather than dereferencing it somewhere that requires a non-nil value.
