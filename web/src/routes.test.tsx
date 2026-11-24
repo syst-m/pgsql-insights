@@ -17,6 +17,7 @@ import {
   FIXTURE_FLEET,
   FIXTURE_QUERY_DETAIL,
   FIXTURE_QUERIES,
+  FIXTURE_TAGS,
 } from "./api/fixtures";
 import {
   ROUTES,
@@ -110,6 +111,17 @@ const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknow
     location: `/c/${CLUSTER}/active`,
     fixture: FIXTURE_ACTIVE_QUERIES,
     heading: "Active Queries",
+  },
+  // R10.3's tags page, mounted by the `component:` flip that followed
+  // `0c8f53e`. Its props are `PageProps<Envelope<TagView>>` plus an optional
+  // `extensionInstalled` (`Tags.tsx:162`), whose own docblock documents the
+  // default as *unknown*, so the entry carries the envelope and leaves the
+  // prop unset — the shape every other cluster-scoped entry here uses.
+  {
+    page: "tags",
+    location: `/c/${CLUSTER}/tags`,
+    fixture: FIXTURE_TAGS,
+    heading: "Tags",
   },
 ];
 

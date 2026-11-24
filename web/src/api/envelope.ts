@@ -62,7 +62,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  *  checked with. Its own type so `parseEnvelope` can take it as a parameter
  *  with a default, which is what keeps one generic function serving every
  *  list endpoint instead of a union that has to be widened by hand each time a
- *  page lands (`FleetResponse | QueriesResponse | DatabasesResponse …` — a
+ *  page lands (`FleetResponse | QueryResponse | DatabasesResponse …` — a
  *  growing union is a per-phase edit to a shared file, and shared files are
  *  where the `docs/agents.md` §5 rule-1 commits happen). */
 export type RowParser<T> = (raw: unknown) => T;

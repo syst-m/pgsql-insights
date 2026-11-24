@@ -56,6 +56,7 @@ import { ClusterDetailPage } from "./pages/ClusterDetail";
 import { FleetPage } from "./pages/Fleet";
 import { QueryDetailPage } from "./pages/QueryDetail";
 import { QueriesPage } from "./pages/Queries";
+import { TagsPage } from "./pages/Tags";
 import type { UrlState } from "./state/urlState";
 
 /** The 14 pages R10.3 names. This is the canonical declaration; `state/urlState.ts`
@@ -259,7 +260,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.3 · R3.12 · R8.2",
     endpoint: "GET /api/v1/insights/tags",
     phase: "5",
-    component: null,
+    component: TagsPage,
     scope: "cluster",
     path: "/c/:ns/:name/tags",
     inNav: true,
