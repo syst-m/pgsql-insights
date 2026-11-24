@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/frankellis/pgsql-insights/internal/collector"
+	"github.com/frankellis/pgsql-insights/internal/collector/metrictype"
 )
 
 func TestRegistryNoDuplicateNames(t *testing.T) {
@@ -50,7 +50,7 @@ func TestRegistryNamesAreValidMetricNames(t *testing.T) {
 func TestRegistryTypesAreExportable(t *testing.T) {
 	for _, f := range families {
 		switch f.Type {
-		case collector.TypeCounter, collector.TypeGauge:
+		case metrictype.TypeCounter, metrictype.TypeGauge:
 		default:
 			t.Errorf("%s: type %q is neither counter nor gauge; the cnpg surface contains no untyped family, and TypeNotExported here would mean the registry knows a family it refuses to name", f.Name, f.Type)
 		}
@@ -59,7 +59,7 @@ func TestRegistryTypesAreExportable(t *testing.T) {
 
 func TestRegistryCountersEndInTotal(t *testing.T) {
 	for _, f := range families {
-		if f.Type == collector.TypeCounter && !strings.HasSuffix(f.Name, "_total") {
+		if f.Type == metrictype.TypeCounter && !strings.HasSuffix(f.Name, "_total") {
 			// The Prometheus convention R9.4's own names follow. The cnpg exporter
 			// predates strict adherence on some families, so this is a report, not a
 			// failure: the registry mirrors the body, and renaming a family to satisfy

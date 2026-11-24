@@ -38,8 +38,8 @@ type Metric struct {
 	// a prefix in is a family that cannot change its prefix.
 	Name string
 	// Type is the declared type verbatim — one of the five in TypeValid. It is a
-	// plain string rather than collector.MetricType because the text format has
-	// five types and collector.MetricType has three (counter, gauge, and the empty
+	// plain string rather than metrictype.MetricType because the text format has
+	// five types and metrictype.MetricType has three (counter, gauge, and the empty
 	// "not exported" marker); widening that enum for summary and histogram is
 	// R9.13's business, and until it happens the parser reports what the body
 	// said instead of rounding it to the nearest thing the enum can spell.

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/frankellis/pgsql-insights/internal/collector/metrictype"
 	"github.com/frankellis/pgsql-insights/internal/collector/pgversion"
 )
 
@@ -79,25 +80,27 @@ func MetricNameFor(key string) string {
 	return exportNames[key].name
 }
 
-// MetricType is the Prometheus type of a family, which is the other half of what
-// the renderer needs and cannot be inferred at render time: `# TYPE` is per
+// MetricType is the Prometheus type of a family. The canonical definition moved
+// to internal/collector/metrictype and this is a type alias, not a
+// redeclaration.
+//
+// The doc that used to sit here described the enum itself — `# TYPE` is per
 // family, and a counter exported without its `_total` suffix is rejected by
-// `promtool check metrics` — which Phase 2's acceptance runs.
-type MetricType string
+// `promtool check metrics`, which Phase 2's acceptance runs. That text now lives
+// with the definition. What belongs here is why the name is an alias:
+// cnpgmetrics/registry.go imported internal/collector for this one type, and once
+// pooler.go needed to import cnpgmetrics from inside collector, that edge closed a
+// cycle. An alias moves the definition's address without moving any of the names
+// in use, so every collector.MetricType and collector.TypeGauge reference in this
+// package still compiles. See metrictype's package doc for the full account.
+type MetricType = metrictype.MetricType
 
+// The three members are defined in metrictype; these are aliases, so
+// collector.TypeGauge and metrictype.TypeGauge are the same constant.
 const (
-	// TypeCounter is a monotonically increasing cumulative metric. Its name ends
-	// in `_total` (the Prometheus convention R9.4's own names follow:
-	// pgsi_query_rows_total, pgsi_db_xact_commit_total).
-	TypeCounter MetricType = "counter"
-	// TypeGauge is a value that goes up and down. No suffix.
-	TypeGauge MetricType = "gauge"
-	// TypeNotExported marks a column that is part of a view's projection but is
-	// not a metric at all: a name column (datname, nspname), an identifier
-	// (datid, pid, oid), or a timestamp that is a counter epoch rather than a
-	// measurement (stats_reset). R9.1 puts these on the API plane; exporting
-	// them as numbers is how an exporter ends up with pgsi_pg_stat_activity_pid.
-	TypeNotExported MetricType = ""
+	TypeCounter     = metrictype.TypeCounter
+	TypeGauge       = metrictype.TypeGauge
+	TypeNotExported = metrictype.TypeNotExported
 )
 
 // exportEntry is one row of the naming table.
