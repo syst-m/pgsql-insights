@@ -51,6 +51,7 @@ import type { ComponentType } from "react";
 
 import type { ClientConfig } from "./api/client";
 import type { FleetResponse } from "./api/types";
+import { ActiveQueriesPage } from "./pages/ActiveQueries";
 import { ClusterDetailPage } from "./pages/ClusterDetail";
 import { FleetPage } from "./pages/Fleet";
 import { QueryDetailPage } from "./pages/QueryDetail";
@@ -214,7 +215,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.8",
     endpoint: "GET /api/v1/active-queries",
     phase: "6a",
-    component: null,
+    component: ActiveQueriesPage,
     scope: "cluster",
     path: "/c/:ns/:name/active",
     inNav: true,

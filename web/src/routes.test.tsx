@@ -12,7 +12,12 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
 import { toQueriesResponse } from "./api/envelope";
-import { FIXTURE_FLEET, FIXTURE_QUERY_DETAIL, FIXTURE_QUERIES } from "./api/fixtures";
+import {
+  FIXTURE_ACTIVE_QUERIES,
+  FIXTURE_FLEET,
+  FIXTURE_QUERY_DETAIL,
+  FIXTURE_QUERIES,
+} from "./api/fixtures";
 import {
   ROUTES,
   ROUTE_BY_PAGE,
@@ -96,6 +101,15 @@ const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknow
     location: `/c/${FIXTURE_QUERY_DETAIL.namespace}/${FIXTURE_QUERY_DETAIL.cluster}/queries/${FIXTURE_QUERY_DETAIL.fingerprint}`,
     fixture: FIXTURE_QUERY_DETAIL,
     heading: FIXTURE_QUERY_DETAIL.query,
+  },
+  // R10.8's page, mounted by the `component:` flip that followed `99f37f0`. The
+  // fixture is the same `testdata/api/active-queries.json` the hook's test
+  // parses, so the shell renders the page's own payload rather than the fleet's.
+  {
+    page: "active",
+    location: `/c/${CLUSTER}/active`,
+    fixture: FIXTURE_ACTIVE_QUERIES,
+    heading: "Active Queries",
   },
 ];
 
