@@ -34,7 +34,7 @@
  * has one yet, defaults to the contract fixture filtered to the row's cluster —
  * the same way the row itself comes from `FIXTURE_CLUSTERS` rather than from a
  * fetch. The filter is not decoration: `QuerySeries` names its own namespace
- * and cluster (`api/types.ts:686`) and the chart plots whatever array it is
+ * and cluster (`api/types.ts:687`) and the chart plots whatever array it is
  * handed, so a batch belonging to another cluster is the one way this page can
  * be wrong without anything failing.
  *
@@ -129,7 +129,7 @@ function UnknownCluster({ state, onPatch }: PageProps) {
 
 /** Narrow a batch of R8.11 series down to the ones belonging to one cluster.
  *
- *  `QuerySeries` names its own namespace and cluster (`api/types.ts:686`) and
+ *  `QuerySeries` names its own namespace and cluster (`api/types.ts:687`) and
  *  `QueryLoadArea` plots whatever array it is handed, so a batch fetched for
  *  another cluster is the one way this page can render a chart that is wrong
  *  without anything failing. The route entry applies this to the fixture, and
