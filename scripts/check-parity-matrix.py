@@ -1,4 +1,4 @@
-import re, sys, pathlib, subprocess
+import re, sys, pathlib, subprocess, inspect
 if len(sys.argv) < 2:
     # The runner is scripts/check-parity-matrix.sh, which passes requirements.md. Called
     # bare, this raised IndexError and exited 1 -- a usage error wearing the exit code of a
@@ -19,15 +19,26 @@ def dump(items, render, cap=20):
     line saying five were withheld, so the summary and the list under it disagreed and the
     output gave no hint (coordinator's finding, 2026-11-24). The cause was a bare
     `for t in uncited_f[:20]:` sitting under a summary that printed `len(uncited_f)`: a
-    silent slice. The file had seventeen of them and exactly one -- `cite_bad`, which had
+    silent slice. The file had fifteen of them, measured at `e6a4921` (A3's S82: the row and this docstring
+    both said seventeen, which is the number of data sets routed through `dump()`, not the number of
+    bare slices; eighteen is the number of `dump()` call sites including the self-lint) -- and
+    exactly one, `cite_bad`, which had
     its own `if len(cite_bad) > 40: print("  ... more")` two lines -- printed the remainder;
     the other sixteen truncated without saying so. This is that one line, generalised, and
     SLICE_LOOP_RE at the bottom fails the build on any new bare slice so the convention
     cannot rot back to one site out of seventeen.
     """
     items = list(items)
+    # Arity dispatch: the converted call sites pass either a one-parameter lambda (the item is
+    # the value: a finding id, an exemption key) or a lambda with one parameter per tuple field
+    # (a citation is (file, line, id)). render(x) on a 3-tuple raises TypeError, and at the
+    # commit that added this helper every multi-parameter site had an empty set, so the loop
+    # body never ran and the crash waited until the first non-empty path_bad two commits later.
+    # A helper whose broken branches are the ones no data exercised is the same failure as the
+    # silent slice it replaced: the shape that is never executed is the one that is untested.
+    n = len(inspect.signature(render).parameters)
     for x in items[:cap]:
-        print(render(x))
+        print(render(*x) if n > 1 else render(x))
     if len(items) > cap:
         print(f"  \u2026 {len(items) - cap} more not listed")
 
@@ -542,7 +553,7 @@ dump(status_bad, lambda n, rid, cell: f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}"
 # damage without turning this commit into a rewrite of prose it did not write. Entries are
 # (file, line): a fix deletes its line, and so does any edit that moves the row -- an exemption
 # that expires when the line moves re-reports the row instead of silently passing it, which is
-# the direction worth failing in. The eight §11 rows at requirements.md:842-849 are missing a
+# the direction worth failing in. The eight §11 rows at requirements.md:843-850 are missing a
 # column outright (the Reviewer cell absorbed the Scope cell's `-> docs/reviews/...` suffix);
 # :841, the ninth data row of that table, has five cells against its header's five and needs no
 # exemption -- the count here said nine until A5 measured it, which is the cost of writing a
@@ -556,9 +567,9 @@ dump(status_bad, lambda n, rid, cell: f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}"
 # ends that churn, where re-pointing the number would have restarted it on the next edit above
 # the row.
 WIDTH_EXEMPT = {
-    ("requirements.md", 842), ("requirements.md", 843), ("requirements.md", 844),
-    ("requirements.md", 845), ("requirements.md", 846), ("requirements.md", 847),
-    ("requirements.md", 848), ("requirements.md", 849),
+    ("requirements.md", 843), ("requirements.md", 844), ("requirements.md", 845),
+    ("requirements.md", 846), ("requirements.md", 847), ("requirements.md", 848),
+    ("requirements.md", 849), ("requirements.md", 850),
 }
 # WIDTH_DOC is the whole scan set -- four named files, not "the docs" generally. The three
 # round-1 documents (docs/reviews/round-1-architecture.md, round-1-product.md and
