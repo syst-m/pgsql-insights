@@ -52,6 +52,37 @@
  *   - labels are selective: two y labels and up to six x labels, never a value
  *     at every point. Text is ink (`--text-secondary`), never the series colour
  *
+ * ── R10.19 for this chart type ─────────────────────────────────────────────
+ *
+ * R10.19 (:430) wants the interaction contract *stated* per chart type rather
+ * than left to a default, and a line has four answers, two of which depend on
+ * `framed`:
+ *
+ *   - **hover**: framed → one full-height `.spark-hit` rect per point (the
+ *     code's own reason: a 2px stroke is not a target a pointer finds), a
+ *     `.spark-crosshair` at the hovered x, and a `.viz-tooltip` whose value
+ *     leads and whose second line is the point's x label — `xLabels`, i.e.
+ *     R10.21's format, not a second formatting rule invented at the tooltip.
+ *     Unframed → no hover layer at all, which is a stated answer and not an
+ *     omission: the R10.6 cell is 96×20 and the row beside it already prints the
+ *     same number, so a per-point tooltip repeats the row inside itself.
+ *     `Sparkline.test.tsx:111` ("omits the axes, the hit layer and the crosshair
+ *     when unframed") is that sentence asserted.
+ *   - **crosshair**: the vertical line only. On a single-axis line the x
+ *     position carries the time and the y is readable off the axis labels, so a
+ *     two-axis cross would add a second surface for reading the value the
+ *     tooltip already prints.
+ *   - **legend**: none, for the single-series reason in the colour section — and
+ *     click-to-isolate is degenerate here for the reason `QueryLoadArea.tsx:116`
+ *     states for its own legend: one series cannot be hidden and still leave a
+ *     chart, so the absence is written down instead of shipped as a disabled
+ *     control.
+ *   - **click-through**: none. In the table cell the row is the link —
+ *     `QueryTable.tsx:452` says so for the row and `LoadBars.test.tsx:54` proves
+ *     the same rule for a chart inside a cell — so a sparkline is content of the
+ *     row, not a second target; in the framed case it is one of five multiples
+ *     under one title, none of which has anywhere to go.
+ *
  * ── library (R10.2b) ──────────────────────────────────────────────────────
  *
  * R10.2(b) names the default as "`@visx` over `d3-scale` (no Chart.js/Recharts
