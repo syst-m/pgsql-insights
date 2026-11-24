@@ -65,6 +65,31 @@ type Config struct {
 	// The chart keeps this below the pod's terminationGracePeriodSeconds.
 	ShutdownTimeout time.Duration
 
+	// ServeUI is R8.6's `--serve-ui`: whether this process serves the embedded
+	// SPA at all. A *bool and not a bool, because the requirement's default is to
+	// serve and a plain bool's zero value is the opt-out — declaring the field
+	// `bool` would make `api.Config{}` an API-only server, inverting every
+	// deployment that exists today. So nil means serve, and New normalises nil to
+	// a pointer to true the way it normalises Metrics and HTTPMetrics, for the
+	// same "a default that lives in one place cannot be forgotten by the next
+	// caller" reason those two give. serveUI() below repeats the rule so a Server
+	// built without New answers it too instead of dereferencing nil.
+	//
+	// False unregisters `GET /` rather than mounting a handler that declines.
+	// `GET /` is the mux's subtree pattern (R10.1), so removing it is what makes
+	// `/`, every R10.16 client-side route (`/c/<ns>/<name>`) and every asset path
+	// answer 404 — the honest answer for a process with no UI, where a
+	// mounted-but-declining handler would have to invent a body for paths it no
+	// longer serves. This is D9's reserved `api` role expressed as a flag, the
+	// same role whose sink-less StoreSize is documented below.
+	//
+	// A2's own annotation for this route
+	// (internal/api/openapi_annotations.go:1978) sized the gap as "one bool in
+	// `Config` plus one `if` around this registration"; this field and the gate in
+	// Handler are the two halves of that sentence. The annotation's "The flag is
+	// not implemented yet" sentence is A2's file to update, not this one's.
+	ServeUI *bool
+
 	// Auth is R8.8's per-route-group policy. Nil means every route is
 	// unauthenticated, which is what Phase 0's Config (and its tests) had
 	// before the auth flag existed — so leaving it unset is not a behaviour
@@ -322,6 +347,13 @@ func New(cfg Config) *Server {
 	if cfg.ShutdownTimeout <= 0 {
 		cfg.ShutdownTimeout = 10 * time.Second
 	}
+	// R8.6: nil means serve, so nil becomes a pointer to true and every reader
+	// after this line sees a value rather than a nil to interpret. The field's
+	// docblock gives the reason a plain bool cannot carry that rule.
+	if cfg.ServeUI == nil {
+		serve := true
+		cfg.ServeUI = &serve
+	}
 	// The readiness derivation is the whole of R8.7(i) in three lines: a server
 	// given a fleet gets one whose sources are that fleet's Ready(), so the probe
 	// and the API cannot report different answers, and a server given no fleet
@@ -357,6 +389,16 @@ func New(cfg Config) *Server {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return s
+}
+
+// serveUI reports whether this process serves the embedded SPA — R8.6's
+// `--serve-ui`, read in one place so the gate in Handler and the normalisation
+// in New cannot state the rule twice and disagree. New already turns a nil into
+// a pointer to true; the nil check here is for the Server built as &Server{}
+// (internal/api/metrics_mw_test.go:32), which has no normalised cfg and must
+// still answer "serve" rather than dereference nil.
+func (s *Server) serveUI() bool {
+	return s.cfg.ServeUI == nil || *s.cfg.ServeUI
 }
 
 // Handler returns the routed handler, separated from Run so tests can drive it
@@ -426,7 +468,15 @@ func (s *Server) Handler() http.Handler {
 	// R10.1: the SPA is served by this binary. `GET /` is the mux's root
 	// pattern — it matches every GET the patterns above do not, because a
 	// trailing-slash pattern is a subtree match.
-	mux.HandleFunc("GET /", s.handleSPA)
+	//
+	// R8.6's `--serve-ui=false` takes the registration away rather than mounting
+	// a handler that declines, which is the shape the PromQL block above uses for
+	// an unconfigured subsystem ("not mounted at all, rather than mounted and
+	// answering wrong"). serveUI() is the one place the nil-means-serve rule is
+	// written, so the gate cannot be re-derived differently here than in New.
+	if s.serveUI() {
+		mux.HandleFunc("GET /", s.handleSPA)
+	}
 
 	// Middleware order is CORS-then-auth, and the reason is a browser detail:
 	// a CORS preflight (OPTIONS) carries no Authorization header, so if auth

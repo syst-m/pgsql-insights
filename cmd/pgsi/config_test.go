@@ -136,6 +136,7 @@ func TestConfigMapKeys(t *testing.T) {
 	tests := map[string]string{
 		"listen":                  "listen",
 		"shutdown-timeout":        "shutdownTimeout", // the chart's own spelling
+		"serve-ui":                "serveUi",
 		"auth-token-file":         "authTokenFile",
 		"auth-metrics-token-file": "authMetricsTokenFile",
 		"cors-allow-origin":       "corsAllowOrigin",

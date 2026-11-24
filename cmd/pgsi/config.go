@@ -129,6 +129,7 @@ var settings = []setting{
 	// R8.7 — the listener; R13.8 — the drain budget.
 	{Flag: "listen", Req: "R8.7"},
 	{Flag: "shutdown-timeout", Req: "R13.8"},
+	{Flag: "serve-ui", Req: "R8.6"},
 
 	// R8.8 — auth. Four of the six are tokens; the two -file variants are paths
 	// and print in the clear, because a path that does not exist is the

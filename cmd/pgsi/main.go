@@ -142,6 +142,7 @@ type serveFlags struct {
 
 	listen               *string
 	shutdown             *time.Duration
+	serveUI              *bool
 	authMode             *string
 	authMetrics          *string
 	authToken            *string
@@ -197,6 +198,7 @@ func newServeFlags(prefixed logx.Fields) *serveFlags {
 
 	sf.listen = fs.String("listen", ":8080", "address the HTTP server binds (R8.7)")
 	sf.shutdown = fs.Duration("shutdown-timeout", 0, "graceful-shutdown drain budget (R13.8); 0 selects 10s")
+	sf.serveUI = fs.Bool("serve-ui", true, "serve the embedded SPA from this binary (R8.6); false is an API-only deployment")
 
 	// --- R8.8 auth -------------------------------------------------------
 	// The defaults are the requirement's own words: "Default `token` with a
@@ -369,7 +371,7 @@ func runServe(args []string) int {
 		return 2
 	}
 
-	cfg := api.Config{Listen: *sf.listen, ShutdownTimeout: *sf.shutdown, Auth: authz, Log: log}
+	cfg := api.Config{Listen: *sf.listen, ShutdownTimeout: *sf.shutdown, ServeUI: sf.serveUI, Auth: authz, Log: log}
 
 	// --- CORS (R8.9) -----------------------------------------------------
 	// An empty allow-list leaves cfg.CORS nil, which cors.go treats as "no CORS
