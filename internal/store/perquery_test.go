@@ -357,3 +357,38 @@ func TestRenderPerQueryEmptyStore(t *testing.T) {
 		t.Errorf("RenderPerQuery(50) on an empty store = %q, want \"\" (a family with no series is absent)", got)
 	}
 }
+
+// TestRenderPerQueryNilStore is A2's typed-nil hazard. The hub's guard is on the
+// interface (metrics.WithPerQuery stores the value and RenderContext checks
+// `h.perQuery != nil`), and a typed nil — `cfg.PerQueryMetrics =
+// (*store.Store)(nil)` — is a non-nil interface holding a nil pointer, so the hub
+// calls this method rather than skipping it. Before the guard the first
+// dereference was s.db inside perQuerySeriesFor and the /metrics handler panicked.
+//
+// The four topN cases pin the guard's position as well as its presence: the
+// receiver check precedes the range check, so a nil store answers "" for -1 and
+// 1001 too, where the fixture-backed TestRenderPerQueryTopN requires an error for
+// those same two values. That ordering is the documented one (up.go:179 puts its
+// nil check first for the same reason), and this test is what makes it a claim
+// with a failure mode instead of a sentence.
+func TestRenderPerQueryNilStore(t *testing.T) {
+	var s *Store
+
+	for _, tc := range []struct {
+		name string
+		n    int
+	}{
+		{name: "default", n: 50},
+		{name: "disabled", n: 0},
+		{name: "below range", n: -1},
+		{name: "above range", n: 1001},
+	} {
+		got, err := s.RenderPerQuery(context.Background(), tc.n, "")
+		if err != nil {
+			t.Errorf("(*Store)(nil).RenderPerQuery(%s=%d): unexpected error %v", tc.name, tc.n, err)
+		}
+		if got != "" {
+			t.Errorf("(*Store)(nil).RenderPerQuery(%s=%d) = %q, want \"\" (a nil source contributes no bytes)", tc.name, tc.n, got)
+		}
+	}
+}

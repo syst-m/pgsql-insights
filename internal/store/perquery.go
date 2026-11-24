@@ -265,10 +265,24 @@ func formatMetricValue(v float64) string {
 // having config to hand.
 //
 // The return is "" — no HELP, no TYPE — when the family has nothing to export:
-// N=0 (R9.5's own disable), or a store with no rows. That is the rule the hub's
-// docblock states for every family it composes, and it is what lets the hub add
-// this family with one line and no special case.
+// a nil *Store, N=0 (R9.5's own disable), or a store with no rows. That is the
+// rule the hub's docblock states for every family it composes, and it is what
+// lets the hub add this family with one line and no special case.
+//
+// The nil-receiver guard is what makes that rule reachable through the hub's
+// field. The hub's check is on the interface — `h.perQuery != nil` — and a typed
+// nil (`cfg.PerQueryMetrics = (*store.Store)(nil)`) is a non-nil interface
+// holding a nil pointer, so the hub calls this method rather than skipping it and
+// the dereference below would panic in the /metrics handler. Every other source
+// the hub composes answers a nil receiver with the empty string
+// (collector/metrics.go:198, collector/up.go:179); this one now does the same.
+// The check precedes the topN range so the receiver decides before the argument
+// does, which is up.go:179's order too: a nil store renders nothing for any
+// topN, including one outside R9.5's range.
 func (s *Store) RenderPerQuery(ctx context.Context, topN int, prefix string) (string, error) {
+	if s == nil {
+		return "", nil
+	}
 	if !collector.ValidTopN(topN) {
 		return "", fmt.Errorf("store: render per-query family: topN %d outside R9.5's 0..%d", topN, collector.MaxTopN)
 	}
