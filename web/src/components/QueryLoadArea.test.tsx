@@ -171,10 +171,50 @@ describe("stackSeries", () => {
       lockTimeSeconds: 0.2,
       ioTimeSeconds: Number.NaN,
     };
-    // The same rule on the other measure: a bucket whose IO time is non-finite
-    // is dropped whole rather than drawn with a real execution time and a band
-    // that has no number behind it.
-    expect(stackSeries([{ ...SERIES, points: [ioNaN] }])).toHaveLength(0);
+    // The other measure is gated differently: a point whose IO time is
+    // non-finite keeps its execution time and loses its IO number, because the
+    // bucket's identity is its execution time and the legend can render an
+    // absent IO band but cannot render an absent execution one.
+    const ioOnly = stackSeries([{ ...SERIES, points: [ioNaN] }]);
+    expect(ioOnly).toHaveLength(1);
+    expect(ioOnly[0]?.execSec).toBeCloseTo(1.8, 10);
+    expect(ioOnly[0]?.ioSec).toBeNull();
+  });
+
+  it("marks the IO band absent when a contributor reports the store's -1 code", () => {
+    // The code is finite, so the isFinite guard alone would sum it and subtract
+    // a second from the band. The store's own rule for the same case
+    // (`store/series.go:73`'s lock-time CASE) is that one source which cannot
+    // answer makes the minute unable to answer, so the bucket keeps the sum of
+    // the two real execution times and reports no IO number rather than the
+    // partial 0.2092 as if it were the cluster's total.
+    const real: QuerySeriesPoint = {
+      timestamp: "2026-11-20T09:12:00Z",
+      executionTimeSeconds: 42.7,
+      rows: 981,
+      sharedBlocksHit: 2044,
+      sharedBlocksRead: 61,
+      lockTimeSeconds: 1.4,
+      ioTimeSeconds: 0.2092,
+    };
+    const noSource: QuerySeriesPoint = {
+      timestamp: "2026-11-20T09:12:00Z",
+      executionTimeSeconds: 0.5,
+      rows: 1,
+      sharedBlocksHit: 3,
+      sharedBlocksRead: 0,
+      lockTimeSeconds: -1,
+      ioTimeSeconds: -1,
+    };
+    const [mixed] = stackSeries([{ ...SERIES_B, points: [real, noSource] }]);
+    expect(mixed?.execSec).toBeCloseTo(43.2, 10);
+    expect(mixed?.ioSec).toBeNull();
+
+    // And a bucket whose only contributor reports the code: the bucket exists,
+    // because its execution time is real, and its IO band is absent.
+    const [alone] = stackSeries([{ ...SERIES_B, points: [noSource] }]);
+    expect(alone?.execSec).toBeCloseTo(0.5, 10);
+    expect(alone?.ioSec).toBeNull();
   });
 
   it("returns [] for an empty batch", () => {

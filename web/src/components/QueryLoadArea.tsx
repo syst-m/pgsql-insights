@@ -51,7 +51,10 @@
  * contract*, which is what stops a caller from passing a plausible `0` and
  * turning "we do not have this" into "this minute had none". It is a number
  * now, summed from the field. The `null` leg survives in
- * `QueryLoadPoint.ioSec` for a source with no IO time to offer, and the
+ * `QueryLoadPoint.ioSec` for a source with no IO time to offer — the store's
+ * -1 code, `store/statements.go § "noLockWait is query_rollup.lock_wait_ms's
+ * \"no source\" value, -1" (:568)`, which `ioTimeSeconds` inherits the moment
+ * `seriesSQL` reads `io_wait_ms` — and the
  * legend's `· n/a` plus the `qla-key--absent` styling are what render it, so a
  * source without IO still reads as absent rather than as zero.
  *
@@ -197,13 +200,15 @@ export interface QueryLoadPoint {
   /** Total execution time in the bucket, in **seconds** (types.ts:639). */
   execSec: number;
   /** IO time in the bucket, in seconds, or `null` when the source has no
-   *  IO-time value. `stackSeries` always has one now that `ioTimeSeconds` is on
-   *  the point, but the union stays, because `null` and `0` are different
-   *  answers and a caller that has the first one must be able to say so — the
-   *  header's "two series" section is the argument and the legend's `· n/a` is
-   *  the rendering. */
+   *  IO-time value. `stackSeries` reads `ioTimeSeconds` and returns `null` for
+   *  a bucket any contributor of which reports the store's -1 code, because
+   *  `null` and `0` are different answers and a partial sum presented as the
+   *  total is the same lie as a plausible 0. The header's "two series" section
+   *  is the argument and the legend's `· n/a` is the rendering. */
   ioSec: number | null;
 }
+
+const NO_IO_SOURCE = -1;
 
 /** Fold a batch of per-fingerprint series into one bucket-per-timestamp stack.
  *
@@ -222,27 +227,37 @@ export interface QueryLoadPoint {
  *  Both measures are summed from the same point, so a bucket's `execSec` and
  *  `ioSec` describe the same minute by construction — which is the whole reason
  *  they are one struct and not two arrays a caller can pass at different
- *  lengths. `ioSec` used to be `null` on every bucket, produced here because
- *  the contract had no IO-time field; it now reads `ioTimeSeconds`, and a
- *  non-finite value in *either* field voids the bucket, so one bad number
- *  cannot leave the pair disagreeing about the same minute. */
+ *  lengths. The two fields are not gated the same way. A non-finite execution
+ *  time drops the point outright: the bucket's identity is its execution time,
+ *  and a row whose exec is a lie has no trustworthy IO time either. An unusable
+ *  IO time — non-finite, or the store's -1 code — keeps the point's execution
+ *  time and marks the bucket's IO absent, which is what keeps `ioSec`'s `null`
+ *  reachable from the data path and not only from a hand-built fixture. */
+
 export function stackSeries(series: readonly QuerySeries[]): QueryLoadPoint[] {
-  const totals = new Map<string, { exec: number; io: number }>();
+  const totals = new Map<string, { exec: number; io: number | null }>();
   for (const s of series) {
     for (const p of s.points) {
       // A non-finite value voids the bucket, not the chart: `linePath` drops
       // these for the same reason (one `NaN` in a path string invalidates the
-      // whole path), and summing one would make the bucket's total a lie. The
-      // rule covers both measures — a bucket whose IO time is a lie is as
-      // unusable as one whose execution time is, and keeping the good half
-      // would draw a band the other band contradicts.
-      if (!Number.isFinite(p.executionTimeSeconds) || !Number.isFinite(p.ioTimeSeconds)) {
-        continue;
-      }
+      // whole path), and summing one would make the bucket's total a lie.
+      if (!Number.isFinite(p.executionTimeSeconds)) continue;
+      // -1 is finite, so the check above lets the store's code through, and
+      // summing it subtracts a second from the band. `store/series.go:73` says
+      // why in the case it wrote for lock time — "a code is not a duration:
+      // SUM of -1 and 5.0 is 4.0, a number that looks like a measurement and
+      // isn't" — and its rule is that one source which cannot answer makes the
+      // minute unable to answer. So the bucket keeps its real execution time
+      // and loses its IO number rather than reporting a partial sum as the
+      // total; the legend's `· n/a` is what that renders as.
+      const io =
+        Number.isFinite(p.ioTimeSeconds) && p.ioTimeSeconds !== NO_IO_SOURCE
+          ? p.ioTimeSeconds
+          : null;
       const prev = totals.get(p.timestamp);
       totals.set(p.timestamp, {
         exec: (prev?.exec ?? 0) + p.executionTimeSeconds,
-        io: (prev?.io ?? 0) + p.ioTimeSeconds,
+        io: io === null || prev?.io === null ? null : (prev?.io ?? 0) + io,
       });
     }
   }
