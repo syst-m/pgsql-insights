@@ -836,7 +836,7 @@ statuses (R14.9).
 |---|---|---|
 | R3.1 | `internal/collector/settings.go` (`extensionSamples`, `:288-298`), `cmd/pgsi/config.go`, `internal/api/queries.go` | **in-progress** — the `pg_extension` metric surface R3.1's S2 detection feeds exists, and the per-cluster presence report rides on the `pg_stat_statements` collector (§5-D18) |
 | R3.2 | `internal/store/topn.go`, `internal/store/topn_test.go`, `internal/api/queries.go` (`51c5bbd`) | **implemented** — the store side and the route; the column set is the R3.2 per-query set, sourced from `query_rollup` |
-| R3.3 | `internal/store/statements.go`, `internal/store/statements_test.go` | **implemented** — snapshot deltas and the counter-reset path; `statements_test.go:546-549` pins the `plan_change` hash chain |
+| R3.3 | `internal/store/statements.go`, `internal/store/statements_test.go` | **implemented** — snapshot deltas and the counter-reset path; `internal/store/statements_test.go:546-549` pins the `plan_change` hash chain |
 | R3.4 | `internal/query/normalizer.go`, `internal/store/schema.go` (the `query` table, keyed on `fingerprint` alone) | **implemented** |
 | R3.5 | `internal/query/normalizer.go`, `internal/query/normalizer_test.go` | **implemented** — literals → `$1`; R16.1's fixture-corpus clause is Phase 7's and is rowed in §3.8 |
 | R3.6 | `internal/store/store.go:402` (`firstSeenText`), `internal/store/schema.go:78` | **implemented** — the cap is enforced on write and the capped column is separate from the raw one |
