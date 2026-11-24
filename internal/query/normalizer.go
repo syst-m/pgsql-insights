@@ -687,18 +687,12 @@ var operators = []string{
 	"~~", "!~~",
 }
 
-// singleOps is the set of characters that are operators on their own.
-const singleOps = "+-*/%^=<>,.()[]{}~!@#|&?:$"
-
 // longestOperator returns the operator at i, preferring the longest match.
 func longestOperator(s string, i int) string {
 	for _, op := range operators {
 		if strings.HasPrefix(s[i:], op) {
 			return op
 		}
-	}
-	if strings.IndexByte(singleOps, s[i]) >= 0 {
-		return string(s[i])
 	}
 	return ""
 }
