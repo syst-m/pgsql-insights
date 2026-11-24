@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -638,4 +639,33 @@ func TestStoreUsed(t *testing.T) {
 			t.Errorf("Used() = %d, want the file's %d bytes", got, info.Size())
 		}
 	})
+}
+
+// TestStoreSizeOfNilStore is the cross-package half of the asymmetry that
+// internal/metrics/store.go's 481605a docblock documents in prose: a nil
+// *collector.MemSink renders the family absent, and a nil *Store renders it at 0.
+// Only a store test can assert the second one — metrics cannot import store (the
+// cycle its own docblock names), so its store_test.go can build a
+// *collector.MemSink but not a *Store, and the pair of answers has no checker
+// outside this package.
+//
+// It asserts presence and the sample line rather than the whole exposition, so it
+// does not copy A2's HELP string into this file: their TestStoreSizeRenderExact
+// owns that literal, and a second copy here would rot the way the line-number
+// cites do. `got != ""` is the half that distinguishes the two nil shapes (a nil
+// MemSink answers ""), and the third line is the half that pins which number the
+// Store shape publishes.
+func TestStoreSizeOfNilStore(t *testing.T) {
+	var s *Store
+	got := metrics.StoreSize(s, "")
+	if got == "" {
+		t.Fatalf("StoreSize((*Store)(nil), \"\") rendered nothing; the documented shape is the family at 0")
+	}
+	lines := strings.Split(got, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected HELP/TYPE/sample, got:\n%s", got)
+	}
+	if lines[2] != "pgsi_store_size_bytes 0" {
+		t.Errorf("sample line = %q, want %q", lines[2], "pgsi_store_size_bytes 0")
+	}
 }
