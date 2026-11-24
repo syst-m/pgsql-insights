@@ -26,6 +26,7 @@
  * docs/research/live-probe.md and are now maintained on the Go side.
  */
 
+import apiActiveQueriesJson from "../../../testdata/api/active-queries.json";
 import apiClustersJson from "../../../testdata/api/clusters.json";
 import apiQueryDetailJson from "../../../testdata/api/query-detail.json";
 import apiQueryPlansJson from "../../../testdata/api/query-plans.json";
@@ -35,6 +36,7 @@ import apiTagsJson from "../../../testdata/api/tags.json";
 
 import { emptyEnvelope, toFleetResponse, type RowExtras } from "./envelope";
 import type {
+  ActiveQueriesResponse,
   ClusterMetrics,
   ClusterView,
   Envelope,
@@ -111,6 +113,15 @@ export const FIXTURE_QUERY_SERIES = apiQuerySeriesJson as QuerySeriesEnvelope;
 /** GET /api/v1/insights/tags — R3.12's dimensions with R3.7's rollup. Three
  *  tags: a full comment, no comment at all, and a partial one. */
 export const FIXTURE_TAGS: Envelope<TagView> = apiTagsJson;
+
+/** GET /api/v1/active-queries — R4.1's sessions and scorecard plus R4.4's
+ *  chains. Three rows, one chain, both `longest*` pointers populated, and
+ *  `meta.total: 3` equal to `data.length` — the pairing `client.test.ts`
+ *  asserts on instead of trusting. Assigned, not cast: the same drift check
+ *  `FIXTURE_ENVELOPE` is, so a renamed tag in sessions.go fails the build here
+ *  rather than rendering a table with a blank column. The third row carries no
+ *  `queryid`, which is the fixture's own proof that the field is omitempty. */
+export const FIXTURE_ACTIVE_QUERIES: ActiveQueriesResponse = apiActiveQueriesJson;
 
 /** Now read from the contract instead of being a second copy of it. The old
  *  value ("2026-11-20T11:04:12Z") was invented here; the contract's is

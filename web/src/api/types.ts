@@ -37,6 +37,15 @@
  *                   are the other package-`api` payloads with no TS side; they
  *                   are not added here because nothing in `web/` consumes the
  *                   PromQL routes yet, whereas the Detail chart does need this one.
+ *                   The fourth block — `SessionView`, `ScorecardView`,
+ *                   `BlockingChainView`, `ActiveQueriesResponse` — mirrors
+ *                   `internal/api/dto/sessions.go` (R4.1/R4.4, served by
+ *                   `e6a4921`). It is the one block here whose response type is
+ *                   not `Envelope<T>`: R4.1 puts a scorecard above the table and
+ *                   R8.4's generic carries exactly `data` + `meta`, so the route
+ *                   publishes a named body and this file copies that name rather
+ *                   than widening the shared envelope. Its pin is
+ *                   `testdata/api/active-queries.json`, imported by fixtures.ts.
  *
  *   presentation  — `FleetRow`, what the Fleet table actually draws: a
  *                   ClusterView plus the fields the UI computes or owns and
@@ -719,6 +728,105 @@ export interface QuerySeries {
  *  exists so the OpenAPI document has something to `$ref` must not become a
  *  second hand-written copy of it in TS any more than it did in Go. */
 export type QuerySeriesEnvelope = Envelope<QuerySeries>;
+
+/* ── wire: internal/api/dto/sessions.go ─────────────────────────────────── */
+
+/** R4.1's one live session — a row of R4.1's list, which is R10.8's Active
+ *  Queries table. Mirrors `dto.SessionView` (sessions.go:43) field-for-field,
+ *  tag-for-tag.
+ *
+ *  The field list is not derived from the requirement text here, because
+ *  sessions.go refuses that derivation in its own header ("WHY THE FIELD LIST
+ *  IS NOT INVENTED HERE. Every field is the projection of a field on
+ *  collector.Session…") — restating it is what broke the UI's types once
+ *  already, and this copy inherits the collector's list rather than
+ *  re-reading R4.1's prose.
+ *
+ *  Two spellings are the ones a hand-written type gets wrong. `clientPort` is a
+ *  **string**, not a number: the collector keeps pg_stat_activity's text form,
+ *  and typing it `number` here would make every real row a type error the day
+ *  someone "fixed" it. And the fingerprint field is `queryid`, lowercase-d, the
+ *  same spelling `QueryView` and `QuerySeries` both use — not `queryId` — and
+ *  it is the struct's only `omitempty` field, so its absence is legal and its
+ *  type is checked only when present. The contract fixture proves that half:
+ *  of its three rows, the idle-in-transaction one has no `queryid`. */
+export interface SessionView {
+  pid: number;
+  query: string;
+  queryType: string;
+  /** Not a closed enum. The Go side types it `string` (pg_stat_activity's
+   *  `state`, plus the collector's own "idle in transaction" spelling), so an
+   *  enum here would be a stricter contract than the published one — the same
+   *  rule `QueryListParams.sort` follows above. */
+  status: string;
+  sessionDurationSeconds: number;
+  transactionDurationSeconds: number;
+  queryDurationSeconds: number;
+  waitEventType: string;
+  waitEvent: string;
+  unknownWaitEvent: boolean;
+  database: string;
+  applicationName: string;
+  userName: string;
+  clientAddress: string;
+  clientPort: string;
+  backendType: string;
+  /** `queryid`, not `queryId`; omitempty, hence optional here. */
+  queryid?: string;
+  /** Never null on the wire (no omitempty): a Go nil slice marshals `null`,
+   *  and `parseSessionView` rejects that exactly as `parseEnvelope` rejects
+   *  `"data": null`. */
+  blockingPids: number[];
+  /** The collector leaves this empty and the handler fills it (sessions.go:
+   *  "R4.1's rule for that column depends on `--allow-actions` (R12.8), which
+   *  is a runtime flag on the API server and not a fact about the session"),
+   *  but it is on the wire either way, so it is required here. */
+  action: string;
+  /** Go `time.Time` → RFC3339 string, as every other `sourceTime` in this file. */
+  sourceTime: string;
+}
+
+/** R4.1's summary header above the session table. Mirrors `dto.ScorecardView`.
+ *
+ *  `byState` is a map keyed by whatever `status` strings the collector
+ *  produced, so the type admits any key; the parser checks that every value is
+ *  a number and never enumerates the states, which would be a second copy of an
+ *  enum the server owns. The two `longest*` fields are `omitempty` pointers, so
+ *  both are optional — a fleet with no active query has no longest one to
+ *  name, and the fixture's third row (idle in transaction, no query running) is
+ *  why the second field exists separately at all. */
+export interface ScorecardView {
+  byState: Record<string, number>;
+  longestQuery?: SessionView;
+  longestIdleInTransaction?: SessionView;
+  total: number;
+}
+
+/** R4.4's blocked-query investigation: one blocked session and the sessions
+ *  blocking it. Mirrors `dto.BlockingChainView`; R10.8 renders it as the row
+ *  expansion of the Active Queries table. */
+export interface BlockingChainView {
+  blocked: SessionView;
+  /** No omitempty, so an array always — empty is legal, null is not. */
+  blockers: SessionView[];
+}
+
+/** The body of `GET /api/v1/active-queries`. Mirrors `dto.ActiveQueriesResponse`.
+ *
+ *  A named struct and not `Envelope<SessionView>`, and the reason is the
+ *  route's own rather than this file's (openapi.yaml says it in as many words):
+ *  R4.1 asks for a scorecard *above the table*, and R8.4's generic envelope has
+ *  exactly two fields, so putting the scorecard in `meta` would move a
+ *  per-route field into the shared envelope — R16.8's second-copy mistake
+ *  pointed the other way. This is the one list route with a named body type
+ *  that is not the generic, and `data`/`meta` inside it are typed exactly as
+ *  the generic's are. */
+export interface ActiveQueriesResponse {
+  data: SessionView[];
+  scorecard: ScorecardView;
+  blockingChains: BlockingChainView[];
+  meta: Meta;
+}
 
 /* ── presentation ────────────────────────────────────────────────────────── */
 

@@ -20,6 +20,8 @@
 import { healthFor } from "./health";
 import {
   clusterId,
+  type ActiveQueriesResponse,
+  type BlockingChainView,
   type ClusterView,
   type Envelope,
   type ErrorDetail,
@@ -31,6 +33,8 @@ import {
   type QueryResponse,
   type QuerySeries,
   type QueryView,
+  type ScorecardView,
+  type SessionView,
 } from "./types";
 
 /** Thrown when a payload is not shaped like the contract. Distinct from
@@ -429,6 +433,176 @@ export function parseQuerySeries(raw: unknown): QuerySeries {
   (raw.points as unknown[]).forEach((point, i) => checkQuerySeriesPoint(point, where, i));
 
   return raw as unknown as QuerySeries;
+}
+
+/** Check one `SessionView`'s fields, naming the pid in every message.
+ *
+ *  The house rule the other row parsers follow, applied to
+ *  `dto.SessionView` (sessions.go:43): every field without `omitempty` is
+ *  required and type-checked, the one `omitempty` field (`queryid`) is
+ *  type-checked only when present, and `blockingPids` must be an array of
+ *  numbers — a Go nil slice marshals `null` without omitempty, and
+ *  `"blockingPids": null` is rejected here for the same reason `parseEnvelope`
+ *  rejects `"data": null`. `clientPort` is checked as a string because that is
+ *  what the collector sends; a future editor who "corrects" the type to number
+ *  gets a red test on the contract fixture, which is the point of checking it.
+ */
+export function parseSessionView(raw: unknown): SessionView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`session row is ${typeName(raw)}, expected object`);
+  }
+  // `pid` first, for the same reason parseClusterView checks name/namespace
+  // before anything else: every other message on this row is labelled with it,
+  // and a row without one would otherwise report as `session undefined: …`.
+  if (typeof raw.pid !== "number") {
+    throw new ContractError(`session row: field "pid" is ${typeName(raw.pid)}, expected number`);
+  }
+  const where = `pid ${raw.pid}`;
+  const require = (field: string, type: "string" | "number" | "boolean" | "array") => {
+    const v = raw[field];
+    if (v === undefined) throw new ContractError(`session ${where}: missing required field "${field}"`);
+    const ok =
+      type === "string" ? typeof v === "string"
+      : type === "number" ? typeof v === "number"
+      : type === "boolean" ? typeof v === "boolean"
+      : Array.isArray(v);
+    if (!ok) {
+      throw new ContractError(`session ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+
+  require("query", "string");
+  require("queryType", "string");
+  // A string, not the union: the Go field is `string`, so admitting only the
+  // states this file could list would be a stricter contract than the one
+  // published — the same argument `QueryListParams.sort` makes.
+  require("status", "string");
+  require("sessionDurationSeconds", "number");
+  require("transactionDurationSeconds", "number");
+  require("queryDurationSeconds", "number");
+  require("waitEventType", "string");
+  require("waitEvent", "string");
+  require("unknownWaitEvent", "boolean");
+  require("database", "string");
+  require("applicationName", "string");
+  require("userName", "string");
+  require("clientAddress", "string");
+  require("clientPort", "string");
+  require("backendType", "string");
+  // The struct's only omitempty field: present when the collector resolved a
+  // fingerprint for the session, absent otherwise (the fixture's third row is
+  // that absent case), so presence is not required and only the type is checked.
+  if (raw.queryid !== undefined && typeof raw.queryid !== "string") {
+    throw new ContractError(`session ${where}: field "queryid" is ${typeName(raw.queryid)}, expected string`);
+  }
+  require("blockingPids", "array");
+  (raw.blockingPids as unknown[]).forEach((pid, i) => {
+    if (typeof pid !== "number") {
+      throw new ContractError(`session ${where}: blockingPids[${i}] is ${typeName(pid)}, expected number`);
+    }
+  });
+  require("action", "string");
+  require("sourceTime", "string");
+
+  return raw as unknown as SessionView;
+}
+
+/** Check R4.1's scorecard (the header above R4.1's table).
+ *
+ *  `byState`'s keys are not validated against a list on purpose: the Go side
+ *  keys the map by whatever `status` strings the collector emitted, so the
+ *  check is "every value is a number" and nothing more. `total` is likewise not
+ *  checked against the sum of `byState` — that is a server invariant, not a
+ *  shape, and enforcing an arithmetic invariant here turns a server bug into a
+ *  blank page, which is the trade `parseEnvelope`'s docblock makes explicitly.
+ *  The two `longest*` pointers are omitempty, so they are parsed only when
+ *  present.
+ */
+export function parseScorecardView(raw: unknown): ScorecardView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`scorecard is ${typeName(raw)}, expected object`);
+  }
+  const { byState, total } = raw;
+  if (!isRecord(byState)) {
+    throw new ContractError(`scorecard: field "byState" is ${typeName(byState)}, expected object`);
+  }
+  for (const [state, n] of Object.entries(byState)) {
+    if (typeof n !== "number") {
+      throw new ContractError(`scorecard: byState[${JSON.stringify(state)}] is ${typeName(n)}, expected number`);
+    }
+  }
+  if (typeof total !== "number") {
+    throw new ContractError(`scorecard: field "total" is ${typeName(total)}, expected number`);
+  }
+  for (const field of ["longestQuery", "longestIdleInTransaction"] as const) {
+    const v = raw[field];
+    if (v !== undefined) parseSessionView(v);
+  }
+  return raw as unknown as ScorecardView;
+}
+
+/** Check one R4.4 chain: the blocked session, then each of its blockers.
+ *  `blockers` has no omitempty, so an array is required and `null` is not —
+ *  the empty array is legal, which is a chain node the resolver rendered with
+ *  no blocker attached. */
+export function parseBlockingChainView(raw: unknown): BlockingChainView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`blocking chain is ${typeName(raw)}, expected object`);
+  }
+  const { blocked, blockers } = raw;
+  if (!Array.isArray(blockers)) {
+    throw new ContractError(`blocking chain: field "blockers" is ${typeName(blockers)}, expected array`);
+  }
+  // `blocked` parsed first so a chain holding a malformed row names that row.
+  parseSessionView(blocked);
+  blockers.forEach((b, i) => {
+    if (!isRecord(b)) {
+      throw new ContractError(`blocking chain: blockers[${i}] is ${typeName(b)}, expected object`);
+    }
+    parseSessionView(b);
+  });
+  return raw as unknown as BlockingChainView;
+}
+
+/** Check the whole `GET /api/v1/active-queries` body.
+ *
+ *  Not `parseEnvelope`: this route's body is a named struct with four keys and
+ *  R8.4's generic has two, so there is no `Envelope<T>` to hand a row parser.
+ *  The checks are the ones `parseEnvelope` makes — `data` must be an array and
+ *  never null, `meta` must carry all three of its fields — plus the two keys
+ *  the generic has no place for. The result is *built* from the parsed parts
+ *  rather than cast, so a body that parses but is missing `scorecard` throws
+ *  here instead of handing the page an `undefined` to render as an empty header
+ *  — the `?? []` failure class, one level up.
+ */
+export function parseActiveQueriesResponse(json: unknown): ActiveQueriesResponse {
+  if (!isRecord(json)) {
+    throw new ContractError(
+      `expected an ActiveQueriesResponse object from the API, got ${typeName(json)}`,
+    );
+  }
+  const { data, blockingChains } = json;
+  if (!Array.isArray(data)) {
+    // The bug the generic envelope's check exists for, restated for this body:
+    // a `sessions` key instead of `data`, or a bare array, or an error body
+    // served with a 200.
+    throw new ContractError(
+      `ActiveQueriesResponse.data is ${typeName(data)}, expected array (keys present: ${
+        Object.keys(json).join(", ") || "none"
+      })`,
+    );
+  }
+  if (!Array.isArray(blockingChains)) {
+    throw new ContractError(
+      `ActiveQueriesResponse.blockingChains is ${typeName(blockingChains)}, expected array`,
+    );
+  }
+  return {
+    data: data.map(parseSessionView),
+    scorecard: parseScorecardView(json.scorecard),
+    blockingChains: blockingChains.map(parseBlockingChainView),
+    meta: parseMeta(json.meta),
+  };
 }
 
 /** Parse an R8.5 error body. Returns null when the body is not one, so the

@@ -1,15 +1,21 @@
 /* Where the pages get their data from.
  *
- * Four routes, two sources, one interface (R1.5's contract):
+ * Five routes, two sources, one interface (R1.5's contract):
  *
  *   http     — GET /api/v1/… on the same origin as the page. Because the Go
  *              binary serves the SPA itself (R10.1), same-origin is the normal
- *              case and no CORS or base-URL config is needed. The four routes
- *              are the four the contract marks `x-status: implemented`:
- *              `/clusters`, `/insights/queries`, `/insights/queries/{fp}` and
- *              `/insights/queries/series` — one fetcher each, and every one of
- *              them takes its params from the route's own `parameters:` list
- *              rather than from a shape invented here.
+ *              case and no CORS or base-URL config is needed. The five routes
+ *              here are five of the twenty-one the contract marks
+ *              `x-status: implemented` (`grep -c 'x-status: implemented'
+ *              api/openapi.yaml`): `/clusters`, `/insights/queries`,
+ *              `/insights/queries/{fp}`, `/insights/queries/series` and
+ *              `/active-queries` (`e6a4921`) — one fetcher each, and every one
+ *              of them takes its params from the route's own `parameters:` list
+ *              rather than from a shape invented here. The earlier wording here
+ *              ("the four routes are the four the contract marks implemented")
+ *              was false the moment the fifth fetcher landed, and by two counts:
+ *              the document marks twenty-one implemented, most of them Phase 5
+ *              and R9 routes with no fetcher yet.
  *   fixture  — web/src/api/fixtures.ts, which is itself generated from
  *              testdata/api/*.json (R16.8), so the two sources serve the
  *              same bytes through the same parser.
@@ -29,6 +35,7 @@
  */
 
 import {
+  FIXTURE_ACTIVE_QUERIES,
   FIXTURE_EMPTY,
   FIXTURE_FLEET,
   FIXTURE_QUERY_DETAIL,
@@ -40,6 +47,7 @@ import {
 } from "./fixtures";
 import {
   ContractError,
+  parseActiveQueriesResponse,
   parseEnvelope,
   parseErrorBody,
   parseQueryDetailView,
@@ -49,6 +57,7 @@ import {
   toQueriesResponse,
 } from "./envelope";
 import type {
+  ActiveQueriesResponse,
   ErrorCode,
   FleetResponse,
   QueryDetailView,
@@ -411,6 +420,44 @@ export async function fetchQuerySeries(
     opts,
   );
   return parseEnvelope(json, parseQuerySeries);
+}
+
+
+/* ── the active-queries route ─────────────────────────────────────────────── */
+
+/** `GET /api/v1/active-queries` — R4.1's live sessions, R4.1's scorecard,
+ *  R4.4's blocking chains, in one body.
+ *
+ *  Both params are required on the route — `pg_stat_activity` is per-instance,
+ *  so the route names one cluster's sessions and cannot answer for the fleet —
+ *  which is why this fetcher takes them as required fields rather than the
+ *  all-optional bag `QueryListParams` is. A params type with optional fields on
+ *  a route whose two params are both required is a second copy of the request
+ *  half that lets a caller build a URL the server answers with
+ *  `InvalidRequest`.
+ *
+ *  The return type is the named `ActiveQueriesResponse`, not
+ *  `Envelope<SessionView>` — see types.ts for the route's own reason — so this
+ *  is the one fetcher that does not go through `parseEnvelope`. */
+export type ActiveQueriesParams = {
+  namespace: string;
+  cluster: string;
+};
+
+export async function fetchActiveQueries(
+  cfg: ClientConfig,
+  params: ActiveQueriesParams,
+  opts: FetchOptions = {},
+): Promise<ActiveQueriesResponse> {
+  if (cfg.source === "fixture") {
+    // Params ignored on this arm, exactly as `fetchFleet` ignores them when
+    // serving a fleet fixture: there is one active-queries fixture, so there is
+    // no named set to choose between.
+    await delay(cfg);
+    return FIXTURE_ACTIVE_QUERIES;
+  }
+  const json = await getJSON(cfg, `/api/v1/active-queries${search(params)}`, opts);
+  return parseActiveQueriesResponse(json);
 }
 
 export class ApiError extends Error {

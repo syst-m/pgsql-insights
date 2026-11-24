@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  FIXTURE_ACTIVE_QUERIES,
   FIXTURE_EMPTY,
   FIXTURE_ENVELOPE,
   FIXTURE_FLEET,
@@ -26,6 +27,7 @@ import {
 import {
   ApiError,
   FIXTURES,
+  fetchActiveQueries,
   fetchFleet,
   fetchQueries,
   fetchQueryDetail,
@@ -36,9 +38,11 @@ import {
 import {
   ContractError,
   emptyEnvelope,
+  parseActiveQueriesResponse,
   parseEnvelope,
   parseErrorBody,
   parseQuerySeries,
+  parseSessionView,
   partialBanner,
   toFleetResponse,
   toQueriesResponse,
@@ -895,6 +899,148 @@ describe("fetchQuerySeries", () => {
   });
 });
 
+
+describe("parseSessionView", () => {
+  const rows = FIXTURE_ACTIVE_QUERIES.data;
+  const row = rows[0]!;
+
+  it("parses every row the contract fixture ships, and returns them unchanged", () => {
+    // All three rows, not one: they differ in the way that matters. The third
+    // (pid 41304) has no `queryid` — the struct's one omitempty field — and its
+    // `transactionDurationSeconds` is an int where the other two are floats.
+    expect(rows).toHaveLength(3);
+    for (const r of rows) expect(parseSessionView(r)).toEqual(r);
+  });
+
+  it("throws on a missing required field and names both the pid and the field", () => {
+    const { waitEvent: _dropped, ...rest } = row;
+    expect(() => parseSessionView(rest)).toThrow(ContractError);
+    expect(() => parseSessionView(rest)).toThrow(/pid 41288: missing required field "waitEvent"/);
+  });
+
+  it("rejects blockingPids:null, which Go never emits without omitempty", () => {
+    // The house rule is `[]` on the wire for a slice with no omitempty. A
+    // `null` means someone added omitempty or hand-wrote the body, and the
+    // page's `blockingPids.length` would have to guess — the `?? []` class, on
+    // a nested field.
+    expect(() => parseSessionView({ ...row, blockingPids: null })).toThrow(
+      /pid 41288: field "blockingPids" is null, expected array/,
+    );
+  });
+
+  it("rejects a non-numeric member of blockingPids", () => {
+    expect(() => parseSessionView({ ...row, blockingPids: [41102, "41103"] })).toThrow(
+      /pid 41288: blockingPids\[1\] is string, expected number/,
+    );
+  });
+
+  it("accepts queryid absent and rejects it typed as a number", () => {
+    // Absence is the fixture's own third row (covered by the loop above); this
+    // pins the type when present. The field is `queryid`, lowercase-d, on both
+    // sides — a `queryId` in the body is a missing `queryid` plus an unexamined
+    // extra key, which is why the fixture's spelling is the one asserted.
+    expect(() => parseSessionView({ ...row, queryid: 1458305871 })).toThrow(
+      /pid 41288: field "queryid" is number, expected string/,
+    );
+  });
+
+  it("rejects clientPort as a number, the type a hand-written copy would have used", () => {
+    // The collector keeps pg_stat_activity's text form (sessions.go), so a
+    // `number` here is a type that describes an endpoint that does not answer —
+    // the exact defect the header of types.ts records for `health`/`metrics`.
+    expect(() => parseSessionView({ ...row, clientPort: 5432 })).toThrow(
+      /pid 41288: field "clientPort" is number, expected string/,
+    );
+  });
+});
+
+describe("parseActiveQueriesResponse", () => {
+  it("parses the contract fixture into the named body type", () => {
+    expect(parseActiveQueriesResponse(FIXTURE_ACTIVE_QUERIES)).toEqual(FIXTURE_ACTIVE_QUERIES);
+  });
+
+  it("throws when scorecard is missing instead of handing the page an empty header", () => {
+    // The key `parseEnvelope` cannot protect, because the generic has no
+    // `scorecard` field to protect: this route's body is a named struct and a
+    // missing scorecard used to be one cast away from `undefined`.
+    const { scorecard: _dropped, ...rest } = FIXTURE_ACTIVE_QUERIES;
+    expect(() => parseActiveQueriesResponse(rest)).toThrow(/scorecard is undefined, expected object/);
+  });
+
+  it("throws on a body with no data rather than defaulting it to []", () => {
+    const { data: _dropped, ...rest } = FIXTURE_ACTIVE_QUERIES;
+    expect(() => parseActiveQueriesResponse(rest)).toThrow(
+      // The key list is the body's own order (the fixture declares scorecard
+      // before blockingChains), not a sorted one — same as the `keys present:
+      // meta, clusters` assertion in the parseEnvelope block.
+      /ActiveQueriesResponse\.data is undefined, expected array \(keys present: scorecard, blockingChains, meta\)/,
+    );
+  });
+
+  it("rejects blockingChains:null, and a meta whose total is a string", () => {
+    expect(() =>
+      parseActiveQueriesResponse({ ...FIXTURE_ACTIVE_QUERIES, blockingChains: null }),
+    ).toThrow(/blockingChains is null, expected array/);
+    expect(() =>
+      parseActiveQueriesResponse({
+        ...FIXTURE_ACTIVE_QUERIES,
+        meta: { total: "3", truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+      }),
+    ).toThrow(/meta.total is string, expected number/);
+  });
+
+  it("rejects a chain whose blocker is not a row", () => {
+    const chain = FIXTURE_ACTIVE_QUERIES.blockingChains[0]!;
+    expect(() =>
+      parseActiveQueriesResponse({ ...FIXTURE_ACTIVE_QUERIES, blockingChains: [{ ...chain, blockers: [null] }] }),
+    ).toThrow(/blocking chain: blockers\[0\] is null, expected object/);
+  });
+
+  it("accepts the all-empty body: no rows, empty byState, both longest pointers absent", () => {
+    // A cluster with no sessions answers an empty list — the route has no 404
+    // for that reason, per its own OpenAPI note — and a scorecard whose two
+    // omitempty pointers have nothing to point at.
+    expect(() =>
+      parseActiveQueriesResponse({
+        data: [],
+        scorecard: { byState: {}, total: 0 },
+        blockingChains: [],
+        meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("fetchActiveQueries", () => {
+  const params = { namespace: "postgres-operator", cluster: "ha-cluster" };
+
+  it("GETs the contract path with both required params", async () => {
+    stub(FIXTURE_ACTIVE_QUERIES);
+    await fetchActiveQueries(http, params);
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      "/api/v1/active-queries?namespace=postgres-operator&cluster=ha-cluster",
+    );
+  });
+
+  it("returns the parsed response for a valid 200", async () => {
+    stub(FIXTURE_ACTIVE_QUERIES);
+    await expect(fetchActiveQueries(http, params)).resolves.toEqual(FIXTURE_ACTIVE_QUERIES);
+  });
+
+  it("throws ContractError on a 200 whose body is the generic envelope", async () => {
+    // `{data, meta}` is exactly what `Envelope<SessionView>` would have been,
+    // and it is not this route's body: R4.1's scorecard and R4.4's chains are
+    // required siblings of it. A server that shipped the generic here gets a
+    // throw, not a table under a header that renders as nothing.
+    stub({ data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } });
+    await expect(fetchActiveQueries(http, params)).rejects.toThrow(/blockingChains is undefined/);
+  });
+
+  it("serves the active-queries fixture on the fixture arm", async () => {
+    await expect(fetchActiveQueries(fixture, params)).resolves.toEqual(FIXTURE_ACTIVE_QUERIES);
+  });
+});
+
 describe("the fixture payload", () => {
   it("is served with the four clusters the contract promises", () => {
     expect(FIXTURE_FLEET.clusters).toHaveLength(FIXTURE_CLUSTERS.length);
@@ -938,5 +1084,18 @@ describe("the fixture payload", () => {
   it("emptyEnvelope is the empty fixture's envelope", () => {
     expect(emptyEnvelope(FIXTURE_GENERATED_AT).data).toEqual([]);
     expect(FIXTURE_EMPTY.clusters).toEqual([]);
+  });
+
+  it("ships an active-queries fixture whose scorecard counts its own rows", () => {
+    // Nothing in the parser enforces that `scorecard.total` equals
+    // `data.length` — an arithmetic invariant in the parser would turn a server
+    // bug into a blank page (see parseScorecardView) — so it is asserted here
+    // instead. If the fixture is ever regenerated with a scorecard that
+    // disagrees with its own rows, this fails rather than the page showing a
+    // header that contradicts its table.
+    const f = FIXTURE_ACTIVE_QUERIES;
+    expect(f.meta.total).toBe(f.data.length);
+    expect(f.scorecard.total).toBe(f.data.length);
+    expect(Object.values(f.scorecard.byState).reduce((sum, n) => sum + n, 0)).toBe(f.data.length);
   });
 });
