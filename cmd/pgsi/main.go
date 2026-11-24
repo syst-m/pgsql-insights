@@ -174,6 +174,16 @@ type serveFlags struct {
 	qps                  *float64
 	burst                *int
 	reqTimeout           *time.Duration
+
+	// R2.9 — the global scheduler budget. R2.1's per-cluster cap has no flag of
+	// its own (its default of 4 is a constant the scheduler applies), but R2.9's
+	// three do, because that requirement names each one by name and R11.8's dump
+	// has to print what the scheduler was configured with. They are a separate
+	// alignment group from the block above only so that adding a 24-character
+	// field name does not re-pad thirty existing lines.
+	maxConcurrentSQL         *int
+	maxConcurrentHTTPScrapes *int
+	schedulerQueueDepth      *int
 }
 
 // newServeFlags declares every `pgsi serve` flag and returns them as one value.
@@ -287,6 +297,19 @@ func newServeFlags(prefixed logx.Fields) *serveFlags {
 	sf.qps = fs.Float64("qps", 0, "API request rate limit (R1.7); 0 selects 25 — client-go's 5 default is tuned for one controller, not a fleet-wide watch")
 	sf.burst = fs.Int("burst", 0, "request burst for --qps (R1.7); 0 selects 50")
 	sf.reqTimeout = fs.Duration("request-timeout", 0, "bound on a single API request (R1.7); 0 selects 15s")
+
+	// --- R2.9 scheduler budget ---------------------------------------------
+	//
+	// All three default to 0 and name the real number in the usage string, which
+	// is the pattern the three R1.7 lines above them set (--qps 0 "0 selects 25",
+	// --burst 0 "0 selects 50", --request-timeout 0 "0 selects 15s"). Here it is
+	// more than a convention: collector.Config.withDefaults maps every non-positive
+	// field to its Default constant, so 0 is the value that means "use 32" and a
+	// --max-concurrent-sql -1 also lands on 32 instead of reaching makechan, which
+	// panics outright on a negative capacity and would crash the binary at startup.
+	sf.maxConcurrentSQL = fs.Int("max-concurrent-sql", 0, "global cap on concurrent Postgres-wire collections (R2.9); 0 selects 32")
+	sf.maxConcurrentHTTPScrapes = fs.Int("max-concurrent-http-scrapes", 0, "global cap on concurrent HTTP scrapes (R2.9); 0 selects 64")
+	sf.schedulerQueueDepth = fs.Int("scheduler-queue-depth", 0, "collections the scheduler queues before it starts shedding them (R2.9); 0 selects 512")
 	return sf
 }
 
@@ -464,7 +487,18 @@ func runServe(args []string) int {
 		// equally correct; reading it back makes the equality structural instead of
 		// a thing to remember.
 		sink := collector.NewMemSink(0)
-		sched := collector.NewScheduler(collector.Config{}, reg, log, sink, nil)
+		// The three R2.9 flags are read here, at the one place a Config is built for
+		// a real round. A flag declared and never passed is the failure R11.8's dump
+		// exists to expose — the dump would print --max-concurrent-sql 8 while the
+		// scheduler ran on 32 — so this literal is the flags' only consumer and each
+		// field is named rather than left at zero. A flag left at 0 still reaches
+		// withDefaults and gets its documented default, which is what lets 0 mean
+		// "unset" in the flag and in the Config without two separate rules.
+		sched := collector.NewScheduler(collector.Config{
+			MaxConcurrentSQL:         *sf.maxConcurrentSQL,
+			MaxConcurrentHTTPScrapes: *sf.maxConcurrentHTTPScrapes,
+			SchedulerQueueDepth:      *sf.schedulerQueueDepth,
+		}, reg, log, sink, nil)
 		cfg.Scheduler = sched
 		cfg.Metrics = sched.Stats()
 		// The store-size gauge gets the sink the scheduler writes into, for the

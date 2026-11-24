@@ -168,6 +168,15 @@ func TestConfigMapKeys(t *testing.T) {
 		"use-proxy":               "useProxy",
 		"burst":                   "burst",
 		"":                        "",
+
+		// R2.9's three. Every row in settings has an entry in this map except
+		// auth-metrics-token, so a new flag with no entry here is the gap the test
+		// exists to close. They sit after a blank line rather than inside the block
+		// above because max-concurrent-http-scrapes is a longer key than any of
+		// them, and gofmt would otherwise re-pad all 36 existing lines to match it.
+		"max-concurrent-sql":          "maxConcurrentSql",
+		"max-concurrent-http-scrapes": "maxConcurrentHttpScrapes",
+		"scheduler-queue-depth":       "schedulerQueueDepth",
 	}
 	for flagName, want := range tests {
 		if got := ConfigMapKey(flagName); got != want {

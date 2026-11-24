@@ -181,6 +181,14 @@ var settings = []setting{
 	{Flag: "qps", Req: "R1.7"},
 	{Flag: "burst", Req: "R1.7"},
 	{Flag: "request-timeout", Req: "R1.7"},
+
+	// R2.9 — the global scheduler budget. Three rows because the requirement
+	// names three flags; none is Secret (they are three integers), and all three
+	// are read at the one NewScheduler call site in runServe rather than being
+	// dump-only.
+	{Flag: "max-concurrent-sql", Req: "R2.9"},
+	{Flag: "max-concurrent-http-scrapes", Req: "R2.9"},
+	{Flag: "scheduler-queue-depth", Req: "R2.9"},
 }
 
 // EnvVar is R11.8's `PGSI_*` naming rule, stated as a function rather than as
