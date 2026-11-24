@@ -457,6 +457,78 @@ var exportNames = map[string]exportEntry{
 	"pg_file_settings.count":         {name: "file_settings_count", typ: TypeGauge, src: "R5.2 settings card: lines postgresql.conf sets"},
 	"pg_file_settings.applied_count": {name: "file_settings_applied_count", typ: TypeGauge, src: "R5.2 settings card: lines that applied"},
 	"pg_file_settings.error_count":   {name: "file_settings_error_count", typ: TypeGauge, src: "R5.2 settings card: lines carrying an error (PGSISettingsNotApplied)"},
+	// ---- R6's pgbouncer families, re-exported under R9.7's rename rule ----
+	//
+	// The 51 cnpg_pgbouncer_* families internal/collector/cnpgmetrics/registry.go
+	// records, and the first dotless keys the table has. R9.4's ruling names them as
+	// the reason the key had to widen: `exportNames` keyed by pgversion.Source
+	// "can only name a PostgreSQL catalog column — so the 51 pgbouncer families ...
+	// cannot enter the table, cannot be named by MetricName, and are absent from
+	// ExportedMetricNames()". R6.1 names the pools_* and lists_* families and R6.3
+	// the stats_* ones, so R14.7's documented-name rule is met by the requirements
+	// themselves rather than by a document this commit would have to invent.
+	//
+	// The names are R9.7's rule applied mechanically — "drop the source prefix,
+	// keep the member name verbatim, add the unit suffix only where the source
+	// declares one, then apply R9.2's prefix — so
+	// cnpg_pgbouncer_pools_cl_active -> pgsi_pgbouncer_pools_cl_active, with the
+	// base stored here as pgbouncer_pools_cl_active because R9.2's prefix is the
+	// renderer's layer. The types are the registry's verbatim: the registry is
+	// derived from the recorded exposition, so the exporter's declared type is the
+	// answer to "what type is this", and R6.3's counter-reset language for the
+	// stats_* families is a query-side concern, not a redeclaration of the type.
+	//
+	"cnpg_pgbouncer_collection_duration_seconds":    {name: "pgbouncer_collection_duration_seconds", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_collection_duration_seconds"},
+	"cnpg_pgbouncer_collections_total":              {name: "pgbouncer_collections_total", typ: TypeCounter, src: "R6; R9.7 re-export of cnpg_pgbouncer_collections_total"},
+	"cnpg_pgbouncer_last_collection_error":          {name: "pgbouncer_last_collection_error", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_last_collection_error"},
+	"cnpg_pgbouncer_lists_databases":                {name: "pgbouncer_lists_databases", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_databases"},
+	"cnpg_pgbouncer_lists_dns_names":                {name: "pgbouncer_lists_dns_names", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_dns_names"},
+	"cnpg_pgbouncer_lists_dns_pending":              {name: "pgbouncer_lists_dns_pending", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_dns_pending"},
+	"cnpg_pgbouncer_lists_dns_queries":              {name: "pgbouncer_lists_dns_queries", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_dns_queries"},
+	"cnpg_pgbouncer_lists_dns_zones":                {name: "pgbouncer_lists_dns_zones", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_dns_zones"},
+	"cnpg_pgbouncer_lists_free_clients":             {name: "pgbouncer_lists_free_clients", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_free_clients"},
+	"cnpg_pgbouncer_lists_free_servers":             {name: "pgbouncer_lists_free_servers", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_free_servers"},
+	"cnpg_pgbouncer_lists_login_clients":            {name: "pgbouncer_lists_login_clients", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_login_clients"},
+	"cnpg_pgbouncer_lists_pools":                    {name: "pgbouncer_lists_pools", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_pools"},
+	"cnpg_pgbouncer_lists_used_clients":             {name: "pgbouncer_lists_used_clients", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_used_clients"},
+	"cnpg_pgbouncer_lists_used_servers":             {name: "pgbouncer_lists_used_servers", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_used_servers"},
+	"cnpg_pgbouncer_lists_users":                    {name: "pgbouncer_lists_users", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_lists_users"},
+	"cnpg_pgbouncer_pools_cl_active":                {name: "pgbouncer_pools_cl_active", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_cl_active"},
+	"cnpg_pgbouncer_pools_cl_active_cancel_req":     {name: "pgbouncer_pools_cl_active_cancel_req", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_cl_active_cancel_req"},
+	"cnpg_pgbouncer_pools_cl_cancel_req":            {name: "pgbouncer_pools_cl_cancel_req", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_cl_cancel_req"},
+	"cnpg_pgbouncer_pools_cl_waiting":               {name: "pgbouncer_pools_cl_waiting", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_cl_waiting"},
+	"cnpg_pgbouncer_pools_cl_waiting_cancel_req":    {name: "pgbouncer_pools_cl_waiting_cancel_req", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_cl_waiting_cancel_req"},
+	"cnpg_pgbouncer_pools_load_balance_hosts":       {name: "pgbouncer_pools_load_balance_hosts", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_load_balance_hosts"},
+	"cnpg_pgbouncer_pools_maxwait":                  {name: "pgbouncer_pools_maxwait", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_maxwait"},
+	"cnpg_pgbouncer_pools_maxwait_us":               {name: "pgbouncer_pools_maxwait_us", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_maxwait_us"},
+	"cnpg_pgbouncer_pools_pool_mode":                {name: "pgbouncer_pools_pool_mode", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_pool_mode"},
+	"cnpg_pgbouncer_pools_sv_active":                {name: "pgbouncer_pools_sv_active", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_active"},
+	"cnpg_pgbouncer_pools_sv_active_cancel":         {name: "pgbouncer_pools_sv_active_cancel", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_active_cancel"},
+	"cnpg_pgbouncer_pools_sv_idle":                  {name: "pgbouncer_pools_sv_idle", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_idle"},
+	"cnpg_pgbouncer_pools_sv_login":                 {name: "pgbouncer_pools_sv_login", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_login"},
+	"cnpg_pgbouncer_pools_sv_tested":                {name: "pgbouncer_pools_sv_tested", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_tested"},
+	"cnpg_pgbouncer_pools_sv_used":                  {name: "pgbouncer_pools_sv_used", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_used"},
+	"cnpg_pgbouncer_pools_sv_wait_cancels":          {name: "pgbouncer_pools_sv_wait_cancels", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_pools_sv_wait_cancels"},
+	"cnpg_pgbouncer_stats_avg_bind_count":           {name: "pgbouncer_stats_avg_bind_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_bind_count"},
+	"cnpg_pgbouncer_stats_avg_client_parse_count":   {name: "pgbouncer_stats_avg_client_parse_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_client_parse_count"},
+	"cnpg_pgbouncer_stats_avg_query_count":          {name: "pgbouncer_stats_avg_query_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_query_count"},
+	"cnpg_pgbouncer_stats_avg_query_time":           {name: "pgbouncer_stats_avg_query_time", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_query_time"},
+	"cnpg_pgbouncer_stats_avg_recv":                 {name: "pgbouncer_stats_avg_recv", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_recv"},
+	"cnpg_pgbouncer_stats_avg_sent":                 {name: "pgbouncer_stats_avg_sent", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_sent"},
+	"cnpg_pgbouncer_stats_avg_server_parse_count":   {name: "pgbouncer_stats_avg_server_parse_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_server_parse_count"},
+	"cnpg_pgbouncer_stats_avg_wait_time":            {name: "pgbouncer_stats_avg_wait_time", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_wait_time"},
+	"cnpg_pgbouncer_stats_avg_xact_count":           {name: "pgbouncer_stats_avg_xact_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_xact_count"},
+	"cnpg_pgbouncer_stats_avg_xact_time":            {name: "pgbouncer_stats_avg_xact_time", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_avg_xact_time"},
+	"cnpg_pgbouncer_stats_total_bind_count":         {name: "pgbouncer_stats_total_bind_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_bind_count"},
+	"cnpg_pgbouncer_stats_total_client_parse_count": {name: "pgbouncer_stats_total_client_parse_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_client_parse_count"},
+	"cnpg_pgbouncer_stats_total_query_count":        {name: "pgbouncer_stats_total_query_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_query_count"},
+	"cnpg_pgbouncer_stats_total_query_time":         {name: "pgbouncer_stats_total_query_time", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_query_time"},
+	"cnpg_pgbouncer_stats_total_received":           {name: "pgbouncer_stats_total_received", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_received"},
+	"cnpg_pgbouncer_stats_total_sent":               {name: "pgbouncer_stats_total_sent", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_sent"},
+	"cnpg_pgbouncer_stats_total_server_parse_count": {name: "pgbouncer_stats_total_server_parse_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_server_parse_count"},
+	"cnpg_pgbouncer_stats_total_wait_time":          {name: "pgbouncer_stats_total_wait_time", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_wait_time"},
+	"cnpg_pgbouncer_stats_total_xact_count":         {name: "pgbouncer_stats_total_xact_count", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_xact_count"},
+	"cnpg_pgbouncer_stats_total_xact_time":          {name: "pgbouncer_stats_total_xact_time", typ: TypeGauge, src: "R6; R9.7 re-export of cnpg_pgbouncer_stats_total_xact_time"},
 }
 
 // Canonical returns the spelling a (view, column) pair's metric family is named

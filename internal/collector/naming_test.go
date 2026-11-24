@@ -292,3 +292,78 @@ func TestExportedMetricNamesIsSortedAndDeduped(t *testing.T) {
 		t.Errorf("ExportedMetricNames() omits %q (R9.12's family, added outside the table)", UpMetricBase)
 	}
 }
+
+// TestStringKeyAccessorsAgreeWithTheTypedOnes is R9.4's amendment's acceptance test.
+//
+// The amendment added MetricNameFor and MetricTypeFor as the general-form readers
+// and named no test for them, so between b499de6 and here the two functions had
+// zero call sites and zero assertions anywhere in the repo — the claim that
+// "the renderer needs # TYPE for every family it prints" lived in a docblock and
+// nowhere else. The pgbouncer rows added in the same commit are what make the
+// test worth writing rather than merely cheap: they are the table's first dotless
+// keys, and a dotless key has no typed reader at all, so MetricNameFor is the
+// only way anything in the codebase will ever read one of those 51 names back.
+//
+// What this checks, stated precisely so it is not oversold: for every row it
+// asserts MetricNameFor(key) and MetricTypeFor(key) return that row's own
+// name and typ. That is the non-tautological half — it fails if either accessor
+// reads a different map, applies a transform the other does not, or gets the
+// TypeNotExported ok-flag rule wrong. The equivalence to the typed forms is
+// tautological by construction (MetricName's body is
+// exportNames[Canonical(view, column).String()].name, so for a canonical key the
+// two expressions are the same expression) and is asserted anyway, because the
+// day MetricName grows a branch the string form lacks, that assertion is what
+// notices. The dotless keys are covered by the first half and by nothing else.
+func TestStringKeyAccessorsAgreeWithTheTypedOnes(t *testing.T) {
+	var canonical, nonCanonical, dotless int
+	for key, e := range exportNames {
+		if got := MetricNameFor(key); got != e.name {
+			t.Errorf("MetricNameFor(%s) = %q, want %q", key, got, e.name)
+		}
+		typ, ok := MetricTypeFor(key)
+		if e.typ == TypeNotExported {
+			if ok {
+				t.Errorf("MetricTypeFor(%s) reports ok for a TypeNotExported row", key)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("MetricTypeFor(%s) reports not-exported but the row's type is %q", key, e.typ)
+			continue
+		}
+		if typ != e.typ {
+			t.Errorf("MetricTypeFor(%s) = %q, want %q", key, typ, e.typ)
+		}
+		if e.name == "" {
+			t.Errorf("%s has type %q but an empty name", key, e.typ)
+			continue
+		}
+
+		view, column, dotted := splitExportKey(key)
+		if !dotted {
+			// A dotless key is its own canonical and has no typed reader; the
+			// two assertions above are the only path to it.
+			dotless++
+			continue
+		}
+		if head := CanonicalKey(key); head != key {
+			// Non-canonical: MetricName walks to the head, so it answers with
+			// the row filed under head, not with this row.
+			if got, want := MetricName(pgversion.View(view), column), MetricNameFor(head); got != want {
+				t.Errorf("MetricName(%s, %s) = %q, want %q (the name at the canonical key %s)",
+					view, column, got, want, head)
+			}
+			nonCanonical++
+			continue
+		}
+		if got := MetricName(pgversion.View(view), column); got != e.name {
+			t.Errorf("MetricName(%s, %s) = %q, want %q (MetricNameFor(%s) agrees)",
+				view, column, got, e.name, key)
+		}
+		canonical++
+	}
+	if canonical == 0 || nonCanonical == 0 || dotless == 0 {
+		t.Errorf("expected all three key shapes exercised, got %d canonical, %d non-canonical, %d dotless",
+			canonical, nonCanonical, dotless)
+	}
+}
