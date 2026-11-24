@@ -3,7 +3,7 @@
 //
 // Four of R8.2's eighteen endpoints answer from this file:
 //
-//	GET /api/v1/insights/queries                     → Envelope[QueryView]       (R3.2)
+//	GET /api/v1/insights/queries                     → QueriesResponse           (R3.2)
 //	GET /api/v1/insights/queries/{fingerprint}       → QueryDetailView           (R10.7)
 //	GET /api/v1/insights/queries/{fingerprint}/plans → Envelope[PlanSampleView]  (R3.10)
 //	GET /api/v1/insights/tags                        → Envelope[TagView]         (R3.12)
@@ -231,11 +231,12 @@ type QueryView struct {
 // this route's own fallback and a body that only says "zero rows" cannot tell an
 // empty result from an uninstrumented one.
 //
-// The type exists before its producer. internal/api/queries.go (A2's file) still
-// declares `QueriesEnvelope = Envelope[QueryView]`, and the handler's body changes
-// when that alias is swapped; until then this struct has no fetcher, which is the
-// ordinary state for a dto type — a type and the route that serves it are separate
-// artifacts, and the pair is dated in the route's commit rather than here.
+// Its producer is internal/api/queries.go (A2's file), which served
+// `QueriesEnvelope = Envelope[QueryView]` up to the commit that adopted this
+// struct and deleted the alias; the pair is dated in that commit rather than
+// here. active_queries.go is the precedent it follows: a handler that serves a
+// named response names the dto type in its signature and keeps no local alias,
+// because the alias would be a second name for one type.
 //
 // testdata/api/queries.json is unchanged by this commit for the same reason:
 // TestQueriesFixtureIsCanonical pins the fixture to `Envelope[QueryView]`, not to

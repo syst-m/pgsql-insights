@@ -472,7 +472,7 @@ func TestQueryPlansRouteIsDocumented(t *testing.T) {
 		// The 200 body must be the type the handler serves. handleQueryPlans
 		// encodes a QueryPlansEnvelope and the doc must $ref exactly that name —
 		// the R16.8 argument applied to the response type, the way the detail
-		// route's test pins QueryDetailView and the list's pins QueriesEnvelope.
+		// route's test pins QueryDetailView and the list's pins QueriesResponse.
 		if !strings.Contains(item, "$ref: '#/components/schemas/QueryPlansEnvelope'") {
 			t.Errorf("%s's responses do not $ref QueryPlansEnvelope", QueryPlansPath)
 		}

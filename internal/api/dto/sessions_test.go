@@ -178,7 +178,7 @@ func TestBlockingChainsMatchRowEdges(t *testing.T) {
 // still applies, so the assertion is that the four keys are the generic's two
 // plus R4.1's two — `data` and `meta` present and typed as the generic's are, so
 // a client that reads `data`/`meta` from this body reads the same types it reads
-// from FleetEnvelope or QueriesEnvelope.
+// from FleetEnvelope or QueriesResponse.
 func TestResponseCarriesTheEnvelopeKeys(t *testing.T) {
 	got := jsonKeys(reflect.TypeOf(ActiveQueriesResponse{}))
 	for _, want := range []string{"data", "meta", "scorecard", "blockingChains"} {

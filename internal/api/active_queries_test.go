@@ -542,7 +542,7 @@ func TestActiveQueriesRouteIsDocumented(t *testing.T) {
 		// The 200 body must be the type the handler serves. handleActiveQueries
 		// encodes a dto.ActiveQueriesResponse and the doc must $ref exactly that
 		// name — the R16.8 argument applied to the response type, the way the plans
-		// route's test pins QueryPlansEnvelope and the list's pins QueriesEnvelope.
+		// route's test pins QueryPlansEnvelope and the list's pins QueriesResponse.
 		if !strings.Contains(item, "$ref: '#/components/schemas/ActiveQueriesResponse'") {
 			t.Errorf("%s's responses do not $ref ActiveQueriesResponse", ActiveQueriesPath)
 		}

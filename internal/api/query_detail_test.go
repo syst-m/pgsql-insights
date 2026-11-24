@@ -450,7 +450,7 @@ func TestQueryDetailRouteIsDocumented(t *testing.T) {
 		// The 200 body must be the type the handler serves. QueryDetailPath's
 		// handler writes a dto.QueryDetailView and the doc must $ref exactly that
 		// name — the R16.8 argument applied to the response type, the way the
-		// list route's test pins QueriesEnvelope.
+		// list route's test pins QueriesResponse.
 		if !strings.Contains(item, "$ref: '#/components/schemas/QueryDetailView'") {
 			t.Errorf("%s's responses do not $ref QueryDetailView", QueryDetailPath)
 		}

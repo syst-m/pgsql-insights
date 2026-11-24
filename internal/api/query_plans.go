@@ -78,9 +78,11 @@ import (
 const QueryPlansPath = "/api/v1/insights/queries/{fingerprint}/plans"
 
 // QueryPlansEnvelope is the response body of this route: R8.4's one generic over
-// R3.10's sample type. It is an alias for the same reason QueriesEnvelope and
-// QuerySeriesEnvelope are — the name exists so the document has something to
-// `$ref`, not because the envelope has a second definition to keep in step.
+// R3.10's sample type. It is an alias for the same reason QuerySeriesEnvelope and
+// TagsEnvelope are — the name exists so the document has something to `$ref`, not
+// because the envelope has a second definition to keep in step. The queries route
+// left that list when its body became dto.QueriesResponse: a route with a named
+// struct has a name already, and an alias over it is a second one.
 type QueryPlansEnvelope = dto.Envelope[dto.PlanSampleView]
 
 // ErrQueryPlansNotFound is what a source returns for a triple with no query row,

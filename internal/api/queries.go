@@ -55,13 +55,6 @@ import (
 // identically — the pattern QuerySeriesPath and ClusterDetailPath set.
 const QueriesPath = "/api/v1/insights/queries"
 
-// QueriesEnvelope is the response body of GET /api/v1/insights/queries. It is
-// an alias over R8.4's one generic, the same way FleetEnvelope names the
-// clusters projection and QuerySeriesEnvelope names the series one; the name
-// exists so the document has something to `$ref` and not because the envelope
-// has a second definition to keep in step.
-type QueriesEnvelope = dto.Envelope[dto.QueryView]
-
 // Sort keys this route accepts (R8.4). Every value is a dto.QueryView json tag,
 // which is the rule clusters.go states for its own list ("The JSON-tag spelling
 // is the query spelling, so `?sort=pgMajor` matches the field it sorts on") —
@@ -194,12 +187,36 @@ func sortQueries(rows []dto.QueryView, key string, desc bool) {
 	sortRowsBy(rows, querySortKey, key, desc)
 }
 
-// pageQueries pages a set of query rows into R8.4's envelope. A function rather
-// than a method so the paging is testable without an HTTP server, and a thin
-// wrapper over pageRows so this route's page is cut by the same code every
-// other list's is.
-func pageQueries(rows []dto.QueryView, q QueryListQuery, now time.Time) QueriesEnvelope {
-	return pageRows(rows, q, querySortKey, dto.Meta{GeneratedAt: now})
+// pageQueries pages a set of query rows into this route's body,
+// `dto.QueriesResponse` (R3.2's rows, R8.4's `meta`, R3.1's
+// `pgStatStatements`). A function rather than a method so the paging is testable
+// without an HTTP server, and a thin wrapper over pageRows so this route's page
+// is cut by the same code every other list's is: the page comes from pageRows
+// and the two keys the generic defines are copied out of it, because
+// dto.QueriesResponse is a struct with `data` and `meta` fields rather than an
+// embedding of the generic — the shape dto/sessions.go documents for
+// ActiveQueriesResponse. That is also why the route's `QueriesEnvelope` alias is
+// gone rather than renamed: an alias names a type, and the type this route serves
+// is no longer `dto.Envelope[dto.QueryView]`.
+//
+// The third key is empty here and says so. R3.1's presence rows come from the
+// collector (internal/collector/settings.go), not from the query store this route
+// reads, and there is no seam between the two yet — the handler hands this
+// function the rows and the query and nothing else. An empty array rather than a
+// null, because the field has no omitempty and `pgStatStatements: null` would
+// tell R10.27's screen something the Go type does not, which is the argument
+// pageRows makes for `data` one line up. The rows arrive with a presence source;
+// the fixture gains the key in the commit that switches dto/queries_test.go:89's
+// TestQueriesFixtureIsCanonical to this type, as that file's own docblock says.
+func pageQueries(rows []dto.QueryView, q QueryListQuery, now time.Time) dto.QueriesResponse {
+	env := pageRows(rows, q, querySortKey, dto.Meta{GeneratedAt: now})
+
+	return dto.QueriesResponse{
+		Data: env.Data,
+		Meta: env.Meta,
+		// Non-nil so a fleet with nothing measured renders `[]`, not `null`.
+		PGStatStatements: []dto.ExtensionPresenceView{},
+	}
 }
 
 // QueryListSource is the read side of the query store as the list route needs

@@ -822,9 +822,9 @@ func canonicalRef(typeStr, pkg string, pkgs map[string]map[string]goStruct, alia
 			p, n = pkg, t
 		}
 		// The bracket split has to happen here as well as at the top of the function:
-		// an alias can name an instantiation (`api.QueriesEnvelope =
-		// dto.Envelope[dto.QueryView]`), and the bracketed form is not a key in pkgs
-		// because the definition lives on the base. Without it, the two api-side
+		// an alias can name an instantiation (`api.QueryPlansEnvelope =
+		// dto.Envelope[dto.PlanSampleView]`), and the bracketed form is not a key in
+		// pkgs because the definition lives on the base. Without it, the api-side
 		// envelope aliases report "resolves to no type" here while checkEntries —
 		// which goes through resolveGoRef, and does split the bracket — is happy with
 		// them. Two resolvers that disagree about the same string is the failure this

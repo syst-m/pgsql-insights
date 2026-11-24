@@ -1130,7 +1130,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/QueriesEnvelope'
+                $ref: '#/components/schemas/QueriesResponse'
               example:
                 # Two of the fixture's seven rows, verbatim, so the example and
                 # testdata/api/queries.json cannot disagree about the row shape.
@@ -1179,6 +1179,17 @@ paths:
                   truncated: true
                   generatedAt: "2026-11-20T09:12:00Z"
                   nextCursor: "eyJzIjoidG90YWxFeGVjVGltZU1zIiwiayI6IjAwMDAwMDAwMDAwNDQzMTguOTAwMDAwfG9wZW4td2VidWkvb3Blbi13ZWJ1aS1wZy8xNmY0MGRmYTg3YjhlZDU4ZGJkMDgwZWY2ZmI1ZGQ3NWNlMGUyNDFhNzY5MzI0ODAxYWJmOWU3ODJjMGFlMDAxIn0="
+                # R3.1's presence report, keyed to the two rows above: same
+                # namespace/cluster, and the database the rows ran in. The
+                # fixture file gains this key in the commit that switches
+                # dto/queries_test.go:89's TestQueriesFixtureIsCanonical to
+                # dto.QueriesResponse, so the example is ahead of the fixture by
+                # exactly one key and says so rather than going quiet.
+                pgStatStatements:
+                  - namespace: open-webui
+                    cluster: open-webui-pg
+                    database: openwebui
+                    installed: true
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
@@ -3395,19 +3406,29 @@ components:
 
     # ---- Query list (R8.2, R10.4) ------------------------------------------
 
-    QueriesEnvelope:
+    QueriesResponse:
       type: object
       description: |
-        `dto.Envelope[QueryView]` — the third projection of the Go generic
-        `Envelope[T any]`, named the way `FleetEnvelope` names the clusters one
-        and `QuerySeriesEnvelope` the series one.
+        The body of `GET /api/v1/insights/queries` — R3.2's query rows,
+        R8.4's envelope metadata, and R3.1's `pg_stat_statements` presence
+        report.
 
-        Declared in Go as a type *alias*
-        (`type QueriesEnvelope = dto.Envelope[dto.QueryView]`), not as a struct
-        with the same fields: R8.4's envelope has exactly one definition in this
-        codebase and an alias creates no second type for the two names to
-        disagree about. The name exists so this document has something to `$ref`.
-      required: [data, meta]
+        R8.4 states the envelope once as `Envelope[T]`, and a route that needs
+        a key beside `data` gets a named struct rather than a field parked in
+        `meta`: `meta` is reserved for paging and R10.22's partial-render
+        contract, so a per-route key there is a shared type carrying a private
+        field. The key this route needs is R3.1's — presence is detected per
+        database and reported per cluster, on the same page whose rows are
+        R3.2's, and R10.27's "not installed" screen is this route's own
+        fallback. A body that only says "zero rows" cannot tell an empty
+        result from an uninstrumented one, which is the same argument
+        `ActiveQueriesResponse` documents for R4.1's scorecard.
+
+        This replaced the `QueriesEnvelope` alias over
+        `dto.Envelope[dto.QueryView]`: an alias exists to give the document a
+        name for the generic, and a route with a named struct has a name
+        already, so keeping both would be two names for one body.
+      required: [data, meta, pgStatStatements]
       properties:
         data:
           type: array
@@ -3418,6 +3439,55 @@ components:
             $ref: '#/components/schemas/QueryView'
         meta:
           $ref: '#/components/schemas/Meta'
+        pgStatStatements:
+          type: array
+          description: |
+            R3.1's per-database presence report, one row per database the
+            process knows about. An array rather than one boolean because the
+            detection unit is a database and the reporting unit is a cluster.
+          items:
+            $ref: '#/components/schemas/ExtensionPresenceView'
+
+    ExtensionPresenceView:
+      type: object
+      description: |
+        One row of R3.1's per-database `pg_stat_statements` presence report.
+
+        R3.1's sentence names two detection sources and one reporting scope:
+        presence is detected per database (from `pg_extension` via S2 and from
+        `cnpg_pg_extensions_*` via S3) and reported per cluster. The two
+        identity fields are what make a per-database row reportable per
+        cluster, which is the half of the sentence the array alone cannot say.
+      required: [namespace, cluster, database]
+      properties:
+        namespace:
+          type: string
+          description: |
+            R10.16's cluster identity, one half of the pair every list row in
+            this package carries (QueryView, FleetRow, TagView). It is the join
+            key to the cluster whose page renders the row.
+        cluster:
+          type: string
+          description: |
+            R10.16's cluster identity, the other half of that pair.
+        database:
+          type: string
+          description: |
+            R3.1's detection unit — "presence per database". The word is
+            R3.2's `database`, not R9.3's `datname`: R3.2 defines this table's
+            vocabulary and R9.3 defines a metric family's.
+        installed:
+          type: boolean
+          nullable: true
+          description: |
+            The tri-state R3.1's two sources force. Absent from the body means
+            not known, `false` means absent, `true` means present; a plain bool
+            has no encoding for the first state, and the first state is the
+            normal result of asking two sources that do not cover the same
+            ground — S2 answers for every database in a reachable cluster,
+            S3 only for the ones a CNPG pod exports metrics for. Rendering
+            R10.27's "not installed" for a database nobody measured is the
+            difference between a gap and a wrong answer.
 
     QueryView:
       type: object

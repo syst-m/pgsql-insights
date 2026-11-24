@@ -93,8 +93,11 @@ const TagsPath = "/api/v1/insights/tags"
 
 // TagsEnvelope is the response body of GET /api/v1/insights/tags: an alias over
 // R8.4's one generic, named for the same reason and with the same caveat as
-// QueriesEnvelope — the name exists so the document has something to `$ref`, and an
-// alias creates no second envelope for two names to disagree about.
+// QuerySeriesEnvelope and QueryPlansEnvelope — the name exists so the document
+// has something to `$ref`, and an alias creates no second envelope for two names
+// to disagree about. The queries route is no longer in that list: its body is a
+// named struct (dto.QueriesResponse, R3.2 + R3.1) and a named struct needs no
+// alias to be `$ref`-able.
 type TagsEnvelope = dto.Envelope[dto.TagView]
 
 // Sort keys this route accepts (R8.4), every one of them a TagView json tag — the

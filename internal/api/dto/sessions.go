@@ -213,9 +213,12 @@ type BlockingChainView struct {
 // ActiveQueriesResponse is the body of GET /api/v1/active-queries: R4.1's list,
 // R4.1's scorecard, R4.4's chains, and R8.4's envelope metadata.
 //
-// R8.4 states the envelope once, as `dto.Envelope[T]`, and every list route
-// projects that generic (FleetEnvelope, QueriesEnvelope, QuerySeriesEnvelope,
-// QueryPlansEnvelope). This route cannot, for a reason R4.1 states rather than
+// R8.4 states the envelope once, as `dto.Envelope[T]`, and four list routes
+// project that generic (FleetEnvelope, QuerySeriesEnvelope, QueryPlansEnvelope,
+// TagsEnvelope). Two routes have named structs instead — this one, and
+// `dto.QueriesResponse` for the queries list, which left the alias list when it
+// gained R3.1's `pgStatStatements` key. This route cannot use the generic, for a
+// reason R4.1 states rather than
 // one this struct invents: the requirement asks for a scorecard *above the
 // table*, and `Envelope[T]` has exactly two fields — `data` and `meta` — so a
 // fourth key would need a type that is not the generic. The alternative was to

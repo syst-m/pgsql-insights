@@ -127,13 +127,13 @@ func newQueriesServer(t *testing.T, src QueryListSource) *Server {
 // getQueries performs the request and decodes the 200 body, failing the test on
 // either step. Every assertion in this file goes through it so a body that stops
 // being valid JSON fails once, with the body quoted, rather than in six places.
-func getQueries(t *testing.T, s *Server, target string) QueriesEnvelope {
+func getQueries(t *testing.T, s *Server, target string) dto.QueriesResponse {
 	t.Helper()
 	rec := do(t, s, http.MethodGet, target)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d, want 200\nbody: %s", target, rec.Code, rec.Body.String())
 	}
-	var env QueriesEnvelope
+	var env dto.QueriesResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("GET %s: decode body: %v\nbody: %s", target, err, rec.Body.String())
 	}
@@ -216,7 +216,7 @@ func TestQueriesDefaultSourceIsAnEmptyPage(t *testing.T) {
 	if !strings.Contains(body, `"data":[]`) {
 		t.Errorf("body = %s, want `data` to be [] (not null) — R8.4's envelope always emits an array", body)
 	}
-	var env QueriesEnvelope
+	var env dto.QueriesResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode: %v\nbody: %s", err, body)
 	}
@@ -600,12 +600,16 @@ func TestQueriesRouteIsDocumented(t *testing.T) {
 		if !strings.Contains(item, "x-status: implemented") {
 			t.Errorf("%s has no `x-status: implemented`", QueriesPath)
 		}
-		// The 200 body must be the envelope the handler serves. QueriesEnvelope
-		// is an alias over dto.Envelope[dto.QueryView], so the name the doc refs
-		// and the name Go declares cannot drift silently — the R16.8 argument,
-		// applied to the response type.
-		if !strings.Contains(item, "$ref: '#/components/schemas/QueriesEnvelope'") {
-			t.Errorf("%s's responses do not $ref QueriesEnvelope", QueriesPath)
+		// The 200 body must be the type the handler serves. pageQueries returns
+		// dto.QueriesResponse and the doc must $ref exactly that name; the
+		// schema's fields are rendered from the Go struct by openapi_schemas.go,
+		// so a field the struct gains or loses surfaces here as a diff — the
+		// R16.8 argument, applied to the response type. The name used to be the
+		// alias `QueriesEnvelope = dto.Envelope[dto.QueryView]`; an alias only
+		// pins the two names together, which is why the route now names the
+		// struct itself.
+		if !strings.Contains(item, "$ref: '#/components/schemas/QueriesResponse'") {
+			t.Errorf("%s's responses do not $ref QueriesResponse", QueriesPath)
 		}
 	}
 	// The manifest lists routes that are *not* in code. The entry was deleted
