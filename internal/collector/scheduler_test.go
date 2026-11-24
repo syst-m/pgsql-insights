@@ -157,6 +157,146 @@ func TestRunOnceAppliesPGVersionFilter(t *testing.T) {
 	}
 }
 
+// TestApplicableMatchesSourceAndVersion tests the filter directly, which is the
+// only place its source half is observable: every other fixture in this file
+// pairs an S2 target with S2 collectors, so registry and target agree by
+// construction and a filter that compared nothing would pass them all. The table
+// pins both clauses, including the pairing the RunOnce tests cannot express — a
+// collector that matches on one axis and not the other.
+func TestApplicableMatchesSourceAndVersion(t *testing.T) {
+	entry := func(name string, src SourceID, applies func(int) bool) Entry {
+		d := Descriptor{
+			Name: name, Interval: DefaultInterval, Source: src, Cost: CostStandard,
+			AppliesTo: applies,
+		}
+		// Entry.Desc is the Descriptor cached at registration (registry.go:52),
+		// so the fake and the entry have to be built from one value rather than
+		// two, which is the shape the scheduler actually reads.
+		return Entry{Col: fakeCollector{desc: d}, Desc: d, Interval: DefaultInterval}
+	}
+	only16 := func(m int) bool { return m == 16 }
+
+	// Four entries, one registry's worth of the interesting combinations: two S2
+	// (one AllMajors, one PG16-only) and one each of the two pooler sources.
+	all := []Entry{
+		entry(CollectorDatabase, SourceSQL, nil),
+		entry(CollectorWAL, SourceSQL, only16),
+		entry(CollectorPooler, SourcePoolerMetrics, nil),
+		entry(CollectorPoolerClients, SourcePoolerRuntime, nil),
+	}
+
+	tests := []struct {
+		name string
+		tgt  Target
+		want []string
+	}{
+		{
+			"pg16 instance: every S2 entry, no pooler entry",
+			Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL, PGMajor: 16},
+			[]string{CollectorDatabase, CollectorWAL},
+		},
+		{
+			"pg15 instance: the AllMajors S2 entry only — the version half, unchanged",
+			Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL, PGMajor: 15},
+			[]string{CollectorDatabase},
+		},
+		{
+			// A pgbouncer endpoint has no PostgreSQL major, and Target.PGMajor's
+			// documented answer for an unknown one is to admit AllMajors only — which
+			// is what makes the two pooler collectors collectable at all, since both
+			// declare AllMajors.
+			"pgbouncer metrics endpoint: pooler only",
+			Target{Namespace: "db", Cluster: "pg", Pod: "pg-1-pooler-0", Source: SourcePoolerMetrics},
+			[]string{CollectorPooler},
+		},
+		{
+			"pgbouncer console: pooler-clients only",
+			Target{Namespace: "db", Cluster: "pg", Pod: "pg-1-pooler-0", Source: SourcePoolerRuntime},
+			[]string{CollectorPoolerClients},
+		},
+		{
+			"instance with an unknown major: AllMajors S2 entry only",
+			Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL},
+			[]string{CollectorDatabase},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, e := range applicable(tt.tgt, all) {
+				got = append(got, e.Desc.Name)
+			}
+			if len(got) == 0 {
+				got = []string{}
+			}
+			if s := strings.Join(got, ","); s != strings.Join(tt.want, ",") {
+				t.Errorf("applicable(%s) = [%s], want [%s]", tt.tgt.Key(), s, strings.Join(tt.want, ","))
+			}
+		})
+	}
+}
+
+// TestRunOncePairsEachTargetWithOnlyItsOwnSource is the same rule measured
+// through the scheduler, in the shape the binary has: the nine-entry registry
+// cmd/pgsi builds, against the three targets a namespace with one instance pod
+// and one pooler pod yields (targets.go gives a pooler pod two targets, S5 and
+// S6). Before the source match this round ran 27 (target, collector) pairs —
+// nine entries against each of three targets, because the registry had nine
+// entries and the filter asked only about Postgres versions, which all nine
+// answer for an S2 target and which say nothing at all about a pgbouncer one.
+// It now runs nine: seven for the instance, one for the pooler's metrics
+// endpoint, one for its console.
+func TestRunOncePairsEachTargetWithOnlyItsOwnSource(t *testing.T) {
+	poolerDesc := func(name string, src SourceID) Descriptor {
+		return Descriptor{Name: name, Interval: DefaultInterval, Source: src, Cost: CostStandard}
+	}
+	cols := []Collector{
+		newFake(CollectorActivity, nil),
+		newFake(CollectorDatabase, nil),
+		newFake(CollectorLocks, nil),
+		newFake(CollectorReplication, nil),
+		newFake(CollectorSettings, nil),
+		newFake(CollectorStatement, nil),
+		newFake(CollectorWAL, nil),
+		fakeCollector{desc: poolerDesc(CollectorPooler, SourcePoolerMetrics)},
+		fakeCollector{desc: poolerDesc(CollectorPoolerClients, SourcePoolerRuntime)},
+	}
+	s := NewScheduler(Config{}, mustRegistry(t, cols...), nil, nil, nil)
+
+	rr := s.RunOnce(context.Background(), []Target{
+		{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL, PGMajor: 16},
+		{Namespace: "db", Cluster: "pg", Pod: "pg-1-pooler-0", Source: SourcePoolerMetrics},
+		{Namespace: "db", Cluster: "pg", Pod: "pg-1-pooler-0", Source: SourcePoolerRuntime},
+	})
+	if rr.Requested != 3 || rr.Targets != 3 || rr.Skipped != 0 {
+		t.Fatalf("requested/targets/skipped = %d/%d/%d, want 3/3/0", rr.Requested, rr.Targets, rr.Skipped)
+	}
+	if rr.Rounds != 9 {
+		t.Errorf("Rounds = %d, want 9 (7 S2 + 1 S5 + 1 S6); 27 is the registry-wide pairing this commit removed", rr.Rounds)
+	}
+
+	// The per-target half is the assertion that actually localises a regression:
+	// Rounds == 9 is also produced by any pairing that happens to total nine, so
+	// the count alone cannot say which target ran what. Keyed by source+key
+	// because the two pooler targets share one pod and so one Key().
+	got := make(map[string]int, len(rr.PerTarget))
+	for _, tr := range rr.PerTarget {
+		got[string(tr.Target.Source)+" "+tr.Target.Key()] = tr.Collectors
+	}
+	for k, want := range map[string]int{
+		"S2 db/pg/pg-1":          7,
+		"S5 db/pg/pg-1-pooler-0": 1,
+		"S6 db/pg/pg-1-pooler-0": 1,
+	} {
+		if got[k] != want {
+			t.Errorf("target %s ran %d collectors, want %d", k, got[k], want)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("PerTarget has %d entries, want 3: %v", len(got), got)
+	}
+}
+
 func TestRunOnceFailureIsolationAndLastGood(t *testing.T) {
 	// R2.2's last-good property, end to end: a round succeeds and publishes; the
 	// next round fails; the first round's samples are still served and the error

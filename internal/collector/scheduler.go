@@ -598,11 +598,36 @@ func buildSet(targets []Target, entries []Entry) []targetSet {
 	return out
 }
 
-// applicable filters entries to those R2.1's PG-version applicability allows
-// against tgt.
+// applicable filters entries to the ones this target may run, which is two
+// questions, and for most of Phase 1a it asked only one of them.
+//
+// The first is R2.1's required-source match. Target.Source's own docblock
+// (collector.go:321-323) states what the field is for — "so a scheduler can hand
+// a collector only the targets it declared (R2.1) instead of every target it
+// has" — and until this commit the scheduler had the field and did not use it:
+// runSet built every pairing from the whole registry, so the declaration was
+// written down and never read. The cost is countable from the registry as it
+// stands: nine entries, seven of them S2, and a pooler pod now yields two
+// targets (S5 and S6), so each pooler-pod target was paired with all nine
+// entries — nine collectors run against a pgbouncer HTTP endpoint and nine
+// against a pgbouncer console, where one each can succeed — and every instance
+// target ran pooler.go and pooler_clients.go against Postgres, two collectors
+// whose queries are `SHOW POOLS` and `SHOW CLIENTS` and which exist only on a
+// pgbouncer port. The version filter below cannot catch either, because both
+// pooler descriptors are AllMajors: their applicability is a statement about
+// Postgres versions, and a pgbouncer endpoint does not have one to compare.
+//
+// The second is R2.1's PG-version applicability, unchanged.
+//
+// The source test goes first because it is the cheaper and the more absolute of
+// the two: a source mismatch is a pairing the registry could never run anywhere,
+// a version mismatch is one this particular instance cannot run.
 func applicable(tgt Target, entries []Entry) []Entry {
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
+		if e.Desc.Source != tgt.Source {
+			continue
+		}
 		if e.Desc.Applies(tgt.PGMajor) {
 			out = append(out, e)
 		}
