@@ -39,7 +39,6 @@ SITES = [
     ("internal/query/normalizer.go", "internal/query", "DefaultQueryStringLength = 1024", "DefaultQueryStringLength = 1025"),
     ("internal/query/normalizer.go", "internal/query", "EnterprisePlusQueryStringLength = 10000", "EnterprisePlusQueryStringLength = 10001"),
     ("internal/query/normalizer.go", "internal/query", "MaxQueryStringLength = 100000", "MaxQueryStringLength = 100001"),
-    ("internal/query/normalizer.go", "internal/query", "\t\tsize = 1\n", "\t\tsize = 2\n"),
     # --- internal/store: the §3.4 config defaults (S59's store-side half) -----
     ("internal/store/store.go", "internal/store", "DefaultPlanRetention = 7 * 24 * time.Hour", "DefaultPlanRetention = 8 * 24 * time.Hour"),
     ("internal/store/store.go", "internal/store", "DefaultMaxFileBytes int64 = 1 << 30", "DefaultMaxFileBytes int64 = 1 << 29"),

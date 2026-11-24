@@ -392,9 +392,6 @@ func tokenize(sql string) []token {
 		// rather than dropped: losing a byte the normalizer did not understand
 		// is how a template stops being a faithful rendering of the statement.
 		_, size := utf8.DecodeRuneInString(sql[i:])
-		if size == 0 {
-			size = 1
-		}
 		emit(token{kind: tokPunct, text: sql[i : i+size]})
 		i += size
 	}
