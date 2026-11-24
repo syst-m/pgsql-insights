@@ -156,15 +156,32 @@ type Config struct {
 	// source ("a source with nothing to say contributes no bytes rather than an
 	// empty family"), so this field needs no default in New the way Metrics does.
 	//
-	// The safety is in the nil *interface*, not in the Option: a typed nil
-	// (`cfg.PerQueryMetrics = (*store.Store)(nil)`) is a non-nil interface, the
-	// hub's `h.perQuery != nil` check passes, and the call reaches a nil receiver.
-	// A5's RenderPerQuery is the hub's one non-nil-receiver-safe source —
-	// collector/metrics.go's Render and collector/up.go's are both nil-safe — so
-	// until store guards it, the assignment cmd/pgsi makes must be the literal nil
-	// or a real store, never a nil pointer. (A2's hazard, on their side and
-	// store's to fix; named here because this is the field that would carry it.)
+	// The hub's check is `h.perQuery != nil`, so a typed nil
+	// (`cfg.PerQueryMetrics = (*store.Store)(nil)`) passes it and the call reaches
+	// a nil receiver — a hazard A2 raised and A5 closed at d2415b1, where
+	// RenderPerQuery now opens with `if s == nil { return "", nil }`, matching
+	// collector/metrics.go's Render and collector/up.go's. All three of the hub's
+	// sources are therefore nil-safe, so both nils — the nil interface and a typed
+	// nil — render the family absent, and the assignment cmd/pgsi makes has no
+	// constraint on which one it uses.
 	PerQueryMetrics metrics.PerQueryFamily
+	// HTTPMetrics is R9.8's pgsi_http_request_duration_seconds family, the fifth
+	// one the hub composes (internal/metrics's HTTPRequests, fed by
+	// internal/api/metrics_mw.go's instrumentRequests and rendered by
+	// metrics.WithHTTPRequests).
+	//
+	// It is a concrete pointer rather than an interface because there is only one
+	// implementation to plan for — the reason Metrics is a *collector.Stats and
+	// PromQL is an interface — and it is a field rather than a value for the same
+	// reason: a caller that has not wired it gets a family that is absent from
+	// /metrics, which is the documented answer for a source with nothing to say,
+	// not a broken one.
+	//
+	// New defaults it to metrics.NewHTTPRequests(), so a server built by New
+	// always records. The type is nil-safe on both paths (Observe drops, Render
+	// returns ""), so the default is a convenience rather than a requirement and a
+	// caller can still set it to nil to opt out.
+	HTTPMetrics *metrics.HTTPRequests
 
 	// Fleet is the inventory /api/v1/clusters serves (R8.2) and, through
 	// Readiness below, the thing /readyz reports on. In `pgsi serve` it is the
@@ -227,6 +244,13 @@ func New(cfg Config) *Server {
 	// in one place cannot be forgotten by the next caller.
 	if cfg.Metrics == nil {
 		cfg.Metrics = collector.NewStats()
+	}
+	// The same one-place default for the HTTP family. Unlike Metrics this type is
+	// nil-safe, so the default is not preventing a panic — it is making sure the
+	// family exists for every server built by New, so a deployment cannot ship the
+	// middleware without shipping the thing the middleware records into.
+	if cfg.HTTPMetrics == nil {
+		cfg.HTTPMetrics = metrics.NewHTTPRequests()
 	}
 	s := &Server{cfg: cfg, readiness: cfg.Readiness, log: cfg.Log, metrics: cfg.Metrics}
 	s.http = &http.Server{
@@ -296,7 +320,17 @@ func (s *Server) Handler() http.Handler {
 	// ran first every preflight would answer 401 and the real request would
 	// never be issued. cors.go returns `next` unchanged when unconfigured, so
 	// this line is a no-op for a same-origin deployment.
-	var h http.Handler = mux
+	//
+	// The innermost handler is the R9.8 instrumentation rather than the bare mux,
+	// and the position is not free. instrumentRequests serves through mux by
+	// construction (it needs the mux to ask which pattern matched, because the
+	// route label has to be the pattern and not the URL), so wrapping the finished
+	// chain instead of the mux would route every request past auth. Inside auth is
+	// the consequence: a 401 answered by R8.9's middleware never reaches this
+	// wrapper and so is not recorded — correct on the merits, since the response
+	// came from auth and has no route latency to attribute to the pattern it was
+	// addressed to.
+	var h http.Handler = s.instrumentRequests(mux, s.cfg.HTTPMetrics)
 	if s.cfg.CORS != nil {
 		h = s.cfg.CORS.Middleware(h)
 	}
@@ -429,19 +463,21 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 // metricsBody is the one call site connecting this server to the R9.8 hub. The
-// hub composes four families (internal/metrics/metrics.go's RenderContext: the
-// build info, the collector duration/error pair, the scrape-target gauge, and
-// R9.5's per-query family) and this server supplies three of them — its own
-// *collector.Stats, its scheduler's *collector.UpTracker, and
-// cfg.PerQueryMetrics — as values rather than as rendered strings, which is what
-// keeps the server owning its sources and the hub owning the composition, the
-// part that stops the move being a rewrite of the Config fields.
+// hub composes five families (internal/metrics/metrics.go's RenderContext: the
+// build info, the collector duration/error pair, the scrape-target gauge,
+// R9.5's per-query family, and R9.8's own HTTP-request family) and this server
+// supplies four of them — its own *collector.Stats, its scheduler's
+// *collector.UpTracker, cfg.PerQueryMetrics, and cfg.HTTPMetrics — as values
+// rather than as rendered strings, which is what keeps the server owning its
+// sources and the hub owning the composition, the part that stops the move being
+// a rewrite of the Config fields.
 //
 // The ctx is the request's, threaded to metrics.RenderContext rather than
-// dropped on Render()'s context.Background() floor: one of the four families now
+// dropped on Render()'s context.Background() floor: one of the five families now
 // reads the SQLite store, so a scrape whose client disconnects mid-render can
 // cancel that read instead of finishing a query for a body nobody is reading.
 func (s *Server) metricsBody(ctx context.Context) string {
 	return metrics.New(s.metrics, s.cfg.Scheduler.Up(),
-		metrics.WithPerQuery(s.cfg.PerQueryMetrics)).RenderContext(ctx)
+		metrics.WithPerQuery(s.cfg.PerQueryMetrics),
+		metrics.WithHTTPRequests(s.cfg.HTTPMetrics)).RenderContext(ctx)
 }
