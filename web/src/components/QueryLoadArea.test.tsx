@@ -134,12 +134,13 @@ describe("stackSeries", () => {
     ]);
   });
 
-  it("yields `null` IO time on every bucket it returns", () => {
-    // `null` is the contract read back — `QuerySeriesPoint` has no IO-time
-    // field — and it is produced here so a caller cannot pass a plausible `0`.
-    const points = stackSeries([SERIES, SERIES_B]);
-    expect(points).toHaveLength(4);
-    expect(points.every((p) => p.ioSec === null)).toBe(true);
+  it("sums IO time into the same buckets, from the same points", () => {
+    // The IO band's number is `ioTimeSeconds` summed exactly the way
+    // `executionTimeSeconds` is — one merge, two measures — so a bucket cannot
+    // carry an IO time from a different minute than its execution time. 09:12
+    // is the discriminating bucket: the only timestamp both series share, so
+    // 0.2092 + 0 is its sum only if the merge keyed on the timestamp.
+    expect(stackSeries([SERIES, SERIES_B]).map((p) => p.ioSec)).toEqual([0.024, 0.2092, 0, 0]);
   });
 
   it("drops a non-finite execution time instead of poisoning the bucket", () => {
@@ -160,6 +161,20 @@ describe("stackSeries", () => {
     // the point is skipped, and a bucket with no surviving value is not a
     // bucket — emitting one would render a minute that reads as zero.
     expect(stackSeries([{ ...SERIES, points: [nan] }])).toHaveLength(0);
+
+    const ioNaN: QuerySeriesPoint = {
+      timestamp: "2026-11-20T09:11:00Z",
+      executionTimeSeconds: 1.8,
+      rows: 12,
+      sharedBlocksHit: 40,
+      sharedBlocksRead: 7,
+      lockTimeSeconds: 0.2,
+      ioTimeSeconds: Number.NaN,
+    };
+    // The same rule on the other measure: a bucket whose IO time is non-finite
+    // is dropped whole rather than drawn with a real execution time and a band
+    // that has no number behind it.
+    expect(stackSeries([{ ...SERIES, points: [ioNaN] }])).toHaveLength(0);
   });
 
   it("returns [] for an empty batch", () => {

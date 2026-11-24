@@ -21,33 +21,39 @@
  * whoever comes after and reads a list of components." That file was R10.7's
  * small multiples; this one is the requirement that sentence was pointing at.
  *
- * ── the two series, and the one the contract has ───────────────────────────
+ * ── the two series, and where each one's number comes from ─────────────────
  *
- * R10.5(a) names two measures. The contract carries one of them as a series.
+ * R10.5(a) names two measures, and the contract now carries both per minute.
  *
  *   total execution time  `QuerySeriesPoint.executionTimeSeconds` — R9.4's
  *                         `execution_time`, per minute, in **seconds**.
- *   IO time               no series field exists. R9.4's family
- *                         (requirements.md:396) is "execution time, rows,
- *                         shared block hits/reads, **lock time**" — five
- *                         members, none of them IO — and the OpenAPI
- *                         `x-promql-catalogue` for `/api/v1/metrics/query`
- *                         enumerates exactly those five plus
- *                         `aggregate.cache_hit_ratio`. The API's only IO-time
- *                         value is `QueryView.loadByIOWaitMs` (types.ts:413,
- *                         `dto/queries.go:77`): R3.2's derived load column,
- *                         `blk_read_time + blk_write_time` on PG 15–16 and
- *                         `shared_blk_read_time + shared_blk_write_time` on
- *                         PG 17+. That is a per-query scalar on a list row, not
- *                         a per-minute series, so it cannot be a band here.
+ *   IO time               `QuerySeriesPoint.ioTimeSeconds` — R9.4's
+ *                         `io_time`, same point, same unit. It arrived late:
+ *                         when this file was written the family at
+ *                         requirements.md:396 read "execution time, rows,
+ *                         shared block hits/reads, **lock time**", and the
+ *                         only IO number anywhere was
+ *                         `QueryView.loadByIOWaitMs` (types.ts:413,
+ *                         `dto/queries.go:77`) — R3.2's derived load column, a
+ *                         per-query scalar on a list row, so not a band. A3
+ *                         admitted `io_time` to the family (5668cb3), A2 put it
+ *                         on the DTO (`dto/series.go:64`, 51f4485) and mirrored
+ *                         it (`api/types.ts:653`, d2ffbfb), and the catalogue
+ *                         mints `aggregate.io_time`
+ *                         (`api/promql_catalogue.go:313`) as the derived entry
+ *                         the paragraph below this one says it costs.
  *
- * So the IO band is `null` and says so in three places that each answer a
+ * The band used to be `null` and say so in three places that each answer a
  * different question: the **legend** (R10.5(a)'s second measure is accounted
  * for rather than silently dropped), the **tooltip** (only drawn series appear,
  * so a reader is never shown a number that is not data), and **`stackSeries`'s
- * return value** — the null is *produced by the function that reads the
+ * return value** — the null was *produced by the function that reads the
  * contract*, which is what stops a caller from passing a plausible `0` and
- * turning "we do not have this" into "this minute had none".
+ * turning "we do not have this" into "this minute had none". It is a number
+ * now, summed from the field. The `null` leg survives in
+ * `QueryLoadPoint.ioSec` for a source with no IO time to offer, and the
+ * legend's `· n/a` plus the `qla-key--absent` styling are what render it, so a
+ * source without IO still reads as absent rather than as zero.
  *
  * The ask it documents is A1/A2's, not a local interface (R16.8), and A2 has
  * since answered it: the ask is right, and it is A3's ruling to make — growing
@@ -179,7 +185,7 @@ export function formatSec(sec: number): string {
 /** One time bucket of the cluster's query load.
  *
  *  The shape is the contract's own idea, not a new one: `QuerySeriesPoint`
- *  bundles five measures with one timestamp precisely so they cannot disagree
+ *  bundles six measures with one timestamp precisely so they cannot disagree
  *  about which minute they describe (R8.11's argument for one route with no
  *  `metric=` parameter). A bucket does the same thing at cluster level — one
  *  timestamp, every measure for it — so `points[3].t` is the same minute for
@@ -191,9 +197,11 @@ export interface QueryLoadPoint {
   /** Total execution time in the bucket, in **seconds** (types.ts:639). */
   execSec: number;
   /** IO time in the bucket, in seconds, or `null` when the source has no
-   *  IO-time member — which is every source today. `null` is not `0`: the
-   *  header's "two series" section is the argument, and `stackSeries` is the
-   *  function that produces it. */
+   *  IO-time value. `stackSeries` always has one now that `ioTimeSeconds` is on
+   *  the point, but the union stays, because `null` and `0` are different
+   *  answers and a caller that has the first one must be able to say so — the
+   *  header's "two series" section is the argument and the legend's `· n/a` is
+   *  the rendering. */
   ioSec: number | null;
 }
 
@@ -211,23 +219,36 @@ export interface QueryLoadPoint {
  *  that, which is why the contract pins the format and this file does not
  *  re-parse it into a `Date`.
  *
- *  `ioSec` is `null` on every bucket this returns, and that is the contract
- *  read back rather than a placeholder: `QuerySeriesPoint` has no IO-time
- *  field. When one lands, the line that sets it is the only line that changes. */
+ *  Both measures are summed from the same point, so a bucket's `execSec` and
+ *  `ioSec` describe the same minute by construction — which is the whole reason
+ *  they are one struct and not two arrays a caller can pass at different
+ *  lengths. `ioSec` used to be `null` on every bucket, produced here because
+ *  the contract had no IO-time field; it now reads `ioTimeSeconds`, and a
+ *  non-finite value in *either* field voids the bucket, so one bad number
+ *  cannot leave the pair disagreeing about the same minute. */
 export function stackSeries(series: readonly QuerySeries[]): QueryLoadPoint[] {
-  const totals = new Map<string, number>();
+  const totals = new Map<string, { exec: number; io: number }>();
   for (const s of series) {
     for (const p of s.points) {
       // A non-finite value voids the bucket, not the chart: `linePath` drops
       // these for the same reason (one `NaN` in a path string invalidates the
-      // whole path), and summing one would make the bucket's total a lie.
-      if (!Number.isFinite(p.executionTimeSeconds)) continue;
-      totals.set(p.timestamp, (totals.get(p.timestamp) ?? 0) + p.executionTimeSeconds);
+      // whole path), and summing one would make the bucket's total a lie. The
+      // rule covers both measures — a bucket whose IO time is a lie is as
+      // unusable as one whose execution time is, and keeping the good half
+      // would draw a band the other band contradicts.
+      if (!Number.isFinite(p.executionTimeSeconds) || !Number.isFinite(p.ioTimeSeconds)) {
+        continue;
+      }
+      const prev = totals.get(p.timestamp);
+      totals.set(p.timestamp, {
+        exec: (prev?.exec ?? 0) + p.executionTimeSeconds,
+        io: (prev?.io ?? 0) + p.ioTimeSeconds,
+      });
     }
   }
   return [...totals.entries()]
     .sort((a, b) => (a[0] === b[0] ? 0 : a[0] < b[0] ? -1 : 1))
-    .map(([t, execSec]) => ({ t, execSec, ioSec: null }));
+    .map(([t, v]) => ({ t, execSec: v.exec, ioSec: v.io }));
 }
 
 /** The y domain of a stacked chart: `[0, max]`, never the data's own min.
