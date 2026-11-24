@@ -2905,11 +2905,26 @@ components:
         `loadByIOWaitMs` on a list row — and it is a field of this object as
         of that ruling, which is why the schema has six members and not five.)
 
-        All six are `number` — `float64` in Go — because that is the type the
-        R9.4 family carries: a per-minute delta derived from a cumulative counter
-        (R3.3) is not necessarily integral even when the underlying count is.
+        All six are `number` — `float64` in Go, or `*float64` where the value can be
+        absent (see the nullability note below) — because that is the type the R9.4
+        family carries: a per-minute delta derived from a cumulative counter (R3.3)
+        is not necessarily integral even when the underlying count is.
         The bucket is one minute because R8.11 says "the per-minute series"; the
         range parameter selects the window, never the resolution (R10.15).
+
+        **Nullability (R8.3, ruled at 7cecc49):** two of the six carry `nullable: true` —
+        `lockTimeSeconds` (`internal/api/dto/series.go:63`) and `ioTimeSeconds`
+        (`internal/api/dto/series.go:64`). The wire says "no value" with `null`, not
+        with a sentinel number: the store's `-1` code is unit-ambiguous once it leaves
+        the store — it is a milliseconds value assigned undivided to a seconds-typed
+        field — and a consumer that has to mint its own constant to honour a convention
+        the contract never states is the evidence the convention belongs in the contract.
+        The other four are never absent and carry no `nullable:` key. The document's rule
+        for choosing between its two absence encodings, stated here so the next fixed-shape
+        record does not have to rediscover it: a record whose members all exist at the
+        requirement level carries every key and writes `null` for the ones with no value;
+        a conditionally present member (LatencyView's `*float64` percentiles) omits the
+        key instead, because `omitempty` already spells its absence.
       required:
         - timestamp
         - executionTimeSeconds
@@ -2940,6 +2955,7 @@ components:
           description: 'R9.4 `shared_blocks_read`.'
         lockTimeSeconds:
           type: number
+          nullable: true
           description: |
             R9.4 `lock_time`, in seconds. R3.2 documents that per-query lock time
             has no `pg_stat_statements` source (§5 divergence) and renders `n/a`
@@ -2949,6 +2965,7 @@ components:
             `pg_locks` + `pg_stat_activity` rollup, not per execution).
         ioTimeSeconds:
           type: number
+          nullable: true
           description: 'R9.4 `io_time` for the minute, in seconds.'
       example:
         timestamp: "2026-11-21T09:12:00Z"

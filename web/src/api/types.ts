@@ -643,14 +643,22 @@ export interface QuerySeriesPoint {
   sharedBlocksHit: number;
   /** R9.4 `shared_blocks_read`. */
   sharedBlocksRead: number;
-  /** R9.4 `lock_time`. */
-  lockTimeSeconds: number;
-  /** R9.4 `io_time` for the minute, in seconds. This one is *derived* rather than
-   *  a sixth sample (R9.11): it is the sum of the two block counters above, the
-   *  same derivation R3.2's Load by IO column publishes as `loadByIOWaitMs` on a
-   *  list row. The store's batched read does not select the column yet, so the
-   *  value is the zero its type gives it until that select lands. */
-  ioTimeSeconds: number;
+  /** R9.4 `lock_time`, in seconds. `number | null` per R8.3 as ruled at 7cecc49:
+   *  the wire spells "no value" with `null`, not with the store's `-1` code. That
+   *  code (`query_rollup.lock_wait_ms`'s no-source default, `noLockWait`) is a
+   *  *milliseconds* value that `point()` assigns undivided to this *seconds*
+   *  field, so its meaning depends on which side of the store boundary it is read
+   *  from — `null` has no unit. The Go field is `*float64`; this is what a nil
+   *  pointer serialises to. */
+  lockTimeSeconds: number | null;
+  /** R9.4 `io_time` for the minute, in seconds — R9.11's derived member (the sum
+   *  of the two block counters above, which is what R3.2's Load by IO column
+   *  publishes on a list row as `loadByIOWaitMs`). `seriesSQL` now selects the
+   *  rollup's `io_wait_ms` (A5, 9a16c71), so the value is read from the column
+   *  rather than being the zero its type used to give it. `number | null` from the
+   *  same ruling — both fields were ruled at once so the second one inherits no
+   *  unit ambiguity from the first's sentinel. */
+  ioTimeSeconds: number | null;
 }
 
 /** `primary` or `replica` — the role half of R5.7's (namespace, cluster, pod)
