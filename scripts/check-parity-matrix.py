@@ -1098,6 +1098,42 @@ print(f"finding ids: {len(ledger_ids)} in {FINDING_DOC} \u00b7 {len(cited_f)} ci
 dump(finding_bad, lambda f, n, t: f"  {f}:{n}: {t} is cited but has no row in {FINDING_DOC}")
 dump(uncited_f, lambda t: f"  {t} has a row and no cite -- its status column says whether that is expected")
 
+# The header's declared counts are now checked against the parsed table instead of asserted
+# in prose. The doc used to claim the number was "the same number
+# `scripts/check-parity-matrix.py` prints as `finding ids:`, so a disagreement between the two
+# is a stale header rather than a missing row" -- and nothing compared them: with the table at
+# 85 rows, editing the sentence to `The table holds 84 rows` printed `finding ids: 85` and
+# exited 0 (A3's S91). The sentence described a check rather than being one, which is S80's
+# class in the header's own voice. Both declared forms are parsed now: the prose count, and the
+# `N ids, S1-SNN` cell of the id-form table, whose range end is checked against the maximum
+# parsed id as well as against the count.
+HDR_PROSE_RE = re.compile(r"The table holds (\d+) rows")
+HDR_FORM_RE = re.compile(r"^\| `A3's S<NN>` \| current \| this table \| (\d+) ids, S1[\u2013-]S(\d+) \|")
+_ledger_text = (root / FINDING_DOC).read_text(errors="replace")
+_max_id = max(int(x[1:]) for x in ledger_ids)
+header_bad = []
+_m = HDR_PROSE_RE.search(_ledger_text)
+if not _m:
+    header_bad.append("header prose: no `The table holds N rows` sentence -- the coverage "
+                      "claim was deleted rather than updated")
+elif int(_m.group(1)) != len(ledger_ids):
+    header_bad.append(f"header prose: declares {_m.group(1)} rows, the table parses to "
+                      f"{len(ledger_ids)}")
+_forms = [line for line in _ledger_text.splitlines() if HDR_FORM_RE.match(line)]
+if not _forms:
+    header_bad.append("id-form table: no `| `A3\'s S<NN>` | current | this table | "
+                      "N ids, S1-SNN |` row to check the count against")
+for _row in _forms:
+    _f = HDR_FORM_RE.match(_row)
+    if int(_f.group(1)) != len(ledger_ids):
+        header_bad.append(f"id-form table: declares {_f.group(1)} ids, the table parses to "
+                          f"{len(ledger_ids)}")
+    if int(_f.group(2)) != _max_id:
+        header_bad.append(f"id-form table: declares the range ending at S{_f.group(2)}, the "
+                          f"highest parsed id is S{_max_id}")
+print(f"finding header: {len(header_bad)} declared counts disagreeing with the parsed table")
+dump(header_bad, lambda t: f"  {t}")
+
 # --- this file's own shape ---------------------------------------------------------------
 # dump() is the only sanctioned way to print a capped enumeration, because it prints the
 # withheld count: a summary line and the list under it cannot disagree (dump's docstring
@@ -1111,7 +1147,7 @@ print(f"checker self-lint: {len(self_bad)} bare capped loops "
       f"(dump() is the only sanctioned form)")
 dump(self_bad, lambda n: f"  {__file__}:{n}: {SELF[n - 1]}", cap=5)
 
-sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
+sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad or header_bad
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
               or width_bad or idc_bad or ve_dangling or ve_orphans
