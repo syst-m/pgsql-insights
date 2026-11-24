@@ -143,6 +143,20 @@ type Config struct {
 	// family as absent rather than panicking or emitting an empty HELP/TYPE pair
 	// for a set of targets it has never seen.
 	Scheduler *collector.Scheduler
+	// PerQueryMetrics is R9.5's per-query family, the fourth family the R9.8 hub
+	// composes (internal/metrics's PerQueryFamily, implemented by
+	// internal/store/perquery.go's RenderPerQuery). It is an interface rather than
+	// a *store.Store for the same reason PromQL is one and Metrics is not: PromQL
+	// has a second implementation to plan for (the catalogue-only source vs the
+	// Prometheus proxy) and a test double, and so does this — the empty source
+	// queries_test can hand it, versus a hard dependency on the SQLite store in
+	// every api test.
+	//
+	// Nil renders the family absent, which is the hub's rule for every optional
+	// source ("a source with nothing to say contributes no bytes rather than an
+	// empty family"), and metrics.WithPerQuery(nil) is therefore a no-op rather
+	// than a hazard — so this field needs no default in New the way Metrics does.
+	PerQueryMetrics metrics.PerQueryFamily
 
 	// Fleet is the inventory /api/v1/clusters serves (R8.2) and, through
 	// Readiness below, the thing /readyz reports on. In `pgsi serve` it is the
@@ -400,18 +414,26 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 // BuildInfoMetric it once existed for ("Exported so the Phase 2 MetricHub
 // renders the same line rather than a second copy of it"); the hub has landed, so
 // the composition lives there and this handler is the HTTP half only.
-func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(s.metricsBody()))
+	_, _ = w.Write([]byte(s.metricsBody(r.Context())))
 }
 
-// metricsBody is the one call site connecting this server to the R9.8 hub: the
-// server's own collector stats and its scheduler's up tracker, rendered together
-// with the build family. The hub takes them as *collector.Stats and
-// *collector.UpTracker rather than as rendered strings, which is what keeps the
-// server owning its sources and the hub owning the composition — the part that
-// stops the move being a rewrite of the Config fields.
-func (s *Server) metricsBody() string {
-	return metrics.New(s.metrics, s.cfg.Scheduler.Up()).Render()
+// metricsBody is the one call site connecting this server to the R9.8 hub. The
+// hub composes four families (internal/metrics/metrics.go's RenderContext: the
+// build info, the collector duration/error pair, the scrape-target gauge, and
+// R9.5's per-query family) and this server supplies three of them — its own
+// *collector.Stats, its scheduler's *collector.UpTracker, and
+// cfg.PerQueryMetrics — as values rather than as rendered strings, which is what
+// keeps the server owning its sources and the hub owning the composition, the
+// part that stops the move being a rewrite of the Config fields.
+//
+// The ctx is the request's, threaded to metrics.RenderContext rather than
+// dropped on Render()'s context.Background() floor: one of the four families now
+// reads the SQLite store, so a scrape whose client disconnects mid-render can
+// cancel that read instead of finishing a query for a body nobody is reading.
+func (s *Server) metricsBody(ctx context.Context) string {
+	return metrics.New(s.metrics, s.cfg.Scheduler.Up(),
+		metrics.WithPerQuery(s.cfg.PerQueryMetrics)).RenderContext(ctx)
 }
