@@ -75,6 +75,15 @@ var _ api.QuerySeriesSource = (*Store)(nil)
 // unknown should — one source that cannot answer makes the minute unable to answer —
 // while two real per-pod deltas still sum, which is what a per-minute aggregate of
 // two pods means.
+//
+// io_wait_ms gets no CASE because it has no code to protect. schema.go:236 declares it
+// REAL NOT NULL with no default — the -1 at :240 belongs to lock_wait_ms alone — and
+// the collector fills it on every row from the major's IO pair, so a 0 there is a real
+// 0 and not "no source" wearing a 0. That is the answer to the question A2 asked twice
+// about how the -1 encoding reaches dto.QuerySeriesPoint.IOTimeSeconds: it does not,
+// and the conversion is a plain division. A6's stackSeries guard for a -1 in
+// ioTimeSeconds (34ae29d) is correct for lockTimeSeconds and unreachable for this
+// field; the two columns share a sentinel in that commit's prose and not in the schema.
 const seriesSQL = `
 SELECT r.fingerprint, r.bucket,
        SUM(r.calls)            AS calls,
@@ -82,6 +91,7 @@ SELECT r.fingerprint, r.bucket,
        SUM(r.rows_returned)    AS rows_returned,
        SUM(r.shared_blks_hit)  AS shared_blks_hit,
        SUM(r.shared_blks_read) AS shared_blks_read,
+       SUM(r.io_wait_ms)       AS io_wait_ms,
        CASE WHEN MIN(r.lock_wait_ms) < 0 THEN -1 ELSE SUM(r.lock_wait_ms) END AS lock_wait_ms
 FROM query_rollup r
 `
@@ -114,6 +124,9 @@ type seriesRow struct {
 	rowsReturned float64
 	sharedHit    float64
 	sharedRead   float64
+	// ioWaitMs is the rollup's IO column in milliseconds. No sentinel: see the
+	// seriesSQL doc for why this column, unlike lockWaitMs, has no code to carry.
+	ioWaitMs float64
 	// lockWaitMs carries the schema's -1 through unchanged; point() decides what
 	// the DTO's seconds field says about it.
 	lockWaitMs float64
@@ -132,6 +145,7 @@ func (r seriesRow) point() dto.QuerySeriesPoint {
 		Rows:                 r.rowsReturned,
 		SharedBlocksHit:      r.sharedHit,
 		SharedBlocksRead:     r.sharedRead,
+		IOTimeSeconds:        r.ioWaitMs / msPerSecond,
 	}
 	if r.lockWaitMs == noLockWait {
 		p.LockTimeSeconds = noLockWait
@@ -230,6 +244,7 @@ func (s *Store) seriesRows(ctx context.Context, q api.SeriesQuery) ([]seriesRow,
 		if err := rows.Scan(
 			&r.fingerprint, &r.bucket,
 			&r.calls, &r.totalExecMs, &r.rowsReturned, &r.sharedHit, &r.sharedRead,
+			&r.ioWaitMs,
 			&r.lockWaitMs,
 		); err != nil {
 			return nil, fmt.Errorf("store: query series scan: %w", err)
