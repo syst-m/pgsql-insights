@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/frankellis/pgsql-insights/internal/collector"
+	"github.com/frankellis/pgsql-insights/internal/collector/pgversion"
 	"github.com/frankellis/pgsql-insights/internal/metrics"
 	"github.com/frankellis/pgsql-insights/internal/store"
 	"github.com/frankellis/pgsql-insights/internal/version"
@@ -226,11 +227,19 @@ func (s *stubPerQuery) RenderPerQuery(ctx context.Context, topN int, prefix stri
 	return s.body, s.err
 }
 
-// The stub's body is shaped like a real exposition family so a test that
-// searches for it is searching for something promtool would accept.
-const stubPerQueryBody = "# HELP pgsi_query_execution_time_total Total execution time of tracked queries.\n" +
-	"# TYPE pgsi_query_execution_time_total counter\n" +
-	`pgsi_query_execution_time_total{cluster="pg",fingerprint="0a1b2c3d"} 1.25` + "\n"
+// stubPerQueryBody is the stub's exposition body. The metric name is derived
+// from collector.MetricName the way internal/store/perquery.go:295 derives every
+// name in the real family, not typed here: the first version of this line said
+// `pgsi_query_execution_time_total`, which is neither the table's name
+// (naming.go:160: `pgsi_query_execution_time_seconds_total`) nor what the
+// fallback spelling would produce, and a hand-typed name in a test double is a
+// second copy of a contract with nothing checking it (R16.8).
+var stubPerQueryBody = func() string {
+	name := collector.DefaultPrefix + collector.MetricName(pgversion.ViewStatStatements, "total_exec_time")
+	return "# HELP " + name + " Cumulative execution time of the statement (R9.5 per-query family).\n" +
+		"# TYPE " + name + " counter\n" +
+		name + `{cluster="pg",fingerprint="0a1b2c3d"} 1.25` + "\n"
+}()
 
 // TestHubPerQueryFamilyGetsR9_5sDefaults pins the two arguments the hub passes
 // and where the family lands. topN is collector.DefaultTopN — R9.5's default of
