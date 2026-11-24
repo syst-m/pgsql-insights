@@ -430,12 +430,19 @@ func runServe(args []string) int {
 		// logs rounds of nothing. The `api` role D9 reserves is exactly the role
 		// that serves without collecting.
 		//
-		// The registry holds one collector today. newRegistry's docblock names the
-		// six SQL collectors it cannot yet hold and quotes the reason — go.mod has
-		// no Postgres driver, so sql.go's SQLOpener has no production
-		// implementation — which is the open decision this wiring surfaces rather
-		// than settles.
-		reg, err := newRegistry(kc, collector.Overrides{})
+		// The opener is built from the same credential flags the discovery block
+		// above gets (R1.8's --credential-secret / --credential-username /
+		// --credential-password), so the process has one answer to "who do we
+		// connect as" rather than one per consumer. It is nil when kc has no
+		// clientset, and newRegistry treats a nil opener as "no SQL collectors"
+		// rather than as seven collectors that fail every round.
+		opener := newSQLOpener(kc, collector.ConnConfig{
+			Secret:   *sf.credSecret,
+			Username: *sf.credUser,
+			Password: *sf.credPass,
+			SSLMode:  "",
+		})
+		reg, err := newRegistry(kc, opener, collector.Overrides{})
 		if err != nil {
 			log.Error("collector registry", "error", err.Error())
 			return 2
@@ -513,52 +520,74 @@ func runServe(args []string) int {
 // newRegistry builds this process's collector set: the []Collector argument
 // R2.1's registry takes, with R2.3's overrides applied over each Descriptor.
 //
-// It holds one collector today, and the reason is a dependency, not a preference.
+// It holds eight collectors when the opener is non-nil and one when it is nil,
+// and the two shapes exist because the two halves of §3.3 have different
+// dependencies.
+//
 // The seven SQL collectors — activity, database, locks, replication, settings,
-// statements and wal, the set pooler.go's own head doc enumerates — all take an
-// `opener SQLOpener` as their first argument, and the paragraph that documents
-// the SQL seam (sql.go:34-40, inside DefaultStatementTimeout's docblock) declines
-// to supply one:
+// statements and wal — all take an `opener SQLOpener` as their first argument,
+// and for most of this repository's life there was no value to pass them: the
+// paragraph documenting the SQL seam (sql.go:34-48, inside
+// DefaultStatementTimeout's docblock) declared the seam an interface precisely
+// because go.mod had no driver, and declined to choose one. That paragraph now
+// names the answer in the same breath — pgx/v5 via pgx/stdlib, in
+// internal/collector/pgxopener, the driver R13.10 names — and this function is
+// the caller that deferral was waiting for.
 //
-//	The seam is an interface (SQLOpener) and not a *sql.DB because go.mod has no
-//	Postgres driver. Phase 0 (R11.1) shipped stdlib-only and the module comment
-//	names only client-go plus, for Phase 3, modernc.org/sqlite; choosing between
-//	lib/pq, pgx, and the kubelet pod-proxy is a separate decision from writing
-//	the collectors, and R13.10 constrains `replace` directives rather than
-//	dependencies, so adding one is allowed — it is just not this commit's
-//	decision to make.
+// go.mod's own module comment was rewritten in the same commit that added the
+// driver, for the reason A3's S67 records: the old comment said the module
+// "names only client-go plus, for Phase 3, modernc.org/sqlite" while the direct
+// require block listed five modules. Prose describing its own file has no
+// checker, so the only cheap moment to fix it is the commit that makes it false.
 //
-// conn.go:22-23 repeats it ("consumed by whichever SQLOpener implementation the
-// driver decision produces"), and IMPLEMENTATION.md:762 repeats it a third time
-// for R2.7's row. So the driver choice — lib/pq, pgx, or a kubelet pod-proxy
-// implementation — is open, and until it lands none of those seven constructors
-// can be called from here.
-//
-// The pooler is constructible because its dependency is satisfiable:
-// NewPoolerCollector takes a MetricsFetch, and pooler.go:51-54 says the
-// production implementation "is a method value — kube.Client.GetDirect(ctx, url)
-// has exactly this signature (client.go:300) — so wiring it in cmd/pgsi is
-// `kube.GetDirect` with no adapter". That is what the first argument below is: a
-// method value, no adapter, exactly as promised.
+// The pooler is the eighth and is constructible independently: NewPoolerCollector
+// takes a MetricsFetch, and pooler.go:51-54 says the production implementation
+// "is a method value — kube.Client.GetDirect(ctx, url) has exactly this signature
+// (client.go:300) — so wiring it in cmd/pgsi is `kube.GetDirect` with no
+// adapter". That is what the first argument below is: a method value, no adapter,
+// exactly as promised.
 //
 // The remaining two of §3.3's thirteen — instance-metrics (S3) and k8s-events
 // (S4) — have no file yet, so there is nothing to construct; see targets.go for
 // why their targets are not produced either.
 //
-// The overrides argument is empty rather than built from argv, and that is a
-// second, smaller gap this commit leaves open on purpose: R2.3's
-// --interval.<collector>= and --disable-collector= flags need R11.8's dynamic
-// flag pre-scan (the logx.FieldsFromArgs pattern applied to a second flag name),
-// and registry.go's IntervalOverridesFromArgs/DisabledFromFlag helpers exist for
-// that. R2.3's own row files the cmd/pgsi half of it with step 5's R11.8 work
-// rather than with this wiring, so the registry is built with defaults and the
-// helpers stay uncalled.
-func newRegistry(kc *kube.Client, ov collector.Overrides) (*collector.Registry, error) {
+// The overrides argument is empty rather than built from argv, and that is a gap
+// this commit leaves open on purpose: R2.3's --interval.<collector>= and
+// --disable-collector= flags need R11.8's dynamic flag pre-scan (the logx.
+// FieldsFromArgs pattern applied to a second flag name), and registry.go's
+// IntervalOverridesFromArgs/DisabledFromFlag helpers exist for that. R2.3's own
+// row files the cmd/pgsi half of it with step 5's R11.8 work rather than with
+// this wiring, so the registry is built with defaults and the helpers stay
+// uncalled.
+func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overrides) (*collector.Registry, error) {
 	pooler, err := collector.NewPoolerCollector(kc.GetDirect, collector.PoolerConfig{})
 	if err != nil {
 		return nil, err
 	}
-	return collector.NewRegistry([]collector.Collector{pooler}, ov)
+	collectors := []collector.Collector{pooler}
+
+	// The seven SQL collectors ride the opener, and the nil check is the reason
+	// the signature has an opener parameter at all. Each of the seven constructors
+	// is `func NewXCollector(opener SQLOpener, cfg SQLConfig) *XCollector` — one
+	// return value, no error — so each accepts a nil opener at construction and
+	// only fails when Collect runs. Registering seven collectors that cannot
+	// collect would turn a wiring gap into eight error logs per round on a healthy
+	// /metrics endpoint, which is R8.7's shape (a process that answers 200 and is
+	// not actually working) reproduced inside the registry. Gating here makes the
+	// registry's contents say what the process can actually do.
+	if opener != nil {
+		cfg := collector.SQLConfig{}
+		collectors = append(collectors,
+			collector.NewActivityCollector(opener, cfg),
+			collector.NewDatabaseCollector(opener, cfg),
+			collector.NewLocksCollector(opener, cfg),
+			collector.NewReplicationCollector(opener, cfg),
+			collector.NewSettingsCollector(opener, cfg),
+			collector.NewStatementsCollector(opener, cfg),
+			collector.NewWALCollector(opener, cfg),
+		)
+	}
+	return collector.NewRegistry(collectors, ov)
 }
 
 // splitList turns a comma-separated flag value into a slice, dropping empties

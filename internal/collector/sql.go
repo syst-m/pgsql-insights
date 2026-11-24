@@ -31,16 +31,21 @@ import (
 // edit and not four that can drift apart, which is the same argument R2.4 makes
 // about the matrix: a rule expressed in four places is four rules.
 //
-// The seam is an interface (SQLOpener) and not a *sql.DB because go.mod has no
-// Postgres driver. Phase 0 (R11.1) shipped stdlib-only and the module comment
-// names only client-go plus, for Phase 3, modernc.org/sqlite; choosing between
-// lib/pq, pgx, and the kubelet pod-proxy is a separate decision from writing
-// the collectors, and R13.10 constrains `replace` directives rather than
-// dependencies, so adding one is allowed — it is just not this commit's
-// decision to make. An interface keeps that decision open *and* makes R2.7 and
-// R2.8 assertable: a test can count the transactions a collector opened and
-// read the options it passed to the opener, which is the difference between
-// "the rule is written" and "the rule is checked".
+// The seam is an interface (SQLOpener) and not a *sql.DB.
+//
+// It was written as an interface because go.mod had no Postgres driver, and the
+// choice between lib/pq, pgx, and the kubelet pod-proxy was deferred as a
+// separate decision from writing the collectors. That decision is now made —
+// pgx/v5, through its database/sql-compatible pgx/stdlib subpackage, in
+// internal/collector/pgxopener, which is the driver R13.10 now names — and the
+// interface survives it for the reason this paragraph has always given: an
+// interface makes R2.7 and R2.8 assertable, because a test can count the
+// transactions a collector opened and read the options it passed to the opener,
+// which is the difference between "the rule is written" and "the rule is
+// checked". A *sql.DB in the signature would have made every collector test
+// depend on a driver, which is why the pgx implementation is a child package and
+// not a file in this one: the seam stops being a seam the moment the thing it
+// abstracts is imported by the package that declares it.
 const DefaultStatementTimeout = 5 * time.Second
 
 // ApplicationName is R2.8's application_name value: pgsi-collector.
