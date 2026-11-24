@@ -237,7 +237,7 @@ pgsi/
 │   │   ├── statements/       # pg_stat_statements + normalization               (R3)
 │   │   ├── activity/         # pg_stat_activity, blocking chain                 (R4)
 │   │   ├── database.go  wal.go  replication.go  settings.go   # shipped as flat files (R2)
-│   │   ├── io.go  locks.go  progress.go                       # specified, not yet built
+│   │   ├── locks.go  io.go  progress.go             # locks.go built at b51ea03 (R4.4's pg_locks input, 6a); io.go/progress.go not yet built
 │   │   ├── cnpgmetrics/      # S3 parser: cnpg_* + cnpg_collector_*             (R2.6)
 │   │   ├── pgbouncer/        # S5 + S6                                          (R6)
 │   │   └── podlogs/          # S10 parser                                       (R5.10)
