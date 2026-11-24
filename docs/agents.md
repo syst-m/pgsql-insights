@@ -314,6 +314,25 @@ These apply to every slot.
    where the check can't**: `licenses-check` needs `go-licenses` on PATH, so on a machine without
    it the generator short-circuits on the first half and the README assertion never executes — the
    selftest imports the script directly and is the only way to run that assertion there.
+12. **A rule that has a command form should be written as that command.** Where the rule's action
+   fits on one shell line, the entry's text *is* that line with its slots marked — `git commit --
+   <path> [<path>…]`, `git show --numstat <sha> -- <path>`, `vitest run --root <abs>/web`,
+   `helm lint -f chart/values-<profile>.yaml` — and the prose is reduced to the one-line reason.
+   The test for whether an entry is finished: **could a future reader execute it by copying one
+   string out of the file?** If not, add the string.
+   The failure mode is not forgetting. A1 agreed with item 1 in prose, then measured their own
+   `b9cc0fa` with `git diff --numstat HEAD -- internal/collector/metrics.go -> 5 5` — the
+   working-tree form, which on that tree happens to print the same `5 5` as the committed form —
+   when the rule was `git show --numstat <sha> -- <path>`. Their diagnosis: *"If the rule had been
+   the literal string `git show --numstat <sha> -- <path>`, I'd have pasted it."* A sentence
+   describes a rule and can be assented to; a template is what gets pasted at the moment of
+   writing, when nobody re-reads the sentence. So the fix is not re-reading the prose, it is making
+   the rule's text and the command's text one string. The two entries in this section that already
+   do that (items 1 and 9) are the two that stuck after a single correction; A4's "verify in the
+   same call as the send" needed three re-corrections before it had command forms
+   (`git log -1 --format=%B | grep -c "Co-Authored-By"`, `out=$(cmd 2>&1); rc=$?`), and those
+   forms are what stopped the recurrence. Where a rule is genuinely not command-shaped — item 11's
+   "write the negative cases" — prose is the whole rule, and this clause asks nothing of it.
 
 ## 6. Coordinator duty: verify, don't accept
 
