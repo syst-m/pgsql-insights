@@ -4,39 +4,45 @@
  *
  * R10.7's sentence — "the per-minute load chart for that query" — names one
  * chart and supplies no metric, and the metric set is what makes it awkward:
- * the data behind it is `QuerySeriesPoint`, which carries five values per
+ * the data behind it is `QuerySeriesPoint`, which carries six values per
  * minute. R10.5(a)'s `QueryLoadArea` (the Cluster Overview's stacked area of
  * total execution time + IO time) is a *different* requirement's chart, and
  * this file is deliberately not named `QueryLoadArea` so the two cannot be
  * confused by whoever comes after and reads a list of components.
  *
- * ── why five values cannot share a chart ──────────────────────────────────
+ * ── why six values cannot share a chart ───────────────────────────────────
  *
  * The dataviz skill's #1 chart mistake is the dual-axis chart, and its rule
  * admits one remedy for two measures of different scale: "two charts, small
- * multiples, or indexed to a common base." `QuerySeriesPoint` is the worst case
- * the rule contemplates — two measures in *seconds* (`executionTimeSeconds`,
- * `lockTimeSeconds`) and three in *counts* (`rows`, `sharedBlocksHit`,
- * `sharedBlocksRead`). One axis cannot host 42.7 seconds and 3 007 rows, and
- * indexing them to a common base would answer a question nobody asked ("how did
- * rows move relative to their own mean") instead of the one R10.7 asks ("what
- * did this query's load look like"). So: one `Sparkline` per metric, framed,
- * stacked in a column — the small multiple the skill prescribes, and the reason
- * `Sparkline` has a `framed` mode at all.
+ * multiples, or indexed to a common base." `QuerySeriesPoint` is the worst
+ * case the rule contemplates — three measures in *seconds*
+ * (`executionTimeSeconds`, `lockTimeSeconds`, `ioTimeSeconds`) and three in
+ * *counts* (`rows`, `sharedBlocksHit`, `sharedBlocksRead`). One axis cannot
+ * host 42.7 seconds and 3 007 rows, and indexing them to a common base would
+ * answer a question nobody asked ("how did rows move relative to their own
+ * mean") instead of the one R10.7 asks ("what did this query's load look
+ * like"). So: one `Sparkline` per metric, framed, stacked in a column — the
+ * small multiple the skill prescribes, and the reason `Sparkline` has a
+ * `framed` mode at all.
  *
- * ── which four, and why not five ──────────────────────────────────────────
+ * ── which four, and why not six ───────────────────────────────────────────
  *
  * R9.5's S25 ruling names the per-query export family as `execution_time`,
  * `rows`, `shared_blocks_hit`, `shared_blocks_read` — four — and explicitly
  * keeps `lock_time` out of it (`lock_time` was admitted to the *aggregate*
- * family only). `dto/series.go` still carries all five per point, because
- * R8.11's own comment says the five-value point is what lets one response serve
- * both R10.6's sparkline and R10.7's chart. Carrying a value and rendering it
- * are two different things: this file draws the four the ruling names, and
+ * family only). `dto/series.go` now carries all six per point — `ioTimeSeconds`
+ * arrived by way of 5668cb3, 51f4485 and d2ffbfb — because R8.11's own comment
+ * says the multi-value point is what lets one response serve both R10.6's
+ * sparkline and R10.7's chart. Carrying a value and rendering it are two
+ * different things: this file draws the four the ruling names, and
  * `SERIES_METRICS` is the single place that decision is written down, so if the
  * ruling ever widens, the fix is one entry in one array rather than a hunt
- * through JSX. The `QueryView` side of the page already answers "what about
- * lock wait" for v1 with R10.4's `n/a (no per-query source, §5)` cell.
+ * through JSX. `ioTimeSeconds` is carried and not drawn for the same reason
+ * `lockTimeSeconds` is: S25 did not name it, and whether it becomes a fifth
+ * small multiple is R10.7's metric-set question — R10.5(a)'s band has had its
+ * number since d2ffbfb, which settles that chart and not this one. The
+ * `QueryView` side of the page already answers "what about lock wait" for v1
+ * with R10.4's `n/a (no per-query source, §5)` cell.
  *
  * ── the units trap this file exists to close ──────────────────────────────
  *
@@ -66,8 +72,8 @@
  *     rule;
  *   - the shared x axis is drawn once per frame (R10.21 timestamps), so a viewer
  *     reading down the column is comparing the same minutes;
- *   - hover is per frame, and a frame's tooltip names one value — five series
- *     stacked in one chart would give one tooltip with five rows, which is the
+ *   - hover is per frame, and a frame's tooltip names one value — six series
+ *     stacked in one chart would give one tooltip with six rows, which is the
  *     shape the skill wants for a multi-series line and not this shape.
  */
 
