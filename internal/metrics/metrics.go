@@ -191,9 +191,11 @@ type Hub struct {
 	up *collector.UpTracker
 
 	// store is R13.5's pgsi_store_size_bytes — R9.8's sixth family — supplied
-	// through WithStoreSize. StoreSize handles both nil shapes itself (the
-	// untyped nil, and the typed-nil *collector.MemSink that `== nil` misses), so
-	// this needs no check of its own.
+	// through WithStoreSize. StoreSize handles the untyped nil and the typed-nil
+	// *collector.MemSink that `== nil` misses, so this needs no check of its own;
+	// the third shape — a StoreSizer holding (*store.Store)(nil) — is answered by
+	// store.Used() itself (0, since f634142), because this package cannot name
+	// store's type to assert on it. StoreSize's docblock carries the reasoning.
 	store StoreSizer
 
 	// perQuery is R9.5's catalogue family, supplied through WithPerQuery. A nil

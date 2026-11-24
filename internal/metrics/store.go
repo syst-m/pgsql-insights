@@ -69,6 +69,18 @@ var _ StoreSizer = (*collector.MemSink)(nil)
 // store.RenderPerQuery and internal/api already carries in
 // TestNewAcceptsTypedNilPerQuery, so it is checked here rather than rediscovered.
 //
+// A third typed nil exists and is handled by the source, not here: a StoreSizer
+// holding (*store.Store)(nil) fails the MemSink assertion, falls through to
+// src.Used(), and renders 0 — store.Used()'s answer for a nil receiver since
+// f634142 added the method (A5), which is where the check has to live. This file
+// cannot generalise the assertion above: metrics cannot import store (store
+// imports api, api imports metrics), so there is no
+// `var _ StoreSizer = (*store.Store)(nil)` line possible here and the type
+// switch would otherwise need a new entry per new source type — which is the
+// argument for putting the rule on the receiver. The two answers differ (a nil
+// MemSink renders the family absent, a nil Store renders it at 0) and that
+// asymmetry is store's to own; this function forwards whatever Used() says.
+//
 // prefix follows R9.2 the way UpTracker and HTTPRequests do it: "" selects
 // collector.DefaultPrefix, any other value is used verbatim.
 func StoreSize(src StoreSizer, prefix string) string {
