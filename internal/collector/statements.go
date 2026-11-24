@@ -124,7 +124,7 @@ var statementViews = []pgversion.View{
 // matches the shape our own query builder produces rather than a role name.
 //
 // The `_` is escaped because in LIKE it is a single-character wildcard: an
-// unescaped `pg_catalog` pattern would also match `pgXcatalog`. validateProjection
+// unescaped `pg_catalog` pattern would also match `pgXcatalog`. ValidateProjection
 // accepts it because unqualifiedCall only inspects `(` characters and this clause
 // has none.
 //
@@ -146,7 +146,7 @@ const statementsWhere = `query NOT LIKE 'SELECT%FROM pg\_catalog.%' ` +
 // the name; empty means unresolved". pg_get_userbyid is the function that reads
 // pg_authid, and Extra is the framework's answer to a value a column list cannot
 // express (sql.go's Extra doc names R5.2's pg_database_size as the precedent).
-// It is schema-qualified per R2.5, which is what validateProjection checks.
+// It is schema-qualified per R2.5, which is what ValidateProjection checks.
 var statementSpecs = map[pgversion.View]QuerySpec{
 	pgversion.ViewStatStatements: {
 		Extras: []Extra{
@@ -412,9 +412,14 @@ func (c *StatementsCollector) WithNormalizer(opts query.Options) *StatementsColl
 // the same three checks every collector makes: a major to build from, an
 // applicability answer, and a projection that validates.
 //
-// validateProjection is unexported (sql.go:478), which is the reason this
-// collector is in package collector and not in a package of its own — the same
-// constraint that put the store's rows here.
+// The reason this collector is a file in package collector, rather than in a
+// package of its own, is the framework's own location: Collector, Project, Tx and
+// SQLConfig all live in sql.go, and the two subpackages that exist (pgversion,
+// cnpgmetrics) hold data — the matrix and the registry — not collectors. R2.5's
+// ruling exported ValidateProjection and retired the sentence that named its
+// unexportedness as the constraint; sql.go:471-477 records that this function's
+// stated justification had already gone stale once before (D20's S11), so the
+// durable reason is written here rather than the one that expired.
 func (c *StatementsCollector) projections(tgt Target) ([]viewProjection, error) {
 	if tgt.PGMajor <= 0 {
 		return nil, fmt.Errorf("collector %s: target %s has no PostgreSQL major, so R2.4 has no column set to build SQL from",
@@ -435,7 +440,7 @@ func (c *StatementsCollector) projections(tgt Target) ([]viewProjection, error) 
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorStatement, v, tgt.PGMajor)
 		}
-		if err := validateProjection(p); err != nil {
+		if err := ValidateProjection(p); err != nil {
 			return nil, err
 		}
 		out = append(out, viewProjection{view: v, Projection: p})

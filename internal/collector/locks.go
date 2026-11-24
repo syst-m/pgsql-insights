@@ -351,7 +351,7 @@ func (c *LocksCollector) projection(tgt Target) (viewProjection, error) {
 		return viewProjection{}, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d",
 			CollectorLocks, pgversion.ViewLocks, tgt.PGMajor)
 	}
-	if err := validateProjection(p); err != nil {
+	if err := ValidateProjection(p); err != nil {
 		return viewProjection{}, err
 	}
 	return viewProjection{view: pgversion.ViewLocks, Projection: p}, nil

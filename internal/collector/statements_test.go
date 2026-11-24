@@ -227,9 +227,12 @@ func TestStatementsAppliesToPG14Through18(t *testing.T) {
 // queries, plus the one thing the framework cannot check for itself: which query
 // the R2.8 filter is on.
 //
-// projections() already ran validateProjection on both (sql.go:478 is unexported,
-// which is why this file is in this package), so schema qualification and the
-// column list are checked by the constructor path. What it cannot check is
+// projections() already ran ValidateProjection on both, so schema qualification
+// and the column list are checked by the constructor path. The older reason this
+// file is in package collector — that sql.go:478 is unexported — was retired by
+// R2.5's ruling, which exported it; the durable reason is the one statements.go:415
+// now gives, that the framework lives here and the two subpackages hold data
+// rather than collectors. What it cannot check is
 // placement: the WHERE names a `query` column, and pg_stat_statements_info has
 // none, so a spec that put the filter on both views produces SQL that errors at
 // runtime and validates fine.

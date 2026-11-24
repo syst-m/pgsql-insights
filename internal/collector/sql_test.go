@@ -52,8 +52,8 @@ func TestProjectQueryIsTheMatrixQuery(t *testing.T) {
 			if p.Query != want {
 				t.Errorf("Project(%s, %d).Query =\n%s\nwant\n%s", tc.view, major, p.Query, want)
 			}
-			if err := validateProjection(p); err != nil {
-				t.Errorf("validateProjection(%s, %d): %v", tc.view, major, err)
+			if err := ValidateProjection(p); err != nil {
+				t.Errorf("ValidateProjection(%s, %d): %v", tc.view, major, err)
 			}
 		}
 	}
@@ -237,33 +237,33 @@ func TestParseTimestamp(t *testing.T) {
 // without one. The third is D20's S10 — the check covered the first two and not the
 // one field a collector author types by hand, so `age(datfrozenxid)` passed.
 func TestValidateProjection(t *testing.T) {
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a, b FROM pg_catalog.pg_database",
 		Columns: []string{"a", "b"},
 	}); err != nil {
 		t.Errorf("valid projection rejected: %v", err)
 	}
 
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a FROM pg_database",
 		Columns: []string{"a"},
 	}); err == nil {
 		t.Error("unqualified FROM accepted, want error (R2.5)")
 	}
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a FROM pg_catalog.pg_database",
 		Columns: []string{"a", "bad-name"},
 	}); err == nil {
 		t.Error("column name with a hyphen accepted, want error")
 	}
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a FROM pg_catalog.pg_database",
 		Columns: []string{"a", ""},
 	}); err == nil {
 		t.Error("empty column name accepted, want error")
 	}
 	// The extension's own schema is the exception R2.5 names, so it validates too.
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a FROM pg_stat_statements.pg_stat_statements",
 		Columns: []string{"a"},
 	}); err != nil {
@@ -274,7 +274,7 @@ func TestValidateProjection(t *testing.T) {
 	// collector author types by hand, and it used to be the one field not checked,
 	// so an unqualified call there passed while the same text in a query string
 	// would not.
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a, age(datfrozenxid) AS x FROM pg_catalog.pg_database",
 		Columns: []string{"a", "x"},
 		Extras:  []Extra{{Expr: "age(datfrozenxid)", Alias: "x"}},
@@ -283,7 +283,7 @@ func TestValidateProjection(t *testing.T) {
 	}
 	// The Where clause is checked by the same rule, so a hand-written filter cannot
 	// smuggle an unqualified call past R2.5 either.
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a FROM pg_catalog.pg_database WHERE has_database_privilege(oid, 'CONNECT')",
 		Columns: []string{"a"},
 		Where:   "has_database_privilege(oid, 'CONNECT')",
@@ -293,7 +293,7 @@ func TestValidateProjection(t *testing.T) {
 	// A schema outside knownSchemas is not one Postgres has for our purposes. The
 	// check is a membership test now rather than two hardcoded strings, so the FROM
 	// clause and the expressions consult one answer.
-	if err := validateProjection(Projection{
+	if err := ValidateProjection(Projection{
 		Query:   "SELECT a FROM information_schema.pg_database",
 		Columns: []string{"a"},
 	}); err == nil {
@@ -302,7 +302,7 @@ func TestValidateProjection(t *testing.T) {
 }
 
 // TestUnqualifiedCall is the expression checker on its own, because
-// validateProjection's verdict on an Extra or a Where clause is entirely this
+// ValidateProjection's verdict on an Extra or a Where clause is entirely this
 // function's answer and the shapes it has to get right are not obvious: a call with
 // spaces before the paren, a parenthesised expression with no callee, a qualified
 // call whose schema is not one we know, and a call with a string-literal argument
@@ -322,7 +322,7 @@ func TestUnqualifiedCall(t *testing.T) {
 		{"1 + 2", ""},
 		{"(a)", ""},              // a grouped expression, not a call
 		{"()", ""},               // no callee at all
-		{"", ""},                 // empty: no call, and validateProjection accepts an empty Where
+		{"", ""},                 // empty: no call, and ValidateProjection accepts an empty Where
 		{"a + b(1) * c(d)", "b"}, // the first bad one wins, left to right
 		{"pg_catalog.f(x) + g(y)", "g"},
 		{"pg_catalog.f(x) + other.g(y)", "other.g"},

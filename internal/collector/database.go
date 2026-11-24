@@ -66,7 +66,7 @@ var databaseViews = []pgversion.View{
 // cannot be computed client-side — and a database's size is pg_database_size(oid),
 // not a column at all. They are declared as Extras so the matrix stays the single
 // source of the column set (R2.4) while R5.2's three named values still exist.
-// Both functions are schema-qualified per R2.5, and validateProjection now checks
+// Both functions are schema-qualified per R2.5, and ValidateProjection now checks
 // the expression itself (D20's S10) instead of trusting this comment.
 //
 // The WHERE clause is D20's S7, and it is the reason QuerySpec exists:
@@ -237,7 +237,7 @@ func (c *DatabaseCollector) projections(tgt Target) ([]viewProjection, error) {
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorDatabase, v, tgt.PGMajor)
 		}
-		if err := validateProjection(p); err != nil {
+		if err := ValidateProjection(p); err != nil {
 			return nil, err
 		}
 		out = append(out, viewProjection{view: v, Projection: p})

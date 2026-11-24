@@ -231,7 +231,7 @@ func (c *WALCollector) projections(tgt Target) ([]viewProjection, error) {
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorWAL, v, tgt.PGMajor)
 		}
-		if err := validateProjection(p); err != nil {
+		if err := ValidateProjection(p); err != nil {
 			return nil, err
 		}
 		out = append(out, viewProjection{view: v, Projection: p})

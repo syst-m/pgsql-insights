@@ -61,7 +61,7 @@ var replicationViews = []pgversion.View{
 // be produced in SQL the same way pg_database's size is: as an Extra. The three
 // aliases are what the metric names are built from (MetricName applied to an alias
 // is exactly database.go's pg_database_size-from-`size` precedent), and
-// date_part is schema-qualified per R2.5 so validateProjection's expression check
+// date_part is schema-qualified per R2.5 so ValidateProjection's expression check
 // (D20's S10) passes on it.
 //
 // pg_replication_slots needs no spec: every family it produces is a count over
@@ -237,7 +237,7 @@ func (c *ReplicationCollector) projections(tgt Target) ([]viewProjection, error)
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorReplication, v, tgt.PGMajor)
 		}
-		if err := validateProjection(p); err != nil {
+		if err := ValidateProjection(p); err != nil {
 			return nil, err
 		}
 		out = append(out, viewProjection{view: v, Projection: p})

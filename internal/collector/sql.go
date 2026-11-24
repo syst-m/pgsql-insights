@@ -172,7 +172,7 @@ type Extra struct {
 	// Expr is the expression, schema-qualified per R2.5 —
 	// "pg_catalog.pg_database_size(oid)", not "pg_database_size(oid)".
 	//
-	// validateProjection checks it (D20's S10). This is the one field in the
+	// ValidateProjection checks it (D20's S10). This is the one field in the
 	// package a collector author types by hand, and an unqualified call here is
 	// shadowable by anything on search_path, which is the failure R2.5 names; the
 	// check existed for the column names and the FROM clause and not for this
@@ -203,7 +203,7 @@ type QuerySpec struct {
 	//
 	// It is part of the spec rather than baked into a query string because a
 	// collector never writes a query string: Project assembles it. Carrying the
-	// clause as a field is what lets validateProjection check it the same way it
+	// clause as a field is what lets ValidateProjection check it the same way it
 	// checks an Extra (unqualifiedCall) — a check that had to re-parse SQL to find
 	// its own inputs is a check that gets skipped, which is D20's S10.
 	Where string
@@ -223,7 +223,7 @@ type Projection struct {
 	// columns for this major, then any Extra aliases, then SourceNowColumn.
 	Columns []string
 	// Extras and Where echo the QuerySpec Query was built from. The query string
-	// already contains both; the fields exist so validateProjection can check the
+	// already contains both; the fields exist so ValidateProjection can check the
 	// spec's own fields rather than re-derive them from SQL (D20's S10).
 	Extras []Extra
 	Where  string
@@ -385,7 +385,7 @@ func isIdentByte(b byte) bool {
 // validIdent reports whether s is a valid Postgres identifier: the first byte a
 // letter or underscore, the rest also allowing digits.
 //
-// This is the rule validateProjection has always applied to Projection.Columns,
+// This is the rule ValidateProjection has always applied to Projection.Columns,
 // factored out so the column check and unqualifiedCall consult one answer. The
 // byte loop and the rune loop it replaced agree on everything that matters: a
 // non-ASCII rune (a "é" is 0xC3 0xA9) fails both, because neither byte is in the
@@ -462,7 +462,7 @@ func unqualifiedCall(expr string) string {
 	return ""
 }
 
-// validateProjection checks the three things about a projection that a typo would
+// ValidateProjection checks the three things about a projection that a typo would
 // break at runtime on the instance rather than in a test: that every column name
 // is a valid Postgres identifier, that the query names a schema Postgres has
 // (R2.5), and that every hand-written expression — each Extra.Expr and the Where
@@ -475,7 +475,7 @@ func unqualifiedCall(expr string) string {
 // and the reason to run it per round is that the matrix and the QuerySpecs are
 // data that changes without the collectors changing (D20's S11: the rationale was
 // stale, not the call).
-func validateProjection(p Projection) error {
+func ValidateProjection(p Projection) error {
 	for _, c := range p.Columns {
 		if !validIdent(c) {
 			return fmt.Errorf("collector: column name %q in projection %q is not a valid identifier", c, p.Query)
