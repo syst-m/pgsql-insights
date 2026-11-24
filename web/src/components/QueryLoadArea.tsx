@@ -33,7 +33,7 @@
  *                         members, none of them IO — and the OpenAPI
  *                         `x-promql-catalogue` for `/api/v1/metrics/query`
  *                         enumerates exactly those five plus
- *                         `aggregate.cache_hit_ratio`. The app's only IO-time
+ *                         `aggregate.cache_hit_ratio`. The API's only IO-time
  *                         value is `QueryView.loadByIOWaitMs` (types.ts:413,
  *                         `dto/queries.go:77`): R3.2's derived load column,
  *                         `blk_read_time + blk_write_time` on PG 15–16 and
@@ -49,11 +49,26 @@
  * contract*, which is what stops a caller from passing a plausible `0` and
  * turning "we do not have this" into "this minute had none".
  *
- * The ask it documents is A1/A2's, not a local interface (R16.8): an
- * `ioTimeSeconds` member on `dto.QuerySeriesPoint` would make it a sixth member
- * of a frozen R9.4 cell, which is a scope change rather than a field addition;
- * the cheaper route is an `aggregate.io_time` entry on the PromQL pair, whose
- * route exists in `api/openapi.yaml` and has no fetcher in `client.ts`.
+ * The ask it documents is A1/A2's, not a local interface (R16.8), and A2 has
+ * since answered it: the ask is right, and it is A3's ruling to make — growing
+ * R9.4's frozen cell has exactly one precedent, R9.11's admission of lock_time,
+ * which that cell calls "added by ruling rather than by drift". Two facts came
+ * back with the answer and belong here:
+ *
+ *   - the exporter already mints per-query IO time. `collector/naming.go:135`
+ *     and `:136` name R2.4's enumerated pair
+ *     (`query_shared_blk_read_time_seconds_total`,
+ *     `query_shared_blk_write_time_seconds_total`), with the pre-PG16
+ *     `blk_read_time`/`blk_write_time` successors at `:152-153`. So "no IO-time
+ *     field exists" is true of the DTO and the catalogue, not of the collector —
+ *     which is why the answer is not "the series has no IO dimension";
+ *   - a single `io_time` member over two counters has to be *derived*, and
+ *     `api/promql_test.go:955` enforces `aggregate.cache_hit_ratio` as the only
+ *     entry allowed an empty `Metric` — so the derived entry costs widening that
+ *     test's exception from one name to a set. R3.2's own derivation
+ *     (`loadByIOWaitMs` = read + write on both PG generations) is this chart's
+ *     answer to the read+write-or-read-only half: the band R10.5(a) names is the
+ *     sum, so the UI wants read + write.
  *
  * ── what the sum is, and what it is not ────────────────────────────────────
  *
