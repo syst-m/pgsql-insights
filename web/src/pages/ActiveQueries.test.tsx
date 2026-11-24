@@ -98,7 +98,7 @@ function rowWith(row: SessionView, overrides: Partial<SessionView>): SessionView
 describe("ActiveQueriesPage — the table (R10.8's first clause)", () => {
   it("renders the shell for a cluster URL", () => {
     const { container } = renderPage();
-    expect(container.querySelector('[data-page="active-queries"]')).not.toBeNull();
+    expect(container.querySelector('[data-page="active"]')).not.toBeNull();
     expect(screen.getByRole("heading", { level: 1, name: "Active Queries" })).toBeInTheDocument();
     expect(screen.getByTestId("active-table")).toBeInTheDocument();
   });
@@ -427,7 +427,7 @@ describe("ActiveQueriesPage — a URL that names no cluster", () => {
       state: { ...DEFAULT_STATE, page: "active" },
       fixtureOverride: undefined,
     });
-    expect(container.querySelector('[data-page="active-queries"]')).toBeNull();
+    expect(container.querySelector('[data-page="active"]')).toBeNull();
     expect(screen.getByText(/This URL does not name a cluster\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to Fleet" }));
     expect(onPatch).toHaveBeenCalledWith({ page: "fleet", cluster: null });
@@ -441,7 +441,7 @@ describe("ActiveQueriesPage — a URL that names no cluster", () => {
       state: { ...DEFAULT_STATE, page: "active", cluster: "open-webui-pg" },
       fixtureOverride: undefined,
     });
-    expect(container.querySelector('[data-page="active-queries"]')).toBeNull();
+    expect(container.querySelector('[data-page="active"]')).toBeNull();
     expect(screen.getByText(/“open-webui-pg” is not a namespace\/name pair\./)).toBeInTheDocument();
   });
 

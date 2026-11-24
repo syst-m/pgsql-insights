@@ -167,7 +167,7 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
 
   if (panel === "loading" || panel === "empty" || panel === "error") {
     return (
-      <div className="page" data-page="active-queries">
+      <div className="page" data-page="active">
         <PageHeader state={state} resp={resp} />
         <StatePanel
           state={panel}
@@ -180,7 +180,7 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
   }
 
   return (
-    <div className="page" data-page="active-queries">
+    <div className="page" data-page="active">
       <PageHeader state={state} resp={resp} />
 
       <Scorecard resp={resp} />
