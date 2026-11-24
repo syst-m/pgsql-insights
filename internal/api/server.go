@@ -75,6 +75,31 @@ type Config struct {
 	// same-origin and needs none. See cors.go for why "*" is not the default.
 	CORS *CORSConfig
 
+	// Actions is R12.8's `--allow-actions` value: the mutations this process is
+	// permitted to perform, named individually. It sits with Auth and CORS
+	// because it is the third of the three policy flags — Auth says who may call,
+	// CORS says which origins may, Actions says which mutations a caller may
+	// cause — and all three are read per request rather than at construction for
+	// the same reason.
+	//
+	// A []string and not a bool, because R12.8 generalised the flag from
+	// "terminate session only" (0.1.0) to "the full set of mutations the product
+	// performs: pg_terminate_backend (R4.5), the spec.parameters patch (R3.15),
+	// and any future action — each individually named in the flag's value, not
+	// covered by one global boolean." R4.1's own sentence still spells it
+	// `--allow-actions=false`, which is the 0.1.0 phrasing that sentence kept;
+	// the generalised form is what R12.8 rules, and a list represents both — the
+	// string `false` is simply not a member of any action set, so a config parsed
+	// from the old spelling yields an empty list, which is the off state.
+	//
+	// Empty is the default and is R12.8's "off by default so a read-only product
+	// cannot become a mutation surface by surprise". Its only reader today is
+	// active_queries.go's actionFor, which turns membership into R4.1's `Action`
+	// column; R3.15's enablement path reads the same field when it is built, and
+	// a second field per action is the second copy that would let the two gates
+	// disagree.
+	Actions []string
+
 	// PromQL is R8.3's pair: GET|POST /api/v1/metrics/query and
 	// GET|POST /api/v1/metrics/system. It registers its own four routes, so
 	// Handler mounts it rather than listing them (see Mount). Nil leaves the
@@ -130,6 +155,28 @@ type Config struct {
 	// and the implementation must answer on a nil receiver, the way
 	// store.RenderPerQuery does for PerQueryMetrics.
 	QueryPlans QueryPlansSource
+
+	// ActiveQueries is R4.1's live session list (GET /api/v1/active-queries,
+	// implemented in active_queries.go). Nil selects the empty source, so the
+	// route answers 200 with an empty list — the rule Queries follows, and the
+	// one QueryDetail and QueryPlans do not: a list with no store behind it can
+	// answer "no sessions", a question that names a row cannot.
+	//
+	// It is a separate field from Queries because ActiveQueriesSource is a
+	// separate interface and the two routes answer different questions from
+	// different data: R3's list comes from the SQLite query store (R8.1's
+	// fingerprint rollups) while R4.1's comes from a live `pg_stat_activity` read
+	// (R2.7's activity collector, A1's, already built in
+	// internal/collector/activity.go). A deployment can serve one and not the
+	// other — an `api`-only role with no collector answers the query list from
+	// the store and answers this route empty — and one field per interface is what
+	// lets it.
+	//
+	// The default is applied in activeQueriesSource rather than in New, the way
+	// the four source fields above it do it, so assigning a store after New takes
+	// effect without rebuilding the server; their shared typed-nil caveat
+	// (2b63f1e) applies here too.
+	ActiveQueries ActiveQueriesSource
 
 	// Metrics is the collector self-observability state whose two R2.2 families
 	// (pgsi_collector_duration_seconds, pgsi_collector_errors_total) /metrics
@@ -318,6 +365,14 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	// R4.1's session list (active_queries.go), first of the /api/v1/* routes
+	// because that is the path order the rest of this block follows — the queries
+	// route's comment states the rule for its own pair. The path comes from
+	// ActiveQueriesPath, which is the string web/src/routes.ts:215 already carries
+	// as R10.8's endpoint and the one api/x-planned-paths.yaml listed as
+	// `# R3.11` until this commit moved it up to `paths` with the id corrected
+	// (active_queries.go's header gives the reason the correction is not cosmetic).
+	mux.HandleFunc("GET "+ActiveQueriesPath, s.handleActiveQueries)
 	mux.HandleFunc("GET /api/v1/clusters", s.handleClusters)
 	// R8.2's `/clusters/{ns}/{name}` (cluster_detail.go) — Phase 5's first new
 	// route. Same inline-listing reason as the series route below, and the path

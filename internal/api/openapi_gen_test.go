@@ -153,6 +153,7 @@ func TestRouteTable(t *testing.T) {
 
 	want := []string{
 		"GET /",
+		"GET /api/v1/active-queries",
 		"GET /api/v1/clusters",
 		"GET /api/v1/clusters/{namespace}/{name}",
 		"GET /api/v1/insights/queries",

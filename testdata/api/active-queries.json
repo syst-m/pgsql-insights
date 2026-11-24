@@ -1,0 +1,181 @@
+{
+  "data": [
+    {
+      "pid": 41288,
+      "query": "UPDATE orders SET status = 'shipped' WHERE id = 88213",
+      "queryType": "UPDATE",
+      "status": "active",
+      "sessionDurationSeconds": 3021.4,
+      "transactionDurationSeconds": 18.9,
+      "queryDurationSeconds": 18.9,
+      "waitEventType": "Lock",
+      "waitEvent": "transactionid",
+      "unknownWaitEvent": false,
+      "database": "orders",
+      "applicationName": "order-service",
+      "userName": "app_rw",
+      "clientAddress": "10.44.1.19",
+      "clientPort": "51932",
+      "backendType": "client backend",
+      "queryid": "7104938274650192331",
+      "blockingPids": [
+        41102
+      ],
+      "action": "disabled",
+      "sourceTime": "2026-11-24T09:14:31Z"
+    },
+    {
+      "pid": 41102,
+      "query": "DELETE FROM order_items WHERE order_id = 88213",
+      "queryType": "DELETE",
+      "status": "idle in transaction",
+      "sessionDurationSeconds": 3402.1,
+      "transactionDurationSeconds": 964.6,
+      "queryDurationSeconds": 4.2,
+      "waitEventType": "Client",
+      "waitEvent": "ClientRead",
+      "unknownWaitEvent": false,
+      "database": "orders",
+      "applicationName": "batch-runner",
+      "userName": "app_rw",
+      "clientAddress": "10.44.2.7",
+      "clientPort": "43118",
+      "backendType": "client backend",
+      "queryid": "5501182946371120088",
+      "blockingPids": [],
+      "action": "disabled",
+      "sourceTime": "2026-11-24T09:14:31Z"
+    },
+    {
+      "pid": 41304,
+      "query": "SELECT id, total FROM invoices WHERE customer_id = 2201 ORDER BY created DESC LIMIT 20",
+      "queryType": "SELECT",
+      "status": "active",
+      "sessionDurationSeconds": 12.8,
+      "transactionDurationSeconds": 0,
+      "queryDurationSeconds": 0.6,
+      "waitEventType": "IO",
+      "waitEvent": "DataFileRead",
+      "unknownWaitEvent": false,
+      "database": "billing",
+      "applicationName": "psql",
+      "userName": "frank",
+      "clientAddress": "10.44.0.51",
+      "clientPort": "39077",
+      "backendType": "client backend",
+      "blockingPids": [],
+      "action": "disabled",
+      "sourceTime": "2026-11-24T09:14:31Z"
+    }
+  ],
+  "scorecard": {
+    "byState": {
+      "active": 2,
+      "idle in transaction": 1
+    },
+    "longestQuery": {
+      "pid": 41288,
+      "query": "UPDATE orders SET status = 'shipped' WHERE id = 88213",
+      "queryType": "UPDATE",
+      "status": "active",
+      "sessionDurationSeconds": 3021.4,
+      "transactionDurationSeconds": 18.9,
+      "queryDurationSeconds": 18.9,
+      "waitEventType": "Lock",
+      "waitEvent": "transactionid",
+      "unknownWaitEvent": false,
+      "database": "orders",
+      "applicationName": "order-service",
+      "userName": "app_rw",
+      "clientAddress": "10.44.1.19",
+      "clientPort": "51932",
+      "backendType": "client backend",
+      "queryid": "7104938274650192331",
+      "blockingPids": [
+        41102
+      ],
+      "action": "disabled",
+      "sourceTime": "2026-11-24T09:14:31Z"
+    },
+    "longestIdleInTransaction": {
+      "pid": 41102,
+      "query": "DELETE FROM order_items WHERE order_id = 88213",
+      "queryType": "DELETE",
+      "status": "idle in transaction",
+      "sessionDurationSeconds": 3402.1,
+      "transactionDurationSeconds": 964.6,
+      "queryDurationSeconds": 4.2,
+      "waitEventType": "Client",
+      "waitEvent": "ClientRead",
+      "unknownWaitEvent": false,
+      "database": "orders",
+      "applicationName": "batch-runner",
+      "userName": "app_rw",
+      "clientAddress": "10.44.2.7",
+      "clientPort": "43118",
+      "backendType": "client backend",
+      "queryid": "5501182946371120088",
+      "blockingPids": [],
+      "action": "disabled",
+      "sourceTime": "2026-11-24T09:14:31Z"
+    },
+    "total": 3
+  },
+  "blockingChains": [
+    {
+      "blocked": {
+        "pid": 41288,
+        "query": "UPDATE orders SET status = 'shipped' WHERE id = 88213",
+        "queryType": "UPDATE",
+        "status": "active",
+        "sessionDurationSeconds": 3021.4,
+        "transactionDurationSeconds": 18.9,
+        "queryDurationSeconds": 18.9,
+        "waitEventType": "Lock",
+        "waitEvent": "transactionid",
+        "unknownWaitEvent": false,
+        "database": "orders",
+        "applicationName": "order-service",
+        "userName": "app_rw",
+        "clientAddress": "10.44.1.19",
+        "clientPort": "51932",
+        "backendType": "client backend",
+        "queryid": "7104938274650192331",
+        "blockingPids": [
+          41102
+        ],
+        "action": "disabled",
+        "sourceTime": "2026-11-24T09:14:31Z"
+      },
+      "blockers": [
+        {
+          "pid": 41102,
+          "query": "DELETE FROM order_items WHERE order_id = 88213",
+          "queryType": "DELETE",
+          "status": "idle in transaction",
+          "sessionDurationSeconds": 3402.1,
+          "transactionDurationSeconds": 964.6,
+          "queryDurationSeconds": 4.2,
+          "waitEventType": "Client",
+          "waitEvent": "ClientRead",
+          "unknownWaitEvent": false,
+          "database": "orders",
+          "applicationName": "batch-runner",
+          "userName": "app_rw",
+          "clientAddress": "10.44.2.7",
+          "clientPort": "43118",
+          "backendType": "client backend",
+          "queryid": "5501182946371120088",
+          "blockingPids": [],
+          "action": "disabled",
+          "sourceTime": "2026-11-24T09:14:31Z"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": 3,
+    "truncated": false,
+    "generatedAt": "2026-11-24T09:14:33Z"
+  }
+}

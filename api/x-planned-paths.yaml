@@ -39,6 +39,24 @@ x-planned-paths:
   # not the same thing as being unimplemented — the handler answers, and what it
   # answers is 404 for every fingerprint, which is what R14.7 requires of a
   # documented route whose store is not yet populated.
+  #
+  # /api/v1/active-queries was the fifth route from this list, and its entry carried
+  # the wrong requirement id: it read `# R3.11`, and requirements.md:316 is R3.11 —
+  # "Detect **plan changes**: keep plan hashes per fingerprint and surface a
+  # plan-change event when the hash changes for a stable fingerprint" — an R3
+  # statement-plane feature whose API surface is the `planChanges` array on the query
+  # detail (dto/queries.go's PlanChangeView), not a session list. The route's ids are
+  # R4.1 and R4.2 (requirements.md:326-327) with R10.8 (:419) as the page, which is
+  # what web/src/routes.ts:215 has always said. The id is corrected here rather than
+  # carried, because a route filed under the wrong id is a route whose R3.11 row can
+  # be marked done while the requirement that asks for it — R4.1 — is not.
+  # internal/api/active_queries.go implements it and server.go registers it, so the
+  # entry is deleted rather than marked, same rule as the four above.
+  #
+  # The six remaining `# R…` annotations on this list are also wrong in the same way
+  # (seven of the twelve annotated entries name an id whose text is not that path's
+  # requirement); that set is fixed in its own commit, whose subject is the fix, so
+  # this commit's diff stays the size of the route it lands.
   r8.2-catalogue:
     - /api/v1/insights/wait-events          # R4, R10.7
     - /api/v1/insights/databases            # R10.8
@@ -47,13 +65,32 @@ x-planned-paths:
     - /api/v1/insights/client-addresses     # R6, R10.12
     - /api/v1/insights/system               # R5, R10.13
     - /api/v1/insights/system/{metric}      # R8.2, R10.13
-    - /api/v1/active-queries                # R3.11
     - /api/v1/insights/recommendations      # R8.2
     - /api/v1/poolers                       # R6; PoolerView is already defined (R8.2 reuses it)
     - /api/v1/poolers/{namespace}/{name}
     - /api/v1/events                        # R8.2
     - /api/v1/explain                       # R8.2
     - /api/v1/search                        # R8.2 (?q=)
+  # r4.5-actions is the second live key, and it exists because R8.2's catalogue is
+  # not the whole route set. R4.5 (requirements.md:330) names
+  # `POST /api/v1/sessions/{pid}/terminate` — `pg_terminate_backend(pid)`, behind
+  # R12.8's gate — and that path is not one of the twenty R8.2 lists at
+  # requirements.md:374, so filing it under r8.2-catalogue would attribute it to a
+  # requirement that does not name it. That is the same error the note above just
+  # corrected on /api/v1/active-queries, one direction round: there an implemented
+  # route carried an id belonging to a different feature; here a planned route would
+  # be filed in a catalogue that never asked for it. The manifest's keys are
+  # per-requirement-set (r8.2-catalogue, r8.3-promql-pair, r8.11-batched-series,
+  # r8.7-debug), so a route named by R4.5 gets an r4.5 key.
+  #
+  # It is planned, not implemented: R4.5's own text requires more than a handler —
+  # "requiring a confirmed UI action, audited to a log line with actor and target,
+  # and refused on a replica" — and all three of those are Phase 6a's remaining
+  # scope. R4.1's route is live without it: the `Action` column R4.1 requires renders
+  # `disabled` (active_queries.go's actionFor) precisely so the column is not blank
+  # while the action behind it is unbuilt.
+  r4.5-actions:
+    - /api/v1/sessions/{pid}/terminate      # R4.5, R12.8 (POST)
   # r8.3-promql-pair was the second entry here: /api/v1/metrics/query and
   # /api/v1/metrics/system, GET|POST each. Both moved up to `paths` when R8.3
   # landed, so the entry is gone rather than marked — a planned-path that is
