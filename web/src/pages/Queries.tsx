@@ -190,14 +190,35 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
   /** R3.1's per-database `pg_stat_statements` presence, for R10.27's
    *  not-installed screen.
    *
-   *  Not on `QueryResponse`, and not on `PageProps` — it belongs to the cluster,
-   *  and `dto/clusters.go` doesn't expose it (the ask on A1). It is a prop here
-   *  rather than a field invented on the payload because R16.8 pins
-   *  `api/types.ts` to the Go DTO field-for-field: adding a field to
-   *  `QueryResponse` without adding it to `dto/queries.go` is a parity break,
-   *  and adding it to `PageProps` is an edit to A4's file. Optional, and
+   *  Not on `QueryResponse` today, and not on `PageProps` — it belongs to the
+   *  cluster. It is a prop here rather than a field invented on the payload
+   *  because R16.8 pins `api/types.ts` to the Go DTO field-for-field: adding a
+   *  field to `QueryResponse` without adding it to `dto/queries.go` is a parity
+   *  break, and adding it to `PageProps` is an edit to A4's file. Optional, and
    *  absent-means-unknown, so `routes.ts` mounting this component with plain
-   *  `PageProps<any>` needs no change to pass. */
+   *  `PageProps<any>` needs no change to pass.
+   *
+   *  The named type that replaces it, as settled with A2 on 2026-11-24 (their
+   *  answer to this page's ask, and A1's to write — `dto/queries.go` is A1's):
+   *
+   *    dto.ExtensionPresenceView{ Namespace, Cluster, Database string; Installed bool }
+   *
+   *  inside `QueriesResponse`. Measured at `e8f1005` neither type is in that
+   *  file yet, so the prop is still the source and this paragraph is the record
+   *  of what the flip changes it to. The earlier wording named `dto/clusters.go`
+   *  as the file that doesn't expose it; the answer moved the type to
+   *  `dto/queries.go`, which is why the field arrives with the queries payload
+   *  rather than with the fleet one.
+   *
+   *  **Resolve rule.** The payload answers per database, so a cluster with the
+   *  extension in `appdb` and not in `metrics` has no single boolean answer. The
+   *  page filters the rows to the route's cluster (`namespace` + `cluster` — the
+   *  only join available at this call site) and ANDs `installed` across them.
+   *  "Installed everywhere" is the conservative reading: any database lacking it
+   *  makes this panel's data partial, and `StatePanel.tsx:108` renders that as
+   *  `unavailable` rather than a false "installed and quiet". The per-database
+   *  rows are in the payload once the type lands, so surfacing them per database
+   *  later is a rendering change, not another API change. */
   extensionInstalled?: boolean;
   /** R8.11's batched series for the table's `Load sparkline` column, keyed by
    *  fingerprint.
