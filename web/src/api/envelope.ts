@@ -35,6 +35,7 @@ import {
   type QueryView,
   type ScorecardView,
   type SessionView,
+  type TagView,
 } from "./types";
 
 /** Thrown when a payload is not shaped like the contract. Distinct from
@@ -364,6 +365,97 @@ function checkQuerySeriesPoint(raw: unknown, where: string, index: number): void
   require("sharedBlocksRead", "number");
   requireNullable("lockTimeSeconds", "number");
   requireNullable("ioTimeSeconds", "number");
+}
+
+/** Check one `/insights/tags` row and name it in the error.
+ *
+ *  The mirror of `dto.TagView` (queries.go:540), and the parser `fetchTags`'s
+ *  http arm needs so that arm stops casting: `fixtures.ts:115` has typed the
+ *  tags fixture `Envelope<TagView>` since the fixture landed, and
+ *  `parseEnvelope(json, parseTagView)` is what makes the live arm return the type
+ *  the fixture arm already returns. That is R16.8's point applied to the client:
+ *  one field list, and the fixture import is where it comes from.
+ *
+ *  The required/optional split is the Go struct's `omitempty` set read off
+ *  queries.go:544-570, not a judgement made here. `tagHash` and `lockWaitMs`
+ *  have no omitempty, so both are required; all eight dimension strings do — the
+ *  (a) trio (`application`/`database`/`user`, from `application_name`,
+ *  `datname`, `usename`) because a collector that has not resolved one sends
+ *  nothing, and the comment-grammar five (`action`, `route`, `controller`,
+ *  `framework`, `dbDriver`) because a statement with no `pgsi:` SQL comment has
+ *  none of them and still has the (a) trio. So their absence is normal and only
+ *  their type is policed — the `queryid` rule from `parseSessionView:495`,
+ *  applied to eight fields at once. The fixture's second row is exactly that
+ *  case, and a parser that required the (b) five would pass on row one and fail
+ *  on row two, which is the common case.
+ *
+ *  `lockWaitMs` is required here and absent from `QueryView`: R3.7 grants the
+ *  lock column at rollup level and withholds it per query, and queries.go:565's
+ *  comment says so in the same breath. A tags parser that copied
+ *  `parseQueryView`'s field list verbatim would be missing the one column this
+ *  route has and the queries route does not.
+ *
+ *  The eight `LoadColumns` are listed rather than spread, for the reason
+ *  `parseQueryView:202` gives: `extends` mirrors Go's embedded struct on the TS
+ *  side, but a wire object carries them as flat keys. */
+export function parseTagView(raw: unknown): TagView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`tag row is ${typeName(raw)}, expected object`);
+  }
+  // `tagHash` before the require helper, because it is the row's identity
+  // (R3.12's digest, R8.2's path key) and every other message on this row is
+  // labelled with it — the rule `parseClusterView` applies to name/namespace and
+  // `parseSessionView` to pid. Cut to 12 chars for the reason
+  // `parseQueryView:211` cuts the fingerprint: the value is 64 hex.
+  if (typeof raw.tagHash !== "string") {
+    throw new ContractError(`tag row: field "tagHash" is ${typeName(raw.tagHash)}, expected string`);
+  }
+  const where = raw.tagHash.slice(0, 12);
+  const require = (field: string, type: "string" | "number") => {
+    const v = raw[field];
+    if (v === undefined) throw new ContractError(`tag ${where}: missing required field "${field}"`);
+    if (typeof v !== type) {
+      throw new ContractError(`tag ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+  // The omitempty form of the same check: no presence requirement, type only.
+  const requireIfPresent = (field: string) => {
+    const v = raw[field];
+    if (v !== undefined && typeof v !== "string") {
+      throw new ContractError(`tag ${where}: field "${field}" is ${typeName(v)}, expected string`);
+    }
+  };
+
+  // LoadColumns, embedded in Go (queries.go:563) and flat on the wire.
+  for (const col of [
+    "loadByTotalTime",
+    "pctLoadByQueries",
+    "avgExecTimeMs",
+    "totalExecTimeMs",
+    "avgRowsReturned",
+    "timesCalled",
+    "loadByCPUMs",
+    "loadByIOWaitMs",
+  ] as const) {
+    require(col, "number");
+  }
+  require("lockWaitMs", "number");
+
+  // The (a) trio and the (b) five, all omitempty.
+  for (const dim of [
+    "application",
+    "database",
+    "user",
+    "action",
+    "route",
+    "controller",
+    "framework",
+    "dbDriver",
+  ] as const) {
+    requireIfPresent(dim);
+  }
+
+  return raw as unknown as TagView;
 }
 
 /** Check one `/insights/queries/series` row and name it in the error.

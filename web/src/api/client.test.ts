@@ -23,6 +23,7 @@ import {
   FIXTURE_UNAVAILABLE,
   FIXTURE_CLUSTERS,
   FIXTURE_GENERATED_AT,
+  FIXTURE_TAGS,
 } from "./fixtures";
 import {
   ApiError,
@@ -32,6 +33,7 @@ import {
   fetchQueries,
   fetchQueryDetail,
   fetchQuerySeries,
+  fetchTags,
   resolveConfig,
   type FixtureName,
 } from "./client";
@@ -44,6 +46,7 @@ import {
   parseErrorBody,
   parseQuerySeries,
   parseSessionView,
+  parseTagView,
   partialBanner,
   QUERY_NOUN,
   SESSION_NOUN,
@@ -929,6 +932,125 @@ describe("fetchQuerySeries", () => {
   });
 });
 
+
+describe("parseTagView", () => {
+  const rows = FIXTURE_TAGS.data;
+  const row = rows[0]!;
+
+  it("parses every row the contract fixture ships, and returns them unchanged", () => {
+    // All three, not one: they differ in the way that matters. Row one carries
+    // every dimension, row two has the (a) trio only (a statement with no `pgsi:`
+    // comment), row three has two of the (b) five. A parser that required the
+    // comment dimensions would pass on row one and fail on the other two, which is
+    // the case the omitempty rule exists for.
+    expect(rows).toHaveLength(3);
+    for (const r of rows) expect(parseTagView(r)).toEqual(r);
+  });
+
+  it("throws on a missing load column and names the row by its tagHash", () => {
+    // The row-identity rule the other parsers follow: a bad row in a 3-row payload
+    // says which one, and the hash is this row's identity.
+    const { avgExecTimeMs: _dropped, ...rest } = row;
+    expect(() => parseTagView(rest)).toThrow(ContractError);
+    expect(() => parseTagView(rest)).toThrow(
+      /tag 76201a9fd0e4: missing required field "avgExecTimeMs"/,
+    );
+  });
+
+  it("requires lockWaitMs, the column this route has and QueryView does not", () => {
+    // R3.7 grants the lock column at rollup level and withholds it per query
+    // (queries.go:565), so a tags parser that copied parseQueryView's list would
+    // be missing exactly this field — and this is the test that says so.
+    const { lockWaitMs: _dropped, ...rest } = row;
+    expect(() => parseTagView(rest)).toThrow(
+      /tag 76201a9fd0e4: missing required field "lockWaitMs"/,
+    );
+  });
+
+  it("rejects a load column typed as a string, the shape a quoted number makes", () => {
+    expect(() => parseTagView({ ...row, timesCalled: "4311" })).toThrow(
+      /tag 76201a9fd0e4: field "timesCalled" is string, expected number/,
+    );
+  });
+
+  it("requires tagHash, and rejects it typed as a number", () => {
+    // No omitempty on it (queries.go:544), so absence is a break — and it is
+    // checked before the require helper runs, because every other message on the
+    // row is labelled with it.
+    const { tagHash: _dropped, ...rest } = row;
+    expect(() => parseTagView(rest)).toThrow(/tag row: field "tagHash" is undefined, expected string/);
+    expect(() => parseTagView({ ...row, tagHash: 76201 })).toThrow(
+      /tag row: field "tagHash" is number, expected string/,
+    );
+  });
+
+  it("accepts the omitempty dimensions absent and rejects one typed as a number", () => {
+    // The eight dimension strings all carry omitempty, so only their types are
+    // policed — the `queryid` rule from parseSessionView:495, applied to eight
+    // fields. Row two is the all-absent case (the loop above); this pins the type
+    // when present, on one (a) field and one (b) field.
+    expect(() => parseTagView({ ...row, dbDriver: 9 })).toThrow(
+      /tag 76201a9fd0e4: field "dbDriver" is number, expected string/,
+    );
+    expect(() => parseTagView({ ...row, user: ["openwebui"] })).toThrow(
+      /tag 76201a9fd0e4: field "user" is array, expected string/,
+    );
+  });
+});
+
+describe("fetchTags", () => {
+  const empty = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
+
+  it("GETs the contract path with the params it was given", async () => {
+    stub(empty);
+    await fetchTags(http, { namespace: "open-webui", limit: 50 });
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      "/api/v1/insights/tags?namespace=open-webui&limit=50",
+    );
+  });
+
+  it("sends no query string at all when every param is unset", async () => {
+    // Every param on this route is optional, so an unset one is absent from the URL
+    // rather than empty — the rule `search()` exists for, asserted per fetcher
+    // because each route's param list is its own contract.
+    stub(empty);
+    await fetchTags(http);
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe("/api/v1/insights/tags");
+  });
+
+  it("passes a limit above the maximum through instead of clamping it (R8.10)", async () => {
+    stub(empty);
+    await fetchTags(http, { limit: 5000 });
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain("limit=5000");
+  });
+
+  it("returns the parsed envelope for a valid 200", async () => {
+    stub(FIXTURE_TAGS);
+    // The fixture object itself, so the http arm and the fixture arm are shown to
+    // agree on the type by construction rather than by assertion.
+    await expect(fetchTags(http)).resolves.toEqual(FIXTURE_TAGS);
+  });
+
+  it("throws ContractError on a 200 whose body is not an envelope", async () => {
+    stub({ generatedAt: FIXTURE_GENERATED_AT, tags: [] });
+    await expect(fetchTags(http)).rejects.toThrow(ContractError);
+  });
+
+  it("throws on a row the parser rejects, which is what the missing parser was", async () => {
+    // The class this module exists for, on the route that had no parser: a row
+    // typed as TagView by the fixture's own annotation, and by a cast, without
+    // being checked. Now it has to be.
+    stub({
+      data: [{ tagHash: "0".repeat(64), loadByTotalTime: 1 }],
+      meta: { total: 1, truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+    });
+    await expect(fetchTags(http)).rejects.toThrow(/tag 0{12}: missing required field "pctLoadByQueries"/);
+  });
+
+  it("serves the tags fixture on the fixture arm", async () => {
+    await expect(fetchTags(fixture)).resolves.toEqual(FIXTURE_TAGS);
+  });
+});
 
 describe("parseSessionView", () => {
   const rows = FIXTURE_ACTIVE_QUERIES.data;

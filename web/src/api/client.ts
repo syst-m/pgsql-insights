@@ -1,21 +1,22 @@
 /* Where the pages get their data from.
  *
- * Five routes, two sources, one interface (R1.5's contract):
+ * Six routes, two sources, one interface (R1.5's contract):
  *
  *   http     — GET /api/v1/… on the same origin as the page. Because the Go
  *              binary serves the SPA itself (R10.1), same-origin is the normal
- *              case and no CORS or base-URL config is needed. The five routes
- *              here are five of the twenty-one the contract marks
+ *              case and no CORS or base-URL config is needed. The six routes
+ *              here are six of the twenty-two the contract marks
  *              `x-status: implemented` (`grep -c 'x-status: implemented'
- *              api/openapi.yaml`): `/clusters`, `/insights/queries`,
- *              `/insights/queries/{fp}`, `/insights/queries/series` and
+ *              api/openapi.yaml`, 22 as of `62740ed`): `/clusters`,
+ *              `/insights/queries`, `/insights/queries/{fp}`,
+ *              `/insights/queries/series`, `/insights/tags` (`62740ed`) and
  *              `/active-queries` (`e6a4921`) — one fetcher each, and every one
  *              of them takes its params from the route's own `parameters:` list
  *              rather than from a shape invented here. The earlier wording here
  *              ("the four routes are the four the contract marks implemented")
  *              was false the moment the fifth fetcher landed, and by two counts:
- *              the document marks twenty-one implemented, most of them Phase 5
- *              and R9 routes with no fetcher yet.
+ *              the document marked twenty-one implemented then and twenty-two
+ *              now, most of them Phase 5 and R9 routes with no fetcher yet.
  *   fixture  — web/src/api/fixtures.ts, which is itself generated from
  *              testdata/api/*.json (R16.8), so the two sources serve the
  *              same bytes through the same parser.
@@ -44,6 +45,7 @@ import {
   FIXTURE_PARTIAL,
   FIXTURE_TRUNCATED_PARTIAL,
   FIXTURE_UNAVAILABLE,
+  FIXTURE_TAGS,
 } from "./fixtures";
 import {
   ContractError,
@@ -53,16 +55,19 @@ import {
   parseQueryDetailView,
   parseQuerySeries,
   parseQueryView,
+  parseTagView,
   toFleetResponse,
   toQueriesResponse,
 } from "./envelope";
 import type {
   ActiveQueriesResponse,
   ErrorCode,
+  Envelope,
   FleetResponse,
   QueryDetailView,
   QueryResponse,
   QuerySeriesEnvelope,
+  TagView,
 } from "./types";
 
 export type Source = "http" | "fixture";
@@ -211,12 +216,16 @@ function preview(text: string): string {
   return first.length > 80 ? `${first.slice(0, 80)}…` : first;
 }
 
-/** One GET and one failure path, shared by all four routes.
+/** One GET and one failure path, shared by every fetcher in this file.
  *
- *  The http side used to be inline in `fetchFleet`; four fetchers each repeating
- *  the trailing-slash strip, the `accept` header, the body read and the
- *  two-step `ok`/`ApiError` dance is four places to get R8.5's error handling
- *  subtly wrong. The order is the original one — read the body, *then* branch on
+ *  The http side used to be inline in `fetchFleet`; one fetcher per route each
+ *  repeating the trailing-slash strip, the `accept` header, the body read and the
+ *  two-step `ok`/`ApiError` dance is one place per route to get R8.5's error
+ *  handling subtly wrong. The sentence here used to count them ("shared by all
+ *  four routes"), which is how it went stale the moment the fifth fetcher landed
+ *  and again with the sixth — so it names the set instead of numbering it. The
+ *  header's count is the one worth numbering, because it quotes the grep that
+ *  produces it. The order is the original one — read the body, *then* branch on
  *  `ok` — because the message needs the body to recover R8.5's `code`, and a
  *  404's body is the only place that says whether it was `NotFound` or
  *  `NotReady`.
@@ -259,8 +268,10 @@ export async function fetchFleet(cfg: ClientConfig, opts: FetchOptions = {}): Pr
 
 /* ── the query routes ───────────────────────────────────────────────────────
  *
- * Three fetchers for the three routes `api/openapi.yaml` marks implemented
- * besides `/clusters`. Each one's parameters come from that route's own
+ * Three fetchers for the three `/insights/queries*` routes — which were the
+ * whole implemented set besides `/clusters` when this section was written and are
+ * now a subset of it, since `/insights/tags` and `/active-queries` have sections
+ * below. Each one's parameters come from that route's own
  * `parameters:` list — not from a shape invented here — for the same reason
  * `fixtures.ts` imports the JSON instead of retyping it: a second copy of a
  * contract is the bug, and a fetcher that accepts a parameter the route does not
@@ -422,6 +433,63 @@ export async function fetchQuerySeries(
   return parseEnvelope(json, parseQuerySeries);
 }
 
+/* ── the tags route ───────────────────────────────────────────────────────── */
+
+/** `GET /api/v1/insights/tags` — R3.12's tag rollups over HTTP, R10.3's Tags tab.
+ *
+ *  The route `62740ed` promoted out of the document's x-planned-paths list, and
+ *  the fetcher that left behind: `fixtures.ts` had the typed fixture and
+ *  `types.ts` had the row type for a month before anything in this file returned
+ *  one. Per R16.8 it returns exactly the `Envelope<TagView>` the fixture is
+ *  annotated with — there is no `TagsResponse` presentation type to build, so
+ *  this is the one list fetcher whose two arms hand back `parseEnvelope`'s own
+ *  value with no builder between them. `fetchFleet` and `fetchQueries` have
+ *  `toFleetResponse`/`toQueriesResponse` because their presentation types differ
+ *  from the wire; here the two are the same type, and inventing a third name for
+ *  it would be the second copy R16.8 exists to prevent.
+ *
+ *  The caller arrives with the Tags page itself (`routes.ts`'s tags row still has
+ *  `component: null`, which is A6's phase-5 half to flip); the fetcher lands
+ *  first so the page has a contract-shaped call to make rather than one it
+ *  invents at the boundary.
+ *
+ *  Params are the route's own eight — `Namespace`, `Cluster`, `DB`, `From`, `To`,
+ *  `Limit`, `Sort`, `Cursor`, every one `$ref`'d from `components/parameters` and
+ *  every one `required: false` — written out rather than aliased to
+ *  `QueryListParams`. Structurally the two are identical today, and aliasing them
+ *  would make the queries route's shape the contract for this one: the pair
+ *  drifts the first time either route gains a param, and the two routes' `sort`
+ *  key sets already differ (this route's entry lists all eighteen of TagView's
+ *  json tags as sort keys where the queries entry curates a subset), so one
+ *  shared type would be a stricter contract than one of the two published ones.
+ *  `limit` is passed through unclamped for R8.10's reason, stated in full on
+ *  `QueryListParams`. */
+export type TagsParams = {
+  namespace?: string;
+  cluster?: string;
+  db?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  sort?: string;
+  cursor?: string;
+};
+
+export async function fetchTags(
+  cfg: ClientConfig,
+  params: TagsParams = {},
+  opts: FetchOptions = {},
+): Promise<Envelope<TagView>> {
+  if (cfg.source === "fixture") {
+    // Params ignored on this arm, as every fixture arm ignores them: there is one
+    // tags fixture, and it is not one of R10.12's named fleet states, so there is
+    // nothing to select between.
+    await delay(cfg);
+    return FIXTURE_TAGS;
+  }
+  const json = await getJSON(cfg, `/api/v1/insights/tags${search(params)}`, opts);
+  return parseEnvelope(json, parseTagView);
+}
 
 /* ── the active-queries route ─────────────────────────────────────────────── */
 
