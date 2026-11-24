@@ -154,8 +154,16 @@ type Config struct {
 	//
 	// Nil renders the family absent, which is the hub's rule for every optional
 	// source ("a source with nothing to say contributes no bytes rather than an
-	// empty family"), and metrics.WithPerQuery(nil) is therefore a no-op rather
-	// than a hazard — so this field needs no default in New the way Metrics does.
+	// empty family"), so this field needs no default in New the way Metrics does.
+	//
+	// The safety is in the nil *interface*, not in the Option: a typed nil
+	// (`cfg.PerQueryMetrics = (*store.Store)(nil)`) is a non-nil interface, the
+	// hub's `h.perQuery != nil` check passes, and the call reaches a nil receiver.
+	// A5's RenderPerQuery is the hub's one non-nil-receiver-safe source —
+	// collector/metrics.go's Render and collector/up.go's are both nil-safe — so
+	// until store guards it, the assignment cmd/pgsi makes must be the literal nil
+	// or a real store, never a nil pointer. (A2's hazard, on their side and
+	// store's to fix; named here because this is the field that would carry it.)
 	PerQueryMetrics metrics.PerQueryFamily
 
 	// Fleet is the inventory /api/v1/clusters serves (R8.2) and, through
