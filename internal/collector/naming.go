@@ -54,8 +54,8 @@ import (
 // The prefix stays out. R9.2 makes it configurable (`metrics.prefix`), and
 // metrics.go's DefaultPrefix is applied at render time, so a collector that baked
 // `pgsi_` into Sample.Metric would make metrics.prefix a lie. clock.go's
-// Sample.Metric doc is the normative statement of that ("pg_stat_database_xact_commit",
-// not "pgsi_pg_stat_database_xact_commit") and this function honours it.
+// Sample.Metric doc is the normative statement of that ("db_xact_commit_total",
+// not "pgsi_db_xact_commit_total") and this function honours it.
 func MetricName(view pgversion.View, column string) string {
 	if e, ok := exportNames[Canonical(view, column).String()]; ok {
 		return e.name

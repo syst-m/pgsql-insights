@@ -38,7 +38,7 @@ const MaxClockSkew = 30 * time.Second
 type Sample struct {
 	// Metric is the family name this value belongs to, without the R9.2 prefix
 	// (the prefix is applied at render time so it stays configurable):
-	// "pg_stat_database_xact_commit", not "pgsi_pg_stat_database_xact_commit".
+	// "db_xact_commit_total", not "pgsi_db_xact_commit_total".
 	Metric string
 	// Labels carries the R9.3 label contract for this value — namespace,
 	// cluster, pod, instance_role, plus datname for database series and usename

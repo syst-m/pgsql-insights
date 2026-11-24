@@ -101,7 +101,7 @@ func TestMetricNameFallsBackToThePreStep4Formula(t *testing.T) {
 // The prefix half is the one worth a test: R9.2 makes `metrics.prefix`
 // configurable, so a collector that baked `pgsi_` into Sample.Metric would make
 // that config key a lie. clock.go's Sample.Metric doc is the normative statement
-// ("pg_stat_database_xact_commit", not "pgsi_pg_stat_database_xact_commit") and
+// ("db_xact_commit_total", not "pgsi_db_xact_commit_total") and
 // this is the assertion that enforces it across all 114 rows at once.
 func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 	names := ExportedMetricNames()
