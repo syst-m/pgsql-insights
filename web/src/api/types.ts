@@ -502,6 +502,42 @@ export interface QueryView extends LoadColumns {
   recommendations: RecommendationView[];
 }
 
+/** One row of R3.1's per-database extension-presence report.
+ *
+ *  Mirrors `dto.ExtensionPresenceView` — `internal/api/dto/queries.go:267` as of
+ *  `8d8ddeb`, read 2026-11-24 — field-for-field. The Go side pins its own tag set
+ *  with `TestQueriesResponseWireKeys` (`dto/queries_test.go`), which asks
+ *  `encoding/json` what the struct emits rather than reading the field list; this
+ *  is the copy that has to keep agreeing with the answer. The sha is in the cite
+ *  because the line moves under an amend: the same declaration sits at `:268` in
+ *  the working tree while A2's alias swap is in flight.
+ *
+ *  `installed` is the tri-state R3.1's two detection sources force, and the `?`
+ *  is the third state. The Go field is `*bool` with `omitempty` — asserted
+ *  through `reflect`, not argued in prose, in the test above — so a nil pointer is
+ *  *absent from the body*, `false` is *not installed* and `true` is *installed*.
+ *  S2 answers for every database a driver can reach and S3 only for the ones a
+ *  CNPG pod exports metrics for, so a database S2 reported and S3 has no series
+ *  for is not a database without the extension; rendering R10.27's "not installed"
+ *  for a database nobody measured is the difference between a gap and a wrong
+ *  answer. A plain `boolean` here would collapse the two.
+ *
+ *  Not yet reachable from a fetcher. `QueryResponse` gains `pgStatStatements` in
+ *  the commit that adopts the named wire body (ruled: extend the presentation
+ *  type, keep the name — the `FleetResponse` precedent at `:895-903`), so this
+ *  type exists one step ahead of the type that names it, which is the state A1
+ *  took the Go struct to and dated for the same reason. */
+export interface ExtensionPresenceView {
+  namespace: string;
+  cluster: string;
+  /** R3.1's detection unit — "presence per database". R3.2's word `database`,
+   *  not R9.3's `datname`, for the reason `dto/clusters.go` gives and `QueryView`
+   *  repeats: the requirement that defines a column set names its fields. */
+  database: string;
+  /** `*bool` + `omitempty`: absent = not known, `false` = absent, `true` = present. */
+  installed?: boolean;
+}
+
 /** R3.9's named bucket set, one row each: the eight named bounds plus the
  *  implicit `+Inf`. `le` is the upper bound in ms as a string, Prometheus-style,
  *  because `+Inf` has no JSON number and a sentinel string keeps the bucket list
