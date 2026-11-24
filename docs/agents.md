@@ -57,7 +57,7 @@ who owns frontend/Helm/docs, when the phase is assigned to A2).
 | **A1** | `a1-backend` | opus | Cloud SQL Query/System Insights research | Go backend: discovery, collector framework, PG version matrix, `cmd/pgsi`, `api/dto` |
 | **A2** | `a2-api-metrics` | sonnet | CloudNativePG surface research | Go API surface: HTTP handlers, OpenAPI, auth/CORS middleware, `/metrics` export, PromQL pair |
 | **A3** | `a3-review` | opus | Round-1 adversarial architecture review | Architecture, spec maintenance, per-phase validation, review of every spec change |
-| **A4** | `a4-frontend` | sonnet | Round-1 adversarial product review | `web/` shell + build (`App.tsx`, `routes.ts`, `styles/`, `dist`, `e2e`), Helm chart, packaging, docs |
+| **A4** | `a4-frontend` | sonnet | Round-1 adversarial product review | `web/` shell + build (`App.tsx`, `routes.ts`, `web/src/api/`, `web/src/lib/`, `web/src/state/`, `styles/`, `dist`, `e2e`, `web/src/test/`, and the `web/*.config.*` + `embed.go` at the `web/` root), Helm chart, packaging, docs |
 | **A5** | `a5-query-store` | opus | *(added 2026-11-22 with the cap raise)* | `internal/query/` (normalizer, top-N), `internal/store/`, the `pg_stat_statements` collector — **Phase 3** |
 | **A6** | `a6-insights-ui` | sonnet | *(added 2026-11-22 with the cap raise)* | `web/src/pages/**`, `web/src/components/**` — the Query Insights UI, **Phase 6b** |
 
