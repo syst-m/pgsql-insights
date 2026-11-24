@@ -184,14 +184,36 @@ func TestPoolerDescriptor(t *testing.T) {
 func TestPoolerDescriptorIsStable(t *testing.T) {
 	// R2.1: "It must be side-effect-free and return the same value every call:
 	// the registry calls it once at registration, and the scheduler calls it per
-	// round." The descriptor is a stored field, so this is cheap to pin — and
-	// Descriptor has a func field, which is why the comparison is DeepEqual
-	// rather than == (a struct containing a func is not comparable in Go).
+	// round." The descriptor is a stored field, so this is cheap to pin.
+	//
+	// The func field needs its own comparison rather than riding along in the
+	// struct one. reflect.DeepEqual's rule is "Func values are deeply equal if
+	// both are nil; otherwise they are not deeply equal" — so a DeepEqual over the
+	// whole Descriptor fails for ANY non-nil AppliesTo, and fails printing two
+	// identical values. A3's S56 mutation (pooler.go:152 AppliesTo nil ->
+	// AllMajors) prints `AppliesTo:0x104e76fb0` on both sides and calls that a
+	// difference. Comparing the struct with the func zeroed is the form that can
+	// fail for the right reason; the func field itself is only assertable directly
+	// when it is nil, which is what this collector declares, so its stability is
+	// checked behaviourally by sampling Applies() on both descriptors.
 	c := mustPoolerCollector(t, &stubFetch{status: http.StatusOK}, PoolerConfig{})
 	first := c.Descriptor()
 	second := c.Descriptor()
-	if !reflect.DeepEqual(first, second) {
-		t.Errorf("Descriptor() differs between calls:\n first  = %+v\n second = %+v", first, second)
+
+	noFunc := func(d Descriptor) Descriptor { d.AppliesTo = nil; return d }
+	if !reflect.DeepEqual(noFunc(first), noFunc(second)) {
+		t.Errorf("Descriptor() differs between calls:\n first  = %+v\n second = %+v", noFunc(first), noFunc(second))
+	}
+
+	// The func field, compared by what it answers instead of by what it is. This
+	// is the assertion that survives an AppliesTo that is a real function: two
+	// distinct funcs with the same behaviour pass, which is what "same value every
+	// call" means for a field whose value is a computation.
+	for _, major := range []int{11, 12, 15, 16, 17, 18, 19, 20} {
+		if first.Applies(major) != second.Applies(major) {
+			t.Errorf("Applies(%d) differs between calls: first %v, second %v",
+				major, first.Applies(major), second.Applies(major))
+		}
 	}
 }
 
@@ -317,6 +339,27 @@ func TestPoolerCollectFixture(t *testing.T) {
 			len(res.Samples), poolerFixturePGBouncerSamples)
 	}
 
+	// A real value from the fixture, not a constructed one: the count and the
+	// names prove the right series exist, this proves the number attached to one
+	// of them is the number the exposition carried. Fixture line
+	//   cnpg_pgbouncer_pools_pool_mode{database="gateway",user="revproxy"} 2
+	// which naming.go:507 re-exports as pgbouncer_pools_pool_mode.
+	t.Run("fixture value survives the projection", func(t *testing.T) {
+		for _, sm := range res.Samples {
+			if sm.Metric != "pgbouncer_pools_pool_mode" {
+				continue
+			}
+			if sm.Labels["database"] != "gateway" || sm.Labels["user"] != "revproxy" {
+				continue
+			}
+			if sm.Value != 2 {
+				t.Errorf(`pgbouncer_pools_pool_mode{database="gateway",user="revproxy"} = %v, want 2`, sm.Value)
+			}
+			return
+		}
+		t.Error(`no sample for pgbouncer_pools_pool_mode{database="gateway",user="revproxy"} in the projection`)
+	})
+
 	for i, sm := range res.Samples {
 		// An empty Metric renders as a family named "" — the exact failure
 		// collector.go's Validate exists to prevent.
@@ -369,14 +412,15 @@ func TestPoolerSamplesScopesToPGBouncerGroup(t *testing.T) {
 		Type:  TypeGauge,
 		Group: cnpgmetrics.GroupInstance,
 	}
+	pgSamples := []cnpgmetrics.Sample{
+		{Labels: map[string]string{"database": "appdb", "user": "appuser"}, Value: 3},
+		{Labels: map[string]string{"database": "appdb", "user": ""}, Value: 0},
+	}
 	scrape := &cnpgmetrics.Scrape{
 		CNPG: []cnpgmetrics.Metric{
 			{
 				Name: pgFam.Name, Type: "gauge", Family: pgFam,
-				Samples: []cnpgmetrics.Sample{
-					{Labels: map[string]string{"database": "appdb", "user": "appuser"}, Value: 3},
-					{Labels: map[string]string{"database": "appdb", "user": ""}, Value: 0},
-				},
+				Samples: pgSamples,
 			},
 			{
 				Name: instFam.Name, Type: "gauge", Family: instFam,
@@ -393,9 +437,18 @@ func TestPoolerSamplesScopesToPGBouncerGroup(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("samples = %d, want 2 (the two pgbouncer series; the instance family and the nil-Family entry are both out of scope)", len(got))
 	}
-	for _, sm := range got {
+	for i, sm := range got {
 		if sm.Metric != MetricNameFor(pgFam.Name) {
 			t.Errorf("Metric = %q, want %q", sm.Metric, MetricNameFor(pgFam.Name))
+		}
+		// The value is the one thing the collector does to a sample and the one
+		// thing a shape-only suite cannot see. With the Metric and timestamp
+		// assertions in place, pooler.go:245's `Value: s.Value` can be replaced by
+		// `Value: 42.0` and every other test in this file still passes — A3's S57
+		// mutation. poolerSamples appends in source order, so got[i] pairs with
+		// pgSamples[i].
+		if sm.Value != pgSamples[i].Value {
+			t.Errorf("sample %d Value = %v, want %v for Metric %q", i, sm.Value, pgSamples[i].Value, sm.Metric)
 		}
 	}
 }
