@@ -2913,8 +2913,10 @@ components:
         range parameter selects the window, never the resolution (R10.15).
 
         **Nullability (R8.3, ruled at 7cecc49):** two of the six carry `nullable: true` —
-        `lockTimeSeconds` (`internal/api/dto/series.go:63`) and `ioTimeSeconds`
-        (`internal/api/dto/series.go:64`). The wire says "no value" with `null`, not
+        `QuerySeriesPoint.LockTimeSeconds` and `QuerySeriesPoint.IOTimeSeconds`
+        (`internal/api/dto/series.go`, named rather than line-cited: the two lines
+        have moved twice in three commits and no CI tool checks a Go line cite). The
+        wire says "no value" with `null`, not
         with a sentinel number: the store's `-1` code is unit-ambiguous once it leaves
         the store — it is a milliseconds value assigned undivided to a seconds-typed
         field — and a consumer that has to mint its own constant to honour a convention
