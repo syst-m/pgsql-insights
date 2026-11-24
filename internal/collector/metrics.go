@@ -41,9 +41,9 @@ var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5
 //
 // It is a type and not a prometheus registry because the project has no
 // client_golang dependency (§3.4's minimal-dependency stance) and internal/api
-// already hand-writes the exposition format — BuildInfoMetric (server.go:312)
-// is the precedent, and its own comment names this phase's hub as the thing that
-// will render it. A2's shape is the contract here: one exported function per
+// already hand-writes the exposition format — api.BuildInfoMetric in
+// internal/api/server.go is the precedent, and its own comment names this
+// phase's hub as the thing that will render it. A2's shape is the contract here:
 // family, returning a string, carrying its own `# HELP` and `# TYPE` lines, so
 // the hub is a strings.Builder over N calls with no per-family special-casing.
 // RenderDuration/RenderErrors follow it; Render concatenates them for callers
@@ -192,8 +192,8 @@ func (s *Stats) Age(collector, cluster, namespace string) (time.Duration, bool) 
 
 // Render returns the package's full R2.2 exposition: both families, each with
 // its own HELP and TYPE lines. This is the call the Phase 2 MetricHub makes
-// alongside api.BuildInfoMetric() (server.go:312, whose comment is what
-// scheduled the hub in the first place).
+// alongside api.BuildInfoMetric() in internal/api/server.go, whose
+// comment is what scheduled the hub in the first place.
 func (s *Stats) Render() string {
 	if s == nil {
 		return ""
