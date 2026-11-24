@@ -218,17 +218,14 @@ func DefaultCatalogue() *Catalogue {
 	// names below are derived from R9.2's prefix plus postgres_exporter's
 	// vocabulary, and are provisional until Phase 2's MetricHub ships them.
 	//
-	// One name the collector exports is deliberately not a row here.
-	// pgsi_db_backends_by_wait_event is minted by the table (naming.go's
-	// pg_stat_activity rows, R4.3's wait-event rollup), but R5.2 has no
-	// wait-event family, so it fits neither category above: this list is R5.2's
-	// set, and provisionalSystem is "R5.2 names it, the table does not have it",
-	// which is the opposite of a name the table has and R5.2 does not name.
-	// Whether R4.3's rollup is a metric family or only the Wait Events page's
-	// payload is a gap in the spec rather than in this table, so it is A3's to
-	// rule on; until that ruling, the metric is documented by its naming row and
-	// not published as a system family. Adding the row later costs one entry and
-	// changes no other line.
+	// pgsi_db_backends_by_wait_event is not a row here because A3 ruled the
+	// R4.3 rollup not a metric family (S50, implemented by A1's 9ff60c6 as
+	// naming.go's TypeNotExported row): the name is no longer minted at all, so
+	// there is nothing here to withhold and no row to add later. The prose that
+	// used to sit here — "documented by its naming row and not published as a
+	// system family", pending the ruling — described an exported-but-undocumented
+	// name, which is the artefact S50 filed and 9ff60c6 deleted; the sentence
+	// "adding the row later costs one entry" went with it.
 	systems := []struct{ name, metric, desc string }{
 		{"xact_commit", "pgsi_db_xact_commit_total", "R5.2 transactions: committed transactions per database."},
 		{"xact_rollback", "pgsi_db_xact_rollback_total", "R5.2 transactions: rolled-back transactions per database."},
