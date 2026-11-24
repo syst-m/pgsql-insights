@@ -782,9 +782,12 @@ function rowsServed<T>(source: BannerSource<T>): number {
  *  A pair, not one string, because the plural is not derivable: the Queries
  *  page needs "1 query served" and "9 queries served", and `query + "s"` is the
  *  wrong one of those two. The old code hardcoded `cluster${n === 1 ? "" : "s"}`,
- *  which was right for exactly one of the three pages that now call this — the
- *  other two rendered "3 clusters served" above a table of sessions (A6's
- *  finding on `99f37f0`) and above a table of queries.
+ *  which was right for exactly one of the three pages that called it when A6
+ *  filed it (`StatePanel.tsx:55`, `:110`, `:151`) — the other two rendered
+ *  "3 clusters served" above a table of sessions (A6's finding on `99f37f0`) and
+ *  above a table of queries. That count is dated to the fix rather than kept
+ *  current: the list below is the half that grows as pages land, and `TAG_NOUN`
+ *  is its fourth entry.
  *
  *  `CLUSTER_NOUN` is the parameter's default so every pre-existing call site —
  *  `Fleet.tsx`, `StatePanel.test.tsx`, and the whole `partialBanner` suite in
@@ -794,6 +797,7 @@ export type BannerNoun = { readonly one: string; readonly many: string };
 export const CLUSTER_NOUN: BannerNoun = { one: "cluster", many: "clusters" };
 export const QUERY_NOUN: BannerNoun = { one: "query", many: "queries" };
 export const SESSION_NOUN: BannerNoun = { one: "session", many: "sessions" };
+export const TAG_NOUN: BannerNoun = { one: "tag", many: "tags" };
 
 /** R10.22's banner sentence, composed from the response rather than read from a
  *  `partial` key the API does not emit.

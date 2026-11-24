@@ -50,6 +50,7 @@ import {
   partialBanner,
   QUERY_NOUN,
   SESSION_NOUN,
+  TAG_NOUN,
   toFleetResponse,
   toQueriesResponse,
 } from "./envelope";
@@ -603,6 +604,19 @@ describe("partialBanner", () => {
       ),
     ).toBe(
       "3 sessions served, more pages available. 1 namespace still in the first discovery pass (cookbook).",
+    );
+    // `TAG_NOUN` is the fourth entry and the case R10.22 names for a new noun:
+    // both numbers, because a one-string parameter that appends `s` renders
+    // "1 tags" and a plural-only check passes that by accident.
+    expect(partialBanner(env(1, { total: 1, truncated: false, loading: ["cookbook"] }), TAG_NOUN)).toBe(
+      "1 tag served. 1 namespace still in the first discovery pass (cookbook).",
+    );
+    // 4, not 6: `env` slices `FIXTURE_ENVELOPE.data`, which has four rows, so
+    // `env(6, …)` serves four and the banner says four — the assertion would
+    // have caught a plural-only check either way, but a row count the fixture
+    // cannot supply tests the builder, not the noun.
+    expect(partialBanner(env(4, { total: 4, truncated: false, loading: ["cookbook"] }), TAG_NOUN)).toBe(
+      "4 tags served. 1 namespace still in the first discovery pass (cookbook).",
     );
     // Omitting the argument is byte-identical to passing `CLUSTER_NOUN`, which is
     // the guarantee `Fleet.tsx` and every pre-existing case above rely on.
