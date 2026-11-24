@@ -43,15 +43,23 @@
  * "CR that reports healthy" is `phase: "Not enough disk space"` — the
  * *reporting* that R1.2 calls into question is the instance counts (2 in spec,
  * 0 serving), not the phase string. Both are stated in the rows below.
+ *
+ * The eighth row is `from: "page"` — the Tags page's empty state. :439's list is
+ * cluster-level and R10.3's ninth page has an empty state of its own, so the row
+ * is here with the field that keeps it distinguishable from the seven, and its
+ * test renders `<TagsPage>` directly for the same reason the extension-absent row
+ * renders `<ExtensionNotInstalled>` directly: its owner is not `ClusterDetail`,
+ * so `renderEntry`'s cluster-tab route cannot reach it.
  */
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ClusterDetailPage } from "./ClusterDetail";
+import { TagsPage } from "./Tags";
 import { QueryTable, loadCellFor } from "../components/QueryTable";
 import { ExtensionNotInstalled } from "../components/ExtensionNotInstalled";
-import { FIXTURE_CLUSTERS, FIXTURE_QUERIES } from "../api/fixtures";
+import { FIXTURE_CLUSTERS, FIXTURE_QUERIES, FIXTURE_TAGS } from "../api/fixtures";
 import type { FleetRow, QueryView } from "../api/types";
 import { resolveConfig } from "../api/client";
 import { DEFAULT_STATE, withState, type ClusterTab, type UrlState } from "../state/urlState";
@@ -65,11 +73,21 @@ type CatalogueKey =
   | "crashloop-reporting-healthy"
   | "no-pooler"
   | "pg16-vs-pg17"
-  | "extension-absent";
+  | "extension-absent"
+  | "tags-empty";
 
 interface CatalogueEntry {
   key: CatalogueKey;
-  /** R10.28's own words for the state (:439), not a paraphrase. */
+  /** Which list the row belongs to. `spec` is one of :439's seven cluster-level
+   *  states; `page` is an empty state a page has that :439 does not enumerate —
+   *  the Tags page's, for instance, which is R10.3's page-level empty rather than
+   *  a cluster combination. The field exists so the requirement's seven stay
+   *  countable inside a longer list: without it, an eighth row makes
+   *  `toHaveLength(7)` red and the fix is to weaken the assertion, which is how a
+   *  catalogue stops being one. */
+  from: "spec" | "page";
+  /** R10.28's own words for the state (:439) for a `spec` row; for a `page` row,
+   *  the page's own wording plus the requirement that names the page. */
   spec: string;
   /** The file that renders it. The test below is the entry's proof of life; the
    *  named file's own suite is the deep one. */
@@ -87,6 +105,7 @@ interface CatalogueEntry {
 const CATALOGUE: readonly CatalogueEntry[] = [
   {
     key: "healthy-two-instance",
+    from: "spec",
     spec: "healthy 2-instance",
     owner: "pages/ClusterDetail.tsx — Instances",
     fixture: "testdata/api/clusters.json → FIXTURE_CLUSTERS[ai-api-gateway/rev-proxy-pg]",
@@ -95,6 +114,7 @@ const CATALOGUE: readonly CatalogueEntry[] = [
   },
   {
     key: "single-instance",
+    from: "spec",
     spec: "single-instance",
     owner: "pages/ClusterDetail.tsx — Instances",
     fixture: "testdata/api/clusters.json → FIXTURE_CLUSTERS[cookbook/cookbook-pg]",
@@ -103,6 +123,7 @@ const CATALOGUE: readonly CatalogueEntry[] = [
   },
   {
     key: "pending-replica",
+    from: "spec",
     spec: "Pending replica",
     owner: "pages/ClusterDetail.tsx — Instances",
     // The requirement's word is *Pending*; the fixture's answer for that pod is
@@ -115,6 +136,7 @@ const CATALOGUE: readonly CatalogueEntry[] = [
   },
   {
     key: "crashloop-reporting-healthy",
+    from: "spec",
     spec: "CrashLoopBackOff on a CR that reports healthy (R1.2)",
     owner: "pages/ClusterDetail.tsx — Overview + Instances",
     // "reports healthy" is about the counts, not the phase string: this cluster's
@@ -127,6 +149,7 @@ const CATALOGUE: readonly CatalogueEntry[] = [
   },
   {
     key: "no-pooler",
+    from: "spec",
     spec: "no Pooler",
     owner: "pages/ClusterDetail.tsx — Config › Poolers",
     fixture: "testdata/api/clusters.json → FIXTURE_CLUSTERS[cookbook/cookbook-pg].poolers === []",
@@ -135,6 +158,7 @@ const CATALOGUE: readonly CatalogueEntry[] = [
   },
   {
     key: "pg16-vs-pg17",
+    from: "spec",
     spec: "PG16 vs PG17 column differences",
     owner: "components/QueryTable.tsx — loadCellFor",
     fixture: "testdata/api/queries.json → FIXTURE_QUERIES (rows on both majors)",
@@ -146,6 +170,7 @@ const CATALOGUE: readonly CatalogueEntry[] = [
   },
   {
     key: "extension-absent",
+    from: "spec",
     spec: "extension-absent",
     owner: "components/ExtensionNotInstalled.tsx (R10.27)",
     // K2: `pg_stat_statements` is absent on all three reachable clusters, so
@@ -154,6 +179,24 @@ const CATALOGUE: readonly CatalogueEntry[] = [
     // because the component takes one cluster per render.
     fixture: "every cluster in testdata/api/clusters.json (K2) — rendered here as cookbook/cookbook-pg",
     clusterId: "cookbook/cookbook-pg",
+  },
+  {
+    key: "tags-empty",
+    from: "page",
+    // Not one of :439's seven: the Tags page's empty state is R10.3's page-level
+    // empty (the route is `GET /api/v1/insights/tags`, R8.2), and :439 enumerates
+    // *cluster* combinations. It is listed here because the alternative is a
+    // second catalogue — one for the requirement's seven and one per page — and
+    // the reason this file exists at all is that the prose version could not be
+    // iterated over.
+    spec: "Tags page with no tags in the window (R10.3 · R8.2)",
+    owner: "pages/Tags.tsx — TAGS_COPY via components/StatePanel.tsx",
+    // The shipped tags payload has three rows, so the empty frame is the fixture
+    // with its payload emptied — the same construction `Tags.test.tsx` uses, and
+    // for the same reason: `meta` carries over so the header stamp stays the
+    // fixture's and the test is about the empty set and nothing else.
+    fixture: "testdata/api/tags.json → FIXTURE_TAGS with data: []",
+    clusterId: "open-webui/open-webui-pg",
   },
 ];
 
@@ -225,17 +268,23 @@ function instanceRows(container: HTMLElement): Record<string, string[]> {
   return out;
 }
 
-/* ── the seven tests ───────────────────────────────────────────────────────── */
+/* ── the eight tests ───────────────────────────────────────────────────────── */
 
 describe("R10.28 empty-state catalogue", () => {
-  it("lists seven states, one per combination requirements.md:439 enumerates", () => {
+  it("lists :439's seven states, and the page-level rows beside them", () => {
     // The requirement is a list, so the first assertion is about the list's
-    // shape: seven rows, seven distinct keys. This is the assertion that makes
-    // the catalogue an artifact — an eighth state added to a page without being
-    // added here fails, which is the failure mode the prose version could not
-    // have.
-    expect(CATALOGUE).toHaveLength(7);
-    expect(new Set(CATALOGUE.map((e) => e.key)).size).toBe(7);
+    // shape: seven `spec` rows — one per combination :439 enumerates — with the
+    // `page` rows counted separately rather than folded into the seven. This is
+    // the assertion that makes the catalogue an artifact — an eighth cluster-level
+    // state added to a page without being added here fails, which is the failure
+    // mode the prose version could not have. A page-level state added here does
+    // *not* move the seven, which is what the `from` field is for: without it the
+    // only way to add one is to weaken the count, and a count that has been
+    // weakened once stops being an assertion.
+    expect(CATALOGUE.filter((e) => e.from === "spec")).toHaveLength(7);
+    expect(CATALOGUE.filter((e) => e.from === "page")).toHaveLength(1);
+    expect(CATALOGUE).toHaveLength(8);
+    expect(new Set(CATALOGUE.map((e) => e.key)).size).toBe(8);
     // Every entry names an owner file that exists in this tree, so the list
     // cannot drift from the tree it describes.
     for (const entry of CATALOGUE) expect(entry.owner).toContain(".tsx");
@@ -407,5 +456,33 @@ describe("R10.28 empty-state catalogue", () => {
     expect(panel.querySelector(".ext-cli")?.textContent).toContain(
       `pgsi enable pg-stat-statements --cluster ${cluster}`,
     );
+  });
+
+  it("tags empty: the page's own copy, not a bespoke string", () => {
+    const entry = entryFor("tags-empty");
+    // Rendered directly, not through `renderEntry`: the owner is `pages/Tags.tsx`,
+    // not `ClusterDetail`, so there is no tab to route through — the same shape as
+    // the extension-absent entry above, which renders its owner for the same
+    // reason. The cluster comes from the row, as every other entry's does.
+    const { container } = render(
+      <TagsPage
+        state={withState(DEFAULT_STATE, { page: "tags", cluster: entry.clusterId ?? "" })}
+        cfg={resolveConfig("", {})}
+        onPatch={vi.fn()}
+        fixtureOverride={{ ...FIXTURE_TAGS, data: [] }}
+      />,
+    );
+
+    // The discriminator (rule 1) is that the wording is `TAGS_COPY`'s: the title
+    // asserted here is the string `components/StatePanel.tsx` holds for the tags
+    // payload, which is the one fact the catalogue can check without re-running
+    // `Tags.test.tsx` — and the fact that would go missing if the page grew a
+    // bespoke `<div>No tags</div>` instead of going through the shared panel.
+    const panel = container.querySelector('.state-panel[data-state="empty"]') as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(panel.textContent).toContain("No tags in this window");
+    // The table is replaced by the panel, not rendered empty beside it — the
+    // distinction R10.27 makes for the not-installed case and R10.12 makes here.
+    expect(container.querySelector('[data-testid="tags-table"]')).toBeNull();
   });
 });

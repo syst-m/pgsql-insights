@@ -103,6 +103,34 @@ export const DEFAULTS: Record<string, readonly string[]> = {
     "userName",
     "action",
   ],
+  // R3.12's tag table has eighteen columns (`TagView`'s eighteen json tags, as
+  // `pages/Tags.tsx`'s TAG_COLUMNS enumerates) and a default that shows eight.
+  // The eight are the row's identity plus one dimension from each of R3.12's two
+  // families plus three headline load numbers: `tagHash` (R8.2's path key, the
+  // only `required` column — it is what Queries' `tag` chip filters by), the
+  // three (a) dimensions Postgres always supplies (`application`, `database`,
+  // `user`), the one (b) dimension the reference fixture's rows mostly carry
+  // (`action`), and `loadByTotalTime` / `avgExecTimeMs` / `timesCalled` — the
+  // three R3.7 numbers that answer "is this tag worth looking at".
+  //
+  // The other ten are real columns the menu reaches. `route`, `controller`,
+  // `framework` and `dbDriver` are the rest of the comment grammar: on the
+  // fixture only one of three rows carries them at all, so a default that showed
+  // them would spend four columns on a cell that is `—` two thirds of the time —
+  // and `pctLoadByQueries` is the same numerator as `loadByTotalTime` restated
+  // against one category, `totalExecTimeMs` is `avgExecTimeMs × timesCalled`,
+  // and `loadByCPUMs` / `loadByIOWaitMs` / `lockWaitMs` are the three
+  // breakdowns of a total already on screen.
+  tags: [
+    "tagHash",
+    "application",
+    "database",
+    "user",
+    "action",
+    "loadByTotalTime",
+    "avgExecTimeMs",
+    "timesCalled",
+  ],
 };
 
 /** Storage key for one view's selection. Exported so a test can write a

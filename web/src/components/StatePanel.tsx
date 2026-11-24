@@ -15,9 +15,11 @@
 import type {
   ActiveQueriesResponse,
   ClusterMetrics,
+  Envelope,
   FleetResponse,
   FleetRow,
   QueryResponse,
+  TagView,
 } from "../api/types";
 import { CLUSTER_NOUN, partialBanner, type BannerNoun, type BannerSource } from "../api/envelope";
 import { FIXTURE_EMPTY, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "../api/fixtures";
@@ -152,6 +154,58 @@ export function deriveActivePanelState(input: ActivePanelInput): PanelState {
   return "ready";
 }
 
+export interface TagsPanelInput {
+  phase: FetchPhase;
+  /** The last good payload, if any. Present during a background refetch.
+   *
+   *  `Envelope<TagView>` rather than a named response struct, because R8.4's
+   *  envelope has exactly the two fields this route serves (`data`, `meta`) and
+   *  a third key is what forced `dto.QueriesResponse` into existence for the
+   *  queries route. `client.ts:477`'s `fetchTags` returns the same type, so the
+   *  page's prop, the fetcher's return and this input are one type. */
+  tags: Envelope<TagView> | null;
+  /** Set when the fetch failed. */
+  error?: string;
+  /** R3.1's per-database presence. The tags envelope does not carry it —
+   *  `dto.ExtensionPresenceView` is on the *queries* route — so this is the
+   *  same interim `QueryPanelInput.extensionInstalled` is, with the same
+   *  default of *unknown*. */
+  extensionInstalled?: boolean;
+}
+
+/** The Tags page's rule (R10.3's ninth page, R3.12's UI, R8.2's route).
+ *
+ *  The fourth derivation over the one `PanelState` union, and the second one
+ *  that can reach `unavailable`. R3.7's rollup is computed from the query store,
+ *  which is what `pg_stat_statements` feeds, so an empty tag set is ambiguous in
+ *  exactly the way an empty query set is: not installed (R10.27's first-class
+ *  screen) or installed with nothing in the window (R10.12's plain empty). The
+ *  resolution is the same and lives in the same place — the explicit `false`
+ *  renders `unavailable`, `undefined` renders `empty` — and for the same reason:
+ *  a populated payload is proof the extension is there, so the check belongs
+ *  inside the zero-row branch and not above it.
+ *
+ *  `partial` is reachable here in a way it is not on the Active Queries page:
+ *  `Envelope.meta` carries `failed`/`loading`/`truncated` for every route, and
+ *  `partialBanner` is what reads them, so a tag rollup that served 17 of the 23
+ *  tags it knows about says so with the tag noun rather than looking complete. */
+export function deriveTagsPanelState(input: TagsPanelInput): PanelState {
+  const { phase, tags } = input;
+
+  if (phase === "idle" || phase === "loading") {
+    return tags === null ? "loading" : "partial";
+  }
+  if (phase === "error") {
+    return tags === null ? "error" : "partial";
+  }
+  if (tags === null) return "loading";
+  if (tags.data.length === 0) {
+    return input.extensionInstalled === false ? "unavailable" : "empty";
+  }
+  if (partialBanner({ meta: tags.meta, data: tags.data }) !== null) return "partial";
+  return "ready";
+}
+
 /** True when a cluster's metrics came from a source that produces values.
  *
  * `unconfigured` and `failed` both mean "there are no numbers here" — one
@@ -279,6 +333,42 @@ export const ACTIVE_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   error: {
     title: "Could not load the active sessions",
     body: "GET /api/v1/active-queries did not answer for this cluster.",
+    action: "Retry",
+  },
+};
+
+/** The Tags page's copy table (R10.3's ninth page).
+ *
+ *  Fourth table, same six states, the tag's nouns. `unavailable` is R10.27's
+ *  wording again rather than the fleet's, for the same reason `QUERY_COPY`'s is:
+ *  R3.7's rollup is computed from the query store, so "no tags" and "no
+ *  extension" are two answers and only one of them is the plain empty. The page
+ *  renders `ExtensionNotInstalled` for that state rather than this string — the
+ *  screen is a component with the flow and the CLI line on it — which is the
+ *  same division of labour `QUERY_COPY.unavailable` has, and is why the
+ *  catalogue test can assert the copy without the page rendering it. */
+export const TAGS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
+  loading: {
+    title: "Loading tags",
+    body: "Reading the tag rollup for this cluster.",
+  },
+  empty: {
+    title: "No tags in this window",
+    body: "The tag rollup returned no rows for this cluster and range. A tag exists per distinct dimension set among the queries the store has, so an empty set means no query was attributed in the window; the R10.27 not-installed screen names the other reading once the cluster reports the extension absent.",
+    action: "Widen the range",
+  },
+  partial: {
+    title: "Partial results",
+    body: "Some namespaces have not reported yet. The rows shown are complete for the namespaces that have.",
+  },
+  unavailable: {
+    title: "pg_stat_statements is not installed",
+    body: "This cluster has no pg_stat_statements extension, so the query store has nothing to roll up and there are no tags to show. Enabling it is a product flow (R3.15): detect, offer, patch the ClusterCRD, verify.",
+    action: "Enable pg_stat_statements",
+  },
+  error: {
+    title: "Could not load the tags",
+    body: "GET /api/v1/insights/tags did not answer for this cluster.",
     action: "Retry",
   },
 };
