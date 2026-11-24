@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/frankellis/pgsql-insights/internal/api"
+	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/discovery"
 	"github.com/frankellis/pgsql-insights/internal/kube"
 	"github.com/frankellis/pgsql-insights/internal/logx"
@@ -381,6 +382,7 @@ func runServe(args []string) int {
 	// rather than leaving a pod serving a fleet it can no longer update.
 	var disc *discovery.Discoverer
 	discDone := make(chan error, 1)
+	schedDone := make(chan error, 1)
 	if *sf.discover {
 		kc, err := kube.New(kube.Config{
 			Kubeconfig:         *sf.kubeconfig,
@@ -413,11 +415,67 @@ func runServe(args []string) int {
 		}, kc, log)
 		cfg.Fleet = disc
 		go func() { discDone <- disc.Run(ctx) }()
+
+		// --- collectors (Phase 2 step 5's wiring, R2.1) -------------------
+		// The registry, the sink and the loop. Before this block the three
+		// framework types existed with no caller outside a test: NewRegistry,
+		// NewScheduler and NewMemSink were all constructed in their own package's
+		// tests and nowhere in the binary, so `pgsi serve` answered /metrics with
+		// an empty pgsi_collector_* family and no pgsi_scrape_target_up at all
+		// while every collector in internal/collector sat unrun.
+		//
+		// It is inside the discovery branch because the target set comes from the
+		// inventory: with --discover=false there is no fleet, so there is nothing
+		// to collect from, and Run over an empty target set is a goroutine that
+		// logs rounds of nothing. The `api` role D9 reserves is exactly the role
+		// that serves without collecting.
+		//
+		// The registry holds one collector today. newRegistry's docblock names the
+		// six SQL collectors it cannot yet hold and quotes the reason — go.mod has
+		// no Postgres driver, so sql.go's SQLOpener has no production
+		// implementation — which is the open decision this wiring surfaces rather
+		// than settles.
+		reg, err := newRegistry(kc, collector.Overrides{})
+		if err != nil {
+			log.Error("collector registry", "error", err.Error())
+			return 2
+		}
+		// The sink is the memory one (R13.5's --store=memory form, §3.4) at
+		// NewMemSink's own default ceiling, 64 MiB. The SQLite sink exists
+		// (internal/store/sink.go:60 asserts `var _ collector.Sink = (*Store)(nil)`)
+		// and is A5's; selecting between the two is R11.8's --store= flag, which
+		// serveFlags does not have yet, so the framework default is what runs.
+		//
+		// The Stats is not passed in and then re-named — it is read back out of the
+		// scheduler, which is the only shape that cannot produce two of them.
+		// api.Config.Metrics' docblock states the rule ("A process that does run a
+		// scheduler assigns that scheduler's own *Stats here, so /metrics and the
+		// collection loop read one value") and Scheduler.Stats()'s docblock exists
+		// to satisfy it ("A caller that builds a Scheduler ... has no way to name
+		// the *Stats that scheduler writes into"). Passing collector.NewStats()
+		// into NewScheduler and assigning the same variable to cfg.Metrics is
+		// equally correct; reading it back makes the equality structural instead of
+		// a thing to remember.
+		sched := collector.NewScheduler(collector.Config{}, reg, log, collector.NewMemSink(0), nil)
+		cfg.Scheduler = sched
+		cfg.Metrics = sched.Stats()
+		// The targets func is called once per round rather than snapshotted here,
+		// which is what makes R1.9's "drop collectors within one resync" work: a
+		// pod that scaled out appears in the next round's set and starts
+		// exporting, and one that scaled in stops, with no resync plumbing in the
+		// scheduler beyond calling the func again.
+		go func() {
+			schedDone <- sched.Run(ctx, func() []collector.Target { return collectTargets(disc.Inventory()) })
+		}()
 	} else {
 		// D9's `api` role: no fleet, so New gives the server a source-less
 		// Readiness that turns true once the socket opens (R8.7(ii)).
 		log.Info("discovery disabled", "role", "api", "reason", "--discover=false (D9's reserved API role)")
 		discDone <- nil
+		// No scheduler was started, so there is nothing to drain; the channel
+		// needs a value for the same reason discDone does, and Run's error is the
+		// one thing this branch can guarantee.
+		schedDone <- nil
 	}
 
 	srv := api.New(cfg)
@@ -433,10 +491,74 @@ func runServe(args []string) int {
 			return 1
 		}
 	}
+	// The scheduler is drained second, in start order after discovery, so the
+	// shutdown log reads in the order the subsystems started. Both loops share the
+	// signal ctx, so both return at the instant srv.Run returns; the only failure
+	// this can surface that discovery's cannot is Run's own "nil targets func"
+	// error, which is a wiring bug rather than a runtime one and belongs at the
+	// same exit code as a discovery failure.
+	schedErr := <-schedDone
+	if schedErr != nil && !errors.Is(schedErr, context.Canceled) {
+		log.Error("collector scheduler stopped", "error", schedErr.Error())
+		if serveErr == nil {
+			return 1
+		}
+	}
 	if serveErr != nil {
 		return 1
 	}
 	return 0
+}
+
+// newRegistry builds this process's collector set: the []Collector argument
+// R2.1's registry takes, with R2.3's overrides applied over each Descriptor.
+//
+// It holds one collector today, and the reason is a dependency, not a preference.
+// The seven SQL collectors — activity, database, locks, replication, settings,
+// statements and wal, the set pooler.go's own head doc enumerates — all take an
+// `opener SQLOpener` as their first argument, and the paragraph that documents
+// the SQL seam (sql.go:34-40, inside DefaultStatementTimeout's docblock) declines
+// to supply one:
+//
+//	The seam is an interface (SQLOpener) and not a *sql.DB because go.mod has no
+//	Postgres driver. Phase 0 (R11.1) shipped stdlib-only and the module comment
+//	names only client-go plus, for Phase 3, modernc.org/sqlite; choosing between
+//	lib/pq, pgx, and the kubelet pod-proxy is a separate decision from writing
+//	the collectors, and R13.10 constrains `replace` directives rather than
+//	dependencies, so adding one is allowed — it is just not this commit's
+//	decision to make.
+//
+// conn.go:22-23 repeats it ("consumed by whichever SQLOpener implementation the
+// driver decision produces"), and IMPLEMENTATION.md:762 repeats it a third time
+// for R2.7's row. So the driver choice — lib/pq, pgx, or a kubelet pod-proxy
+// implementation — is open, and until it lands none of those seven constructors
+// can be called from here.
+//
+// The pooler is constructible because its dependency is satisfiable:
+// NewPoolerCollector takes a MetricsFetch, and pooler.go:51-54 says the
+// production implementation "is a method value — kube.Client.GetDirect(ctx, url)
+// has exactly this signature (client.go:300) — so wiring it in cmd/pgsi is
+// `kube.GetDirect` with no adapter". That is what the first argument below is: a
+// method value, no adapter, exactly as promised.
+//
+// The remaining two of §3.3's thirteen — instance-metrics (S3) and k8s-events
+// (S4) — have no file yet, so there is nothing to construct; see targets.go for
+// why their targets are not produced either.
+//
+// The overrides argument is empty rather than built from argv, and that is a
+// second, smaller gap this commit leaves open on purpose: R2.3's
+// --interval.<collector>= and --disable-collector= flags need R11.8's dynamic
+// flag pre-scan (the logx.FieldsFromArgs pattern applied to a second flag name),
+// and registry.go's IntervalOverridesFromArgs/DisabledFromFlag helpers exist for
+// that. R2.3's own row files the cmd/pgsi half of it with step 5's R11.8 work
+// rather than with this wiring, so the registry is built with defaults and the
+// helpers stay uncalled.
+func newRegistry(kc *kube.Client, ov collector.Overrides) (*collector.Registry, error) {
+	pooler, err := collector.NewPoolerCollector(kc.GetDirect, collector.PoolerConfig{})
+	if err != nil {
+		return nil, err
+	}
+	return collector.NewRegistry([]collector.Collector{pooler}, ov)
 }
 
 // splitList turns a comma-separated flag value into a slice, dropping empties
