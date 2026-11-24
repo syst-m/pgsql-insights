@@ -82,9 +82,10 @@ type PoolerConfig struct {
 	// cardinality table at :548 repeats it for this exact row
 	// (`…,pooler,database,user`). The S5 exposition does not supply one:
 	// measured on testdata/cnpg-metrics/ai-api-gateway__rev-proxy-pg-pooler-
-	// 86b4bdd84d-n9vlv__9127.txt, its 109 series carry {database} (60),
-	// {database,user} (48) and {collector} (1), and zero carry a `pooler`
-	// label. The exporter cannot: pgbouncer's own vocabulary is (database,
+	// 86b4bdd84d-n9vlv__9127.txt, its 123 pgbouncer series carry {database}
+	// (60), {database,user} (48), {collector} (1) and no label block at all
+	// (14); zero carry a `pooler` label. The exporter cannot: pgbouncer's own
+	// vocabulary is (database,
 	// user), and the pooler's identity is a Kubernetes fact, not a pgbouncer
 	// one.
 	//
