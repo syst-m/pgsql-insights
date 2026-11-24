@@ -252,6 +252,12 @@
       "input": "SELECT * FROM t WHERE a = 1",
       "template": "SELECT * FROM t WHERE a = $1",
       "fingerprint": "522a736e60590fea90c321ce6398ba0cb87181e057f6473ae39b965d6f08d7ca"
+    },
+    {
+      "name": "modulo-operator",
+      "input": "SELECT 5 % 2",
+      "template": "SELECT $1 % $2",
+      "fingerprint": "bf73c290201b93b773617526c45a95750a9b5f22e70644a8ce6673d320b7c537"
     }
   ]
 }
