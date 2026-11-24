@@ -923,6 +923,21 @@ func TestPromQLLookup(t *testing.T) {
 // the catalogue itself
 // ---------------------------------------------------------------------------
 
+// derivedNoMetric is the set of entries allowed an empty Metric: R9.4's two
+// derived members, cache_hit_ratio (R5.2's ratio, an expression over the hit
+// and read counters) and io_time (the R9.4 io_time ruling at 5668cb3, the sum
+// of the two block-time counters). A set rather than a name, because the
+// R9.4 cell states the cost of its own amendment as "one catalogue entry plus
+// one predicate" -- this is that predicate, so a third derived member has to be
+// named here to exist rather than quietly passing. The collector side has had
+// the same plural shape since the same ruling
+// (internal/collector/naming_catalogue_test.go:34) and its code skips on
+// e.Metric == "" generically, so only this side needed widening.
+var derivedNoMetric = map[string]bool{
+	FamilyAggregate + ".cache_hit_ratio": true,
+	FamilyAggregate + ".io_time":         true,
+}
+
 func TestCatalogueIsWellFormed(t *testing.T) {
 	c := DefaultCatalogue()
 	seen := map[string]bool{}
@@ -947,13 +962,13 @@ func TestCatalogueIsWellFormed(t *testing.T) {
 				t.Errorf("endpoint %q is not one of R8.3's two routes", e.Endpoint)
 			}
 			// R9.2's prefix rule: every metric the API reads is pgsi_-prefixed.
-			// The one exception is the derived cache-hit ratio, which has no
-			// metric of its own (it is an expression over two others).
+			// The exception is the derived members (derivedNoMetric), which have
+			// no metric of their own because each is an expression over two.
 			if e.Metric != "" && !metricNameRE.MatchString(e.Metric) {
 				t.Errorf("metric %q does not match R9.2's pgsi_ prefix rule", e.Metric)
 			}
-			if e.Metric == "" && e.Name != FamilyAggregate+".cache_hit_ratio" {
-				t.Errorf("entry %q has no metric and is not the derived ratio", e.Name)
+			if e.Metric == "" && !derivedNoMetric[e.Name] {
+				t.Errorf("entry %q has no metric and is not one of the derived members", e.Name)
 			}
 			if e.ResultType != ResultTypeVector && e.ResultType != ResultTypeMatrix {
 				t.Errorf("resultType %q is not vector or matrix", e.ResultType)

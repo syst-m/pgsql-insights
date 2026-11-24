@@ -89,8 +89,11 @@ type CatalogueEntry struct {
 	Name string
 	// Family is one of FamilyAggregate / FamilyPerQuery / FamilySystem.
 	Family string
-	// Metric is the underlying pgsi_ metric the query reads. Empty for derived
-	// entries whose PromQL combines two metrics (cache_hit_ratio).
+	// Metric is the underlying pgsi_ metric the query reads. Empty for the two
+	// derived entries whose PromQL combines two metrics
+	// (aggregate.cache_hit_ratio, aggregate.io_time); the names allowed to be
+	// empty are listed in one place, TestCatalogueIsWellFormed's
+	// derivedNoMetric, so a third derived entry has to be named there to exist.
 	Metric string
 	// ResultType is ResultTypeVector or ResultTypeMatrix.
 	ResultType string
@@ -273,10 +276,17 @@ func DefaultCatalogue() *Catalogue {
 		})
 	}
 
-	// The one derived entry: R5.2 names "cache hit ratio" as a *ratio*, not a
-	// gauge, so it has no single Metric. The formula is the one the committed
-	// rule set already uses (PGSICacheHitRatioLow), so the rule and the API
-	// answer with the same arithmetic.
+	// The two derived entries: members of R9.4's list that are expressions over
+	// other metrics, so they have no single Metric to name. The set is also what
+	// TestCatalogueIsWellFormed allows an empty Metric for, which is the
+	// R9.4 cell's stated cost for the second of them ("one catalogue entry plus
+	// one predicate") -- the predicate is that set, and a third derived member
+	// has to be named there to exist.
+	//
+	// cache_hit_ratio: R5.2 names "cache hit ratio" as a *ratio*, not a gauge.
+	// The formula is the one the committed rule set already uses
+	// (PGSICacheHitRatioLow), so the rule and the API answer with the same
+	// arithmetic.
 	entries = append(entries, CatalogueEntry{
 		Name:        FamilyAggregate + ".cache_hit_ratio",
 		Family:      FamilyAggregate,
@@ -285,6 +295,32 @@ func DefaultCatalogue() *Catalogue {
 		ResultType:  ResultTypeVector,
 		Endpoint:    QueryMetricsPath,
 		Description: "R5.2/R9.4 cache hit ratio, derived from the hit and read counters (same formula as the PGSICacheHitRatioLow rule); no metric of its own.",
+		Implemented: true,
+	})
+	// io_time: the second amendment to R9.4's frozen member list, ruled in
+	// requirements.md (5668cb3) by the same mechanism that admitted lock_time --
+	// "a post-0.3.0 scope change to a frozen requirement, added by ruling rather
+	// than by drift". R10.5(a) plots "total execution time and IO time, from
+	// S2/R9.4" and the cell had no IO member to serve it.
+	//
+	// It is the *sum* of the two block-time counters, which is the ruling's
+	// explicit choice over a read-only member: R3.2's Load by IO wait column
+	// (dto/queries.go:77-78) is blk_read_time + blk_write_time on PG 15/16 and
+	// shared_blk_read_time + shared_blk_write_time on PG 17+, and the Query
+	// Detail page already renders that scalar for every fingerprint -- a
+	// read-only member would draw a chart band that is not the number the detail
+	// page shows for the same query. The two metrics summed are the pair
+	// naming.go:135-136 mints, so the aggregate family now documents a value the
+	// collector has exported since Phase 2 rather than the reverse.
+	entries = append(entries, CatalogueEntry{
+		Name:   FamilyAggregate + ".io_time",
+		Family: FamilyAggregate,
+		Metric: "",
+		Query: "sum by (namespace, cluster, datname, usename) (rate(pgsi_query_shared_blk_read_time_seconds_total[5m]))" +
+			" + sum by (namespace, cluster, datname, usename) (rate(pgsi_query_shared_blk_write_time_seconds_total[5m]))",
+		ResultType:  ResultTypeVector,
+		Endpoint:    QueryMetricsPath,
+		Description: "R9.4 io_time, derived from the two block-time counters (the value R3.2's Load by IO wait column computes); no metric of its own.",
 		Implemented: true,
 	})
 
