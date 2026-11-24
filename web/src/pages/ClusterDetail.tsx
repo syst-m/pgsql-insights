@@ -23,17 +23,42 @@
  * "10.5 *(Query load)* → **6b** · 10.5 *(Resource load, R5.1 cards, topology)*
  * → **7**". Both halves are mounted here because this tab is R10.5's surface;
  * the split is by part of the cell, not by which page renders it.
+ *
+ * ── where the Query load series come from ──────────────────────────────────
+ *
+ * R8.11's batched route is the only source — `client.ts:395`'s
+ * `fetchQuerySeries` — and the chart takes its input as a prop rather than
+ * fetching for itself, because R8.11's whole claim is that *one* response
+ * serves this chart, R10.6's sparkline column and R10.7's detail chart. So the
+ * page is the caller: it reads `querySeries` off its props and, while no caller
+ * has one yet, defaults to the contract fixture filtered to the row's cluster —
+ * the same way the row itself comes from `FIXTURE_CLUSTERS` rather than from a
+ * fetch. The filter is not decoration: `QuerySeries` names its own namespace
+ * and cluster (`api/types.ts:686`) and the chart plots whatever array it is
+ * handed, so a batch belonging to another cluster is the one way this page can
+ * be wrong without anything failing.
+ *
+ * Two facts about the fetcher come with it, both A2's. `topN` is a
+ * `fetchQueries` (`client.ts:284`) question, because R9.13's batch exists to be
+ * fed that way — one series call for N fingerprints rather than N calls — and
+ * the batch is capped at 50 (`MaxBatchFingerprints`), above which the server
+ * answers `InvalidRequest` rather than truncating (R8.10 forbids the clamp), so
+ * a page that wants 80 needs a paging story and not a slice. And in fixture
+ * mode the fetcher ignores its params entirely (`client.ts:400-403`), so the
+ * fixture default and a fixture-mode fetch return the same three series — all
+ * three of which belong to `open-webui/open-webui-pg`, which is why the other
+ * three reference clusters still render the empty chart.
  */
 
-import type { FleetRow, PoolerView, ServiceView } from "../api/types";
-import { FIXTURE_CLUSTERS } from "../api/fixtures";
+import type { FleetRow, PoolerView, QuerySeries, ServiceView } from "../api/types";
+import { FIXTURE_CLUSTERS, FIXTURE_QUERY_SERIES } from "../api/fixtures";
 import type { ClusterTab, UrlState } from "../state/urlState";
 import type { PageProps } from "../routes";
 import { StatusChip } from "../components/StatusGlyph";
 import { daysUntil, formatNumber, formatSize, formatTimestamp, NULL_VALUE } from "../lib/format";
 import { StatePanel } from "../components/StatePanel";
 import { ResourceLoadPanel } from "../components/ResourceLoadPanel";
-import { QueryLoadArea } from "../components/QueryLoadArea";
+import { QueryLoadArea, stackSeries } from "../components/QueryLoadArea";
 
 const TABS: readonly { key: ClusterTab; label: string }[] = [
   { key: "overview", label: "Overview" },
@@ -44,6 +69,21 @@ const TABS: readonly { key: ClusterTab; label: string }[] = [
   { key: "findings", label: "Findings" },
 ];
 
+/** What the R10.5 route accepts, in one shape: the `PageProps` half is A4's
+ *  generic, the rest is this page's.
+ *
+ *  `querySeries` is the page's only real input, and it is optional for the same
+ *  reason the row comes from `FIXTURE_CLUSTERS` rather than from a fetch: the
+ *  fetcher exists (`client.ts:395`) and no caller has one yet. The header's
+ *  "where the Query load series come from" section is the argument and the
+ *  fixture is the stand-in; when `useQuerySeries` lands, this prop is what it
+ *  fills and the page needs no other change — the same shape
+ *  `QueryDetailPageProps` uses for R10.7's chart. */
+export interface ClusterDetailPageProps extends PageProps {
+  /** R8.11's batched per-minute series, for this cluster and one window. */
+  querySeries?: readonly QuerySeries[];
+}
+
 /** The route entry for the `cluster` page (R10.5), mounted from `routes.ts`.
  *
  *  Resolving the row here, rather than in an `App.tsx` branch, is what lets the
@@ -52,14 +92,21 @@ const TABS: readonly { key: ClusterTab; label: string }[] = [
  *  new page needed an App.tsx edit. A detail page that cannot find its row is a
  *  page state, not a router state.
  *
- *  `cfg` and `fixtureOverride` are accepted and unused — this page renders the
- *  row the URL names, it does not fetch. They exist because `PageProps` is one
- *  contract for every page, which is what replaced the if-chain.
+ *  `cfg` and `fixtureOverride` stay accepted and unused — the page renders the
+ *  row the URL names and does not fetch, and they exist because `PageProps` is
+ *  one contract for every page, which is what replaced the if-chain.
  */
-export function ClusterDetailPage(props: PageProps) {
+export function ClusterDetailPage(props: ClusterDetailPageProps) {
   const cluster = FIXTURE_CLUSTERS.find((c) => `${c.namespace}/${c.name}` === props.state.cluster);
   if (cluster === undefined) return <UnknownCluster {...props} />;
-  return <ClusterDetailBody cluster={cluster} state={props.state} onPatch={props.onPatch} />;
+  return (
+    <ClusterDetailBody
+      cluster={cluster}
+      state={props.state}
+      onPatch={props.onPatch}
+      querySeries={props.querySeries ?? FIXTURE_QUERY_SERIES.data}
+    />
+  );
 }
 
 /** A stale or hand-typed cluster id: the row is gone from the snapshot, so the
@@ -80,13 +127,33 @@ function UnknownCluster({ state, onPatch }: PageProps) {
   );
 }
 
+/** Narrow a batch of R8.11 series down to the ones belonging to one cluster.
+ *
+ *  `QuerySeries` names its own namespace and cluster (`api/types.ts:686`) and
+ *  `QueryLoadArea` plots whatever array it is handed, so a batch fetched for
+ *  another cluster is the one way this page can render a chart that is wrong
+ *  without anything failing. The route entry applies this to the fixture, and
+ *  a caller with a real batch gets the same narrowing for free. */
+export function seriesForCluster(
+  cluster: Pick<FleetRow, "namespace" | "name">,
+  series: readonly QuerySeries[],
+): QuerySeries[] {
+  return series.filter(
+    (s) => s.namespace === cluster.namespace && s.cluster === cluster.name,
+  );
+}
+
 export interface ClusterDetailProps {
   cluster: FleetRow;
   state: UrlState;
   onPatch: (patch: Partial<UrlState>) => void;
+  /** R8.11's series for this cluster, already narrowed by `seriesForCluster`.
+   *  Required here and optional on the route entry: the entry always resolves
+   *  one — the prop, or the fixture — so the body never has to ask. */
+  querySeries: readonly QuerySeries[];
 }
 
-function ClusterDetailBody({ cluster, state, onPatch }: ClusterDetailProps) {
+function ClusterDetailBody({ cluster, state, onPatch, querySeries }: ClusterDetailProps) {
   const tab = state.tab;
   return (
     <div className="page" data-page="cluster">
@@ -132,7 +199,7 @@ function ClusterDetailBody({ cluster, state, onPatch }: ClusterDetailProps) {
         ))}
       </nav>
 
-      {tab === "overview" && <Overview cluster={cluster} />}
+      {tab === "overview" && <Overview cluster={cluster} querySeries={querySeries} />}
       {tab === "instances" && (
         <Instances cluster={cluster} selectedRow={state.row} onSelect={(name) => onPatch({ row: name })} />
       )}
@@ -146,7 +213,18 @@ function ClusterDetailBody({ cluster, state, onPatch }: ClusterDetailProps) {
   );
 }
 
-function Overview({ cluster }: { cluster: FleetRow }) {
+/** The `overview` tab (R10.5). `querySeries` is threaded through from the route
+ *  entry rather than fetched here, because the batch is the page's, not the
+ *  tab's — R10.6's table row and R10.7's detail chart read the same response
+ *  (R8.11's whole claim), and a tab that fetches for itself spends the budget
+ *  twice. */
+function Overview({
+  cluster,
+  querySeries,
+}: {
+  cluster: FleetRow;
+  querySeries: readonly QuerySeries[];
+}) {
   const rows: [string, string][] = [
     [
       "Instances",
@@ -180,18 +258,14 @@ function Overview({ cluster }: { cluster: FleetRow }) {
         </dl>
       </section>
       {/* R10.5(a)'s slot: the chart is 6b's (components/QueryLoadArea.tsx) and
-          the data is R9.4's. `points={[]}` is the honest value for the same
-          reason `source={null}` below is one — this page renders a `FleetRow`,
-          and the route that carries per-minute query load is R8.11's
-          `/insights/queries/series`. `client.ts` has that fetcher
-          (`fetchQuerySeries`, and its `QuerySeriesParams.cluster` is singular,
-          so a page showing one cluster needs one call for that cluster) but no
-          page-level hook calls it, so there is no batch here to plot yet. The
-          input it wants is
-          `stackSeries(fetchQuerySeries(cfg, { cluster, fingerprints: topN }).data)`;
-          until then the chart renders its own R10.13 sentence rather than a
-          series invented at the call site. */}
-      <QueryLoadArea points={[]} />
+          the batch is R8.11's — the header's "where the Query load series come
+          from" section is the whole argument (fetcher `client.ts:395`, top-N
+          from `fetchQueries`, cap 50, fixture mode ignores params). The slot
+          itself only has to say what it plots: this cluster's series, folded
+          into buckets per timestamp by `stackSeries`. A cluster the payload has
+          nothing for still gets the chart's own R10.13 sentence, which is the
+          same honest answer `source={null}` below gives for R10.5(b). */}
+      <QueryLoadArea points={stackSeries(seriesForCluster(cluster, querySeries))} />
       {/* R10.5(b)'s slot: the panel is 6b's, the graph is Phase 7's (see
           components/ResourceLoadPanel.tsx). `source={null}` is the honest
           value, not a placeholder — client.ts has no OS-metrics fetcher yet,

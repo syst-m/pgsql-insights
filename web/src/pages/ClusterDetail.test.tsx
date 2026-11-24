@@ -25,9 +25,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ClusterDetailPage } from "./ClusterDetail";
-import { FIXTURE_CLUSTERS, FIXTURE_GENERATED_AT } from "../api/fixtures";
-import type { FleetRow } from "../api/types";
+import { ClusterDetailPage, seriesForCluster, type ClusterDetailPageProps } from "./ClusterDetail";
+import { FIXTURE_CLUSTERS, FIXTURE_GENERATED_AT, FIXTURE_QUERY_SERIES } from "../api/fixtures";
+import type { FleetRow, QuerySeries } from "../api/types";
 import { resolveConfig } from "../api/client";
 import { formatTimestamp } from "../lib/format";
 import { DEFAULT_STATE, withState, type ClusterTab, type UrlState } from "../state/urlState";
@@ -38,8 +38,18 @@ import { DEFAULT_STATE, withState, type ClusterTab, type UrlState } from "../sta
  *  accepts it and ignores it (its own header says so — the page renders the row
  *  the URL names, it does not fetch), and the resolver is the cheapest way to
  *  hand over a real one.
+ *
+ *  `extra` carries the page's own optional props — today `querySeries`, the
+ *  R8.11 batch. Omitting it is not the same as passing nothing: the page then
+ *  falls back to the contract fixture filtered to the row, so a test that wants
+ *  to see the fallback leaves `extra` out and a test that wants to see the
+ *  caller's answer passes it.
  */
-function renderDetail(cluster: string | null, patch: Partial<UrlState> = {}) {
+function renderDetail(
+  cluster: string | null,
+  patch: Partial<UrlState> = {},
+  extra: Partial<ClusterDetailPageProps> = {},
+) {
   const patches: Partial<UrlState>[] = [];
   const state = withState(DEFAULT_STATE, { page: "cluster", cluster, ...patch });
   const view = render(
@@ -49,6 +59,7 @@ function renderDetail(cluster: string | null, patch: Partial<UrlState> = {}) {
       onPatch={(p) => {
         patches.push(p);
       }}
+      {...extra}
     />,
   );
   return { ...view, patches, state };
@@ -282,14 +293,14 @@ describe("Overview tab", () => {
   it("mounts both halves of the R10.5 split and both say they have no data", () => {
     // The 6b pin. The ruling splits R10.5 by part of the cell — Query load here
     // (6b, `components/QueryLoadArea.tsx`), Resource load's graph in Phase 7 —
-    // and this page mounts both with the honest inputs: `points={[]}` because no
-    // page-level hook calls `fetchQuerySeries` yet, `source={null}` because
-    // `client.ts` has no OS-metrics fetcher at all.
-    //
-    // When A4's `useQueries`/`useQueryDetail`/`useQuerySeries` land, this is the
-    // test that catches the swap: `points` stops being `[]`, the chart-empty
-    // sentence goes away, and the assertion has to be rewritten to the fetched
-    // case rather than quietly deleted.
+    // and this page mounts both with the honest inputs. The panel's is
+    // `source={null}`, because `client.ts` has no OS-metrics fetcher at all.
+    // The chart's is `stackSeries(seriesForCluster(cluster, querySeries))`, and
+    // for this cluster that folds to no buckets: the R8.11 fixture carries
+    // series for open-webui only, so rev-proxy-pg's answer is still R10.13's
+    // sentence — now because the payload has nothing for it, not because the
+    // page never asked. The plotted half is the sibling test in the wiring
+    // block below, and the two together are what this one assertion used to be.
     const { container } = renderDetail(idOf(REV_PROXY));
 
     const queryLoad = container.querySelector("section.card[aria-labelledby='qla-title']");
@@ -325,6 +336,80 @@ describe("Overview tab", () => {
       ["rev-proxy-pg-replication", "replication TLS", expect.any(String)],
       ["rev-proxy-pg-server", "server TLS", expect.any(String)],
     ]);
+  });
+});
+
+describe("ClusterDetail query-series wiring", () => {
+  // R10.5(a)'s data half. The fetcher is `client.ts:395` and the batch it
+  // returns is `fetchQueries`' top-N (cap 50, and R8.10 forbids clamping it
+  // silently); what the page decides, and so what these tests cover, is only
+  // which of the batch's series reach the chart and what the chart does with
+  // them.
+  //
+  // `batch()` builds series here instead of reusing the fixture because the
+  // contract fixture's three series all belong to open-webui: a filter tested
+  // against a single-cluster array passes for the wrong reason, and a one-point
+  // batch is the only way to see the caller's answer rather than the default.
+  const batch = (namespace: string, cluster: string, fingerprint: string): QuerySeries => ({
+    fingerprint,
+    namespace,
+    cluster,
+    points: [
+      {
+        timestamp: "2026-11-23T09:00:00Z",
+        executionTimeSeconds: 1.5,
+        rows: 12,
+        sharedBlocksHit: 4,
+        sharedBlocksRead: 2,
+        lockTimeSeconds: 0.01,
+        ioTimeSeconds: 0.25,
+      },
+    ],
+  });
+
+  it("keeps only the named cluster's series out of a mixed batch", () => {
+    const mixed = [
+      batch("cookbook", "cookbook-pg", "a".repeat(64)),
+      batch("open-webui", "open-webui-pg", "b".repeat(64)),
+    ];
+    const mine = seriesForCluster({ namespace: "cookbook", name: "cookbook-pg" }, mixed);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.cluster).toBe("cookbook-pg");
+  });
+
+  it("returns nothing for a cluster the batch has no series for", () => {
+    // The fixture's own answer for three of its four clusters, and the case the
+    // chart renders as R10.13's sentence rather than an empty frame.
+    expect(seriesForCluster(REV_PROXY, FIXTURE_QUERY_SERIES.data)).toEqual([]);
+  });
+
+  it("plots the fixture's buckets for the cluster that has them", () => {
+    // The plotted half of the R10.5 split; the empty half is the Overview test
+    // above. The fixture's two open-webui fingerprints share 09:11 and one of
+    // them owns 09:12, so the two buckets come from the fold, not from a
+    // literal here.
+    const { container } = renderDetail("open-webui/open-webui-pg");
+    const card = container.querySelector("section.card[aria-labelledby='qla-title']");
+    expect(card?.querySelector("p.chart-empty")).toBeNull();
+    expect(card?.querySelector("svg")).not.toBeNull();
+    // R10.19's legend drops the `· n/a` the moment the IO band has a value. The
+    // fixture's io values are real, so this is the pair's other side — the
+    // Overview test asserts the `n/a`, this one asserts its absence.
+    const legend = card?.querySelector(".qla-legend")?.textContent ?? "";
+    expect(legend).toContain("IO time");
+    expect(legend).not.toContain("IO time · n/a");
+  });
+
+  it("prefers the caller's batch over the fixture", () => {
+    // The prop is the seam A4's `useQuerySeries` fills, so the fixture has to be
+    // provably a default and not the answer: rev-proxy-pg has nothing in the
+    // fixture, so the only way its chart can render is if the prop won.
+    const { container } = renderDetail(idOf(REV_PROXY), {}, {
+      querySeries: [batch("ai-api-gateway", "rev-proxy-pg", "c".repeat(64))],
+    });
+    const card = container.querySelector("section.card[aria-labelledby='qla-title']");
+    expect(card?.querySelector("p.chart-empty")).toBeNull();
+    expect(card?.querySelector("svg")).not.toBeNull();
   });
 });
 
