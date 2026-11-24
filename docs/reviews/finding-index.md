@@ -9,6 +9,17 @@ table, a Go comment saying *"the `captured_at < ?` is A3's S26"* pointed at a pa
 a commit-message body — a different repository object, unresolvable without a `git log`,
 and unresolvable at all for the ids that were never written down anywhere but a subject line.
 
+**A row's cites are frozen at the rev the row names; they are not live references (ruled, on A2's question).**
+The index's job is to make `A3's S<NN>` resolvable and to record what was found and what fixed it. The cites in
+the `against` and `finding` columns were verified at the rev in the row's `filed in` / `fixed by` columns, so
+they get checked with `git show <rev>:<path>`, not against the worktree -- S52's `internal/api/dto/series.go:63`
+and `api/openapi.yaml:2941-2949` stay as filed even though those two locations are `internal/api/dto/series.go:75`
+and `api/openapi.yaml:2958` today. Retargeting a closed row would make it describe a state that existed at no
+commit: the number is correct now but was a different number at the commit named in `fixed by`. The live
+artifacts are `requirements.md`'s R-cells and `docs/agents.md`'s ownership table -- both describe the current
+code, so both do get retargeted, and that is what `c4affd2` did to R8.3. A2 stops filing cite decay against
+index rows; the S52 row's status flip to `fixed` is the only change that commit owed it.
+
 | id | filed in | against | finding | fixed by | status |
 |---|---|---|---|---|---|
 | S1 | `f08b6ac`, IMPLEMENTATION.md §5 D18 | requirements.md R8.4 | R8.4 as amended said `meta.total` "counts what the response can serve, not what was attempted", while `dto/clusters.go` documents it as the pre-cut count and defines `truncated ⟺ len(data) < total`: with 120 matching and `limit=50` the two documents assign 50 and 120 to one field, and `web/src/api/envelope.ts`'s `partialBanner()` announces 120 while rendering 50. R8.10's pre-cut count wins — `truncated` is defined against it and the Go side already ships it. The equation `attempted = total + len(failed) + len(loading)` is deleted outright: it adds *rows to namespaces*, and a namespace yields N clusters, so no arithmetic over `total` recovers an attempted-cluster count. The banner's count is `data.length`. Second amendment (same day, my own wording): `truncated ⟺ len(data) < total` is wrong on every page but the first — on page 2 of a 4-row `limit=2` result `len(data)` is 2 and `total` is 4 with `truncated` false. | `f08b6ac` | ruled |
