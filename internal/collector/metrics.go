@@ -22,7 +22,10 @@ import (
 // families together.
 const DefaultPrefix = "pgsi_"
 
-// durationBuckets are the histogram boundaries for the duration family.
+// durationBuckets are the histogram boundaries for the duration family, and
+// since the R9.8 export they are also the *default* set: Histogram carries its
+// own bucket slice (see NewHistogram), so a second family can pick different
+// boundaries without a second renderer.
 //
 // Spec gap, flagged rather than resolved silently: R2.2 names the family
 // `pgsi_collector_duration_seconds` and gives it one label, but does not name a
@@ -276,22 +279,52 @@ func (s *Stats) RenderErrors() string {
 	return b.String()
 }
 
-// histogram is one collector's duration distribution: per-bucket counts plus the
-// sum and count Prometheus requires for a histogram sample set.
-type histogram struct {
-	counts []uint64 // per durationBuckets boundary, not cumulative
-	sum    float64
-	n      uint64
+// Histogram is a duration distribution: per-bucket counts plus the sum and count
+// Prometheus requires for a histogram sample set.
+//
+// It carries its own bucket set because the exposition rules are the same for
+// every histogram and the boundaries are not: the collector family reads
+// durationBuckets, and R9.8's pgsi_http_request_duration_seconds needs
+// boundaries placed around R13.3's 100 ms p50 / 400 ms p95 instead.
+//
+// It was the unexported `histogram` until internal/metrics needed to render a
+// second family with it. That package cannot reach an unexported type in another
+// package, and writing a second histogram there would have duplicated the one
+// part of this file that is a graded contract — the cumulative-count, `le`,
+// `_sum`/`_count` rules `promtool check metrics` validates — so the name moved
+// to exported rather than the renderer being copied (R16.8).
+type Histogram struct {
+	buckets []float64 // the `le` boundaries; counts[i] counts observations <= buckets[i]
+	counts  []uint64  // per boundary, not cumulative
+	sum     float64
+	n       uint64
 }
 
-func newHistogram() *histogram {
-	return &histogram{counts: make([]uint64, len(durationBuckets))}
+// histogram is the original unexported name, kept as a type alias so every
+// existing reference — Stats.durations at :76, NewStatsWithPrefix at :107, and
+// the package's tests — compiles unchanged.
+type histogram = Histogram
+
+// NewHistogram returns an empty histogram over `buckets`. The slice is copied: it
+// becomes the receiver's own, and a caller that later appended to the slice it
+// passed would otherwise change the meaning of counts[] after the fact.
+func NewHistogram(buckets []float64) *Histogram {
+	b := make([]float64, len(buckets))
+	copy(b, buckets)
+	return &Histogram{buckets: b, counts: make([]uint64, len(buckets))}
 }
 
-func (h *histogram) observe(v float64) {
+// newHistogram is the original constructor, kept as the one-line shim over
+// NewHistogram(durationBuckets) that the duration family's call site at :137
+// still calls, so exporting the type cost that call site nothing.
+func newHistogram() *histogram { return NewHistogram(durationBuckets) }
+
+// Observe records one observation. The bucket loop reads h.buckets, so the
+// boundaries are the only thing that differs between one histogram and the next.
+func (h *Histogram) Observe(v float64) {
 	h.sum += v
 	h.n++
-	for i, b := range durationBuckets {
+	for i, b := range h.buckets {
 		if v <= b {
 			h.counts[i]++
 			return
@@ -299,7 +332,11 @@ func (h *histogram) observe(v float64) {
 	}
 }
 
-// render emits the `_bucket`/`_sum`/`_count` lines for one histogram. `labels`
+// observe is the original method name, kept as a shim so the call site at :140
+// compiles unchanged.
+func (h *Histogram) observe(v float64) { h.Observe(v) }
+
+// Render emits the `_bucket`/`_sum`/`_count` lines for one histogram. `labels`
 // is the series' label set apart from `le` — for the duration family that is
 // `{collector="wal"}`, and it has to be here: R2.2 gives the family one label,
 // and a render that emitted only `{le=...}` would produce one identical set of
@@ -312,10 +349,10 @@ func (h *histogram) observe(v float64) {
 // cumulative instead would make observe O(n) on every write to save a sum at read
 // time; the read happens once per scrape and the write once per round, so the
 // work belongs here.
-func (h *histogram) render(name string, labels map[string]string) string {
+func (h *Histogram) Render(name string, labels map[string]string) string {
 	var b strings.Builder
 	var cum uint64
-	for i, boundary := range durationBuckets {
+	for i, boundary := range h.buckets {
 		cum += h.counts[i]
 		fmt.Fprintf(&b, "%s_bucket%s %s\n", name,
 			labelString(withLabel(labels, "le", formatFloat(boundary))),
@@ -326,6 +363,12 @@ func (h *histogram) render(name string, labels map[string]string) string {
 	fmt.Fprintf(&b, "%s_sum%s %s\n", name, labelString(labels), formatFloat(h.sum))
 	fmt.Fprintf(&b, "%s_count%s %s\n", name, labelString(labels), strconv.FormatUint(h.n, 10))
 	return b.String()
+}
+
+// render is the original method name, kept as a shim so the call site at :232
+// compiles unchanged.
+func (h *Histogram) render(name string, labels map[string]string) string {
+	return h.Render(name, labels)
 }
 
 // withLabel returns a copy of labels plus one extra entry. The copy is required,
@@ -347,11 +390,12 @@ func withLabel(labels map[string]string, k, v string) map[string]string {
 //
 // Sorting is the format's own convention — client_golang's expfmt sorts label
 // names, and a deterministic render is what makes a golden file possible at all.
-// It is also the repo's single escaping convention: metrics.BuildInfo in
+// It is also the repo's single escaping convention, and it is exported so other
+// packages call it instead of inlining their own: metrics.BuildInfo in
 // internal/metrics/metrics.go inlines the same %q form, and Go's %q and
 // Prometheus's escaping are identical for the
 // ASCII set R9.3's values come from (DNS labels and collector names).
-func labelString(labels map[string]string) string {
+func LabelString(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
@@ -368,11 +412,21 @@ func labelString(labels map[string]string) string {
 	return b.String()
 }
 
-// formatFloat renders a float64 the way the exposition format wants it: shortest
+// labelString is the original function name, kept as a shim so up.go:195 and the
+// package's tests compile unchanged.
+func labelString(labels map[string]string) string { return LabelString(labels) }
+
+// FormatFloat renders a float64 the way the exposition format wants it: shortest
 // representation that round-trips, so 5 is "5" and not "5.000000", and 0.1 is
 // "0.1". %v on a float64 gives the same thing; naming it in one function is what
 // stops a future caller reaching for %f and producing "3.000000" for a count.
-func formatFloat(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+// It is exported for the same reason Histogram is: every package that renders a
+// metric value needs it, and a second copy is a second contract (R16.8).
+func FormatFloat(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+
+// formatFloat is the original name, kept as a shim so the in-package call sites
+// at :273 and :319 and the package's tests compile unchanged.
+func formatFloat(v float64) string { return FormatFloat(v) }
 
 // sortedKeys returns a map's string keys in order. Prometheus does not require
 // sorted output, but a deterministic render is what makes a golden test possible
