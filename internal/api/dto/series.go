@@ -42,14 +42,21 @@ import "time"
 // number in milliseconds (`query.io_wait_ms`, `query_rollup.io_wait_ms`), so
 // the value here is that column over `msPerSecond`, the way
 // ExecutionTimeSeconds is `total_exec_ms` over the same constant. The store's
-// batched read does not select the column yet — internal/store/series.go's
-// `seriesSQL` lists six of the rollup's seven value columns — so until that
-// select lands the field carries the zero its type gives it rather than a
-// number this file invents.
+// batched read now selects the column: internal/store/series.go's `seriesSQL`
+// carries all seven value columns as of A5's 9a16c71, so the value here is the
+// column's and not the zero the type used to supply. Until that commit this
+// paragraph said the select had not landed — it was written against the
+// six-column read and outlived it by one commit, which is the whole cost of
+// describing a sibling file in prose no tool checks: the file moved, the
+// description did not, and nothing went red.
 //
 // float64 for all six because that is the type the R9.4 metric family carries
 // (a Prometheus sample value); a per-minute delta derived from a counter is not
-// necessarily integral even when the underlying count is.
+// necessarily integral even when the underlying count is. R8.3's ruling at
+// 7cecc49 makes two of the six `*float64` — lockTimeSeconds and ioTimeSeconds,
+// the two whose source can be absent — and the struct lines themselves
+// (`internal/api/dto/series.go:63`, `internal/api/dto/series.go:64`) are A1's
+// to flip; the document already says `nullable: true` on both.
 type QuerySeriesPoint struct {
 	// Timestamp is the start of the minute, RFC 3339 in UTC (R10.21: every
 	// timestamp the API emits is RFC 3339 UTC, and R8.4's meta.generatedAt is
