@@ -480,6 +480,43 @@ func TestEvictKeepsTheNewestDay(t *testing.T) {
 	}
 }
 
+// TestEvictDayStepIsOneDay pins the length of the day step itself.
+//
+// TestEvictKeepsTheNewestDay cannot pin it: that test seeds three days at exactly
+// 24 h spacing, and evict uses daySeconds twice there — as the loop's stop
+// threshold and as the width of each DELETE — and the two uses trade a row against
+// each other. A step of 86401 s widens the first DELETE just enough to swallow the
+// middle day too, so the run still evicts 2 rows and the mutation survives the
+// suite. Two rows one day apart separate the two uses: with a 86400 s step the
+// threshold does not break and the delete removes exactly the older row; with
+// 86401 s the threshold breaks on the first pass and nothing is evicted. The value
+// is the day granularity R3.14's own question is asked at, which retention.go:79's
+// docblock cites.
+func TestEvictDayStepIsOneDay(t *testing.T) {
+	ctx := context.Background()
+	fp := fpNamed("bb")
+	newest := minuteBucket(seriesNow)
+	older := minuteBucket(seriesNow.Add(-24 * time.Hour))
+
+	s := openFileAt(t, seriesNow, DefaultMaxFileBytes)
+	seedRollups(t, s,
+		seed(fp, newest, 1, 10, 10, 1, 1, 0),
+		seed(fp, older, 1, 10, 10, 1, 1, 0),
+	)
+
+	evicted, _, err := s.evict(ctx, 1)
+	if err != nil {
+		t.Fatalf("evict: %v", err)
+	}
+	if evicted != 1 {
+		t.Errorf("evicted %d rows, want 1 (a step of one day leaves the newest day and"+
+			" removes the row one day older; 0 means the step is longer than a day)", evicted)
+	}
+	if want := []string{fp + "|minute|" + itoa(newest)}; !equalStrings(survivingRollups(t, s), want) {
+		t.Errorf("surviving rollups:\n got %v\nwant %v", survivingRollups(t, s), want)
+	}
+}
+
 // TestPurgeFileStoreBytes covers the report's two byte fields on the profile that
 // has a file. The memory profile reports 0/0 (TestPurgeEmptyStore); a file store
 // reports the real os.Stat size on both sides, and the doc's argument is that the
