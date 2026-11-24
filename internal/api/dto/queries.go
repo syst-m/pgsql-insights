@@ -1,7 +1,7 @@
 // R3.2's Queries row, R10.7's Query Detail page, R3.10's plan samples and
 // R3.12's tags.
 //
-// Four of R8.2's eighteen endpoints answer from this file:
+// Four of R8.2's twenty endpoints answer from this file:
 //
 //	GET /api/v1/insights/queries                     → QueriesResponse           (R3.2)
 //	GET /api/v1/insights/queries/{fingerprint}       → QueryDetailView           (R10.7)
