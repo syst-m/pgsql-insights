@@ -12,6 +12,25 @@ if len(sys.argv) < 2:
     sys.exit(2)
 src = pathlib.Path(sys.argv[1]).read_text().splitlines()
 
+def dump(items, render, cap=20):
+    """Print at most `cap` rendered lines for `items`, then say how many it withheld.
+
+    The finding-index line printed "25 rows never cited" and enumerated 20 of them with no
+    line saying five were withheld, so the summary and the list under it disagreed and the
+    output gave no hint (coordinator's finding, 2026-11-24). The cause was a bare
+    `for t in uncited_f[:20]:` sitting under a summary that printed `len(uncited_f)`: a
+    silent slice. The file had seventeen of them and exactly one -- `cite_bad`, which had
+    its own `if len(cite_bad) > 40: print("  ... more")` two lines -- printed the remainder;
+    the other sixteen truncated without saying so. This is that one line, generalised, and
+    SLICE_LOOP_RE at the bottom fails the build on any new bare slice so the convention
+    cannot rot back to one site out of seventeen.
+    """
+    items = list(items)
+    for x in items[:cap]:
+        print(render(x))
+    if len(items) > cap:
+        print(f"  \u2026 {len(items) - cap} more not listed")
+
 def split_row(line):
     if not line.startswith("|"): return None
     return [c.strip() for c in line.strip().strip("|").split("|")]
@@ -176,8 +195,7 @@ gen_notes = {n for v in annotated.values() for n in v}
 unbound_notes = sorted(text_notes - gen_notes)
 print(f"annotation coverage: {len(text_notes)} notes in \u00a77.3 \u00b7 {len(gen_notes)} "
       f"attached to an id \u00b7 {len(unbound_notes)} unbound")
-for n in unbound_notes[:10]:
-    print(f"  ({n}) is written in \u00a77.3 and attached to no id -- the parser cannot read it")
+dump(unbound_notes, lambda n: f"  ({n}) is written in \u00a77.3 and attached to no id -- the parser cannot read it", cap=10)
 print(f"mismatches: {len(bad)}")
 for b in bad: print("  ", b)
 
@@ -265,12 +283,8 @@ id_orphans = sorted(set(EXEMPT) - cited_ids)
 print(f"citations: {len(cited_ids)} distinct ids across "
       f"{len({f for f, _, _ in cited})} files · {len(cite_bad)} not defined by §4 · "
       f"{len(id_orphans)} orphan exemptions")
-for f, n, t in cite_bad[:40]:
-    print(f"  {f}:{n}: {t}")
-if len(cite_bad) > 40:
-    print(f"  … {len(cite_bad) - 40} more")
-for k in id_orphans[:20]:
-    print(f"  orphan exemption: {k} — {EXEMPT[k]}")
+dump(cite_bad, lambda f, n, t: f"  {f}:{n}: {t}", cap=40)
+dump(id_orphans, lambda k: f"  orphan exemption: {k} — {EXEMPT[k]}")
 
 # --- path citations (A4's chart/README.md find, generalised) -------------------------
 # A `path:N` citation is only as durable as the file's line count. `ed58452` inserted 65
@@ -382,12 +396,9 @@ path_orphans = sorted(set(PATH_EXEMPT) - cited_pairs)
 print(f"path citations: {checked_path} resolved · {len(path_bad)} wrong · "
       f"{len(unresolved)} unresolvable (reported, not failed) · {exempt_path} exempt · "
       f"{len(path_orphans)} orphan exemptions")
-for f, n, kind, msg in path_bad[:20]:
-    print(f"  {f}:{n} [{kind}] {msg}")
-for f, n, kind, path, n_alt in unresolved[:10]:
-    print(f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})")
-for k in path_orphans[:20]:
-    print(f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
+dump(path_bad, lambda f, n, kind, msg: f"  {f}:{n} [{kind}] {msg}")
+dump(unresolved, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
+dump(path_orphans, lambda k: f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
 
 # --- relative markdown links (A4's docs/README.md find, generalised) ---
 # The half above validates `path:N` citations and says nothing about `[text](path)` links,
@@ -508,8 +519,7 @@ def check_status_enum(root):
 status_rows, status_bad = check_status_enum(root)
 print(f"status cells: {status_rows} requirement rows \u00b7 {len(status_bad)} non-canonical "
       f"(enum: {'|'.join(STATUS_ENUM)})")
-for n, rid, cell in status_bad[:20]:
-    print(f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}")
+dump(status_bad, lambda n, rid, cell: f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}")
 
 # ---------------------------------------------------------------------------
 # Table width: every row in a markdown table must carry its header's cell count.
@@ -718,14 +728,12 @@ def check_id_cites(root):
 width_tables, width_rows, width_bad = check_table_widths(root)
 print(f"table widths: {width_tables} tables \u00b7 {width_rows} rows \u00b7 "
       f"{len(width_bad)} mismatched \u00b7 {len(WIDTH_EXEMPT)} exempt")
-for rel, n, w, n2, first in width_bad[:20]:
-    print(f"  {rel}:{n}: {n2} cells under a {w}-cell header -- first cell {first!r}")
+dump(width_bad, lambda rel, n, w, n2, first: f"  {rel}:{n}: {n2} cells under a {w}-cell header -- first cell {first!r}")
 
 idc_checked, idc_rows, idc_bad = check_id_cites(root)
 print(f"id-vs-cite: {idc_checked} id+path:N adjacencies \u00b7 {idc_rows} requirement rows' "
       f"own cites \u00b7 {len(idc_bad)} naming a different requirement's row")
-for rel, n, idc, path, ln, actual in idc_bad[:20]:
-    print(f"  {rel}:{n}: names {idc} but {path}:{ln} is {actual}'s row")
+dump(idc_bad, lambda rel, n, idc, path, ln, actual: f"  {rel}:{n}: names {idc} but {path}:{ln} is {actual}'s row")
 
 # ---------------------------------------------------------------------------
 # §3's phase table and §1's milestone table: the phase-level status, derived.
@@ -912,13 +920,107 @@ def check_phase_and_milestone_status(root):
     return phase_rows, phase_bad, ms_rows, ms_bad
 
 
+# --- §3's validation-entry headings vs §3's phase table ----------------------------------
+#
+# R14.2 makes a validation entry a phase's artifact and R14.9 splits it per owner, but
+# nothing tied the entries to the table that is supposed to point at them. §3's phase table
+# has a `Validation entry` column and the only rule ever written against its cells was the
+# width rule -- so a cell could name any section number, and on the first run this rule was
+# written, one did: Phase 2's cell named §3.10, which is `Task-level breakdown (Phase 2,
+# expanded)`, while Phase 2's validation entry is §3.12. The cell was written when no Phase
+# 2 entry existed and pointed at the nearest thing; `1be97e2` wrote the entry and left the
+# cell behind (A3's S79). The coordinator's ask was exactly this -- "if §3.12's heading is
+# the canonical address for the Phase 2 entry, that's the kind of fact the checker should be
+# able to answer in one grep" -- and the answer is one grep now, plus the failure it needed.
+#
+# Two rules, one per direction:
+#   dangling -- every §3.N written in a Validation entry cell names an existing `### 3.N`
+#               heading of any kind (entry, requirement table, or task breakdown), so a
+#               renumbered or deleted section can't be cited by a row that survived it;
+#   orphan   -- every `### 3.N Phase X validation entry (R14.2)` heading is named by at
+#               least one phase-table row, and every row that names it is a row for phase X.
+#               The shared-entry case is R14.9's: a heading that says `Phase 1` is named by
+#               the `1a` and `1b` rows, so a row token starting with the heading's phase
+#               token counts as that phase, not as a mismatch.
+# Both directions are needed and neither subsumes the other: the dangling rule is silent on
+# §3.10-vs-§3.12 (both headings exist), and the orphan rule is silent on a cell citing a
+# heading that was deleted. Zero headings parsed is a GUARD exit, not a pass.
+H3_ANY_RE = re.compile(r"^###\s+(\d+\.\d+)\s+(.+?)\s*$")
+H3_VENTRY_RE = re.compile(
+    r"^###\s+(\d+\.\d+)\s+Phase\s+(\d+[ab]?)\s+validation entry \(R14\.2\)\s*$")
+SEC_REF_RE = re.compile(r"\u00a7(\d+\.\d+)")
+
+
+def check_validation_entries(root):
+    """(headings, entries, rows, dangling, orphans).
+
+    headings  -- every `### N.N <title>` in IMPLEMENTATION.md, {section: title}
+    entries   -- the subset that are R14.2 validation entries, {section: phase token}
+    rows      -- phase-table rows with a full six cells, counted
+    dangling  -- (phase token, §ref) for a cell citing a section with no heading
+    orphans   -- (section, phase, why) for an entry its phase row fails to name
+    """
+    headings, entries = {}, {}
+    for line in lines_of(root, "IMPLEMENTATION.md"):
+        m = H3_ANY_RE.match(line)
+        if m:
+            headings[m.group(1)] = m.group(2)
+        v = H3_VENTRY_RE.match(line)
+        if v:
+            entries[v.group(1)] = v.group(2)
+    if not headings:
+        print("GUARD: 0 `### N.N` headings parsed in IMPLEMENTATION.md -- the heading shape "
+              "moved, not a pass")
+        sys.exit(2)
+    if not entries:
+        print("GUARD: 0 `### N.N Phase X validation entry (R14.2)` headings parsed -- R14.2 "
+              "requires them, so an empty set is the regex breaking, not a pass")
+        sys.exit(2)
+
+    # A cell's *address* is its first §ref; everything after it is annotation. Phase 2's
+    # cell cites §3.11 (Phase 3's entry) in prose and Phase 3's cites §3.12 the same way,
+    # so treating every §ref in the cell as a claim about the entry produced two false
+    # orphans on a file with nothing wrong with them. The address is the cell's first ref;
+    # the existence rule still applies to all of them.
+    primary, rows, dangling = {}, 0, []
+    for cells in table_rows(root, PHASE_TABLE_RE):
+        m = PHASE_TOKEN_RE.match(cells[0])
+        if not m or len(cells) < 6:
+            continue
+        rows += 1
+        refs = SEC_REF_RE.findall(cells[5])
+        if refs:
+            primary.setdefault(refs[0], set()).add(m.group(1))
+        for ref in refs:
+            if ref not in headings:
+                dangling.append((m.group(1), ref))
+
+    orphans = []
+    for sec, phase in sorted(entries.items()):
+        named_by = primary.get(sec, set())
+        valid = {t for t in named_by if t == phase or t.startswith(phase)}
+        if not named_by:
+            orphans.append((sec, phase, "no phase-table row names it as its Validation entry"))
+        for t in sorted(named_by - valid):
+            orphans.append((sec, phase,
+                            "named as the Validation entry of row **%s**, which is phase %s"
+                            % (t, phase)))
+    return len(headings), len(entries), rows, dangling, orphans
+
+
 phase_rows, phase_bad, ms_rows, ms_bad = check_phase_and_milestone_status(root)
 print(f"phase cells: {phase_rows} §3 phase rows · {len(phase_bad)} malformed status "
       f"cells · {ms_rows} §1 phase rows · {len(ms_bad)} disagreeing with §3")
-for label, cell, expected in ms_bad[:20]:
-    print(f"  IMPLEMENTATION.md §1 {label}: {cell!r}, §3 derives {expected!r}")
-for token, cell in phase_bad[:20]:
-    print(f"  IMPLEMENTATION.md §3 **{token}**: status cell {cell!r} is not a glyph")
+dump(ms_bad, lambda label, cell, expected: f"  IMPLEMENTATION.md §1 {label}: {cell!r}, §3 derives {expected!r}")
+dump(phase_bad, lambda token, cell: f"  IMPLEMENTATION.md §3 **{token}**: status cell {cell!r} is not a glyph")
+
+ve_headings, ve_entries, ve_rows, ve_dangling, ve_orphans = check_validation_entries(root)
+print(f"validation entries: {ve_headings} `### N.N` headings \u00b7 {ve_entries} of them "
+      f"R14.2 entries \u00b7 {ve_rows} phase rows \u00b7 {len(ve_dangling)} dangling "
+      f"\u00a7 refs \u00b7 {len(ve_orphans)} entries not named by their phase row")
+dump(ve_dangling, lambda token, ref: f"  IMPLEMENTATION.md \u00a73 row **{token}**: \u00a7{ref} has no heading")
+dump(ve_orphans, lambda sec, phase, why: f"  IMPLEMENTATION.md \u00a7{sec} (Phase {phase} entry): {why}")
+
 
 
 checked_links, links_bad, labels_bad = check_links(root, files_all)
@@ -927,11 +1029,8 @@ if not scanned_md:
     sys.exit(2)
 print(f"markdown links: {checked_links} checked \u00b7 {len(links_bad)} broken \u00b7 "
       f"{len(labels_bad)} label mismatches")
-for f, n, tgt in links_bad[:20]:
-    print(f"  {f}:{n} -> {tgt}")
-for f, n, text, path in labels_bad[:20]:
-    print(f"  {f}:{n} label {text!r} names {path.rsplit('/', 1)[-1]}, target is "
-          f"{path!r}")
+dump(links_bad, lambda f, n, tgt: f"  {f}:{n} -> {tgt}")
+dump(labels_bad, lambda f, n, text, path: f"  {f}:{n} label {text!r} names {path.rsplit('/', 1)[-1]}, target is " f"{path!r}")
 
 # --- finding ids (docs/reviews/finding-index.md, the S-ledger) -----------------------
 # "A3's S26" is cited from internal/store/statements.go, and before the ledger existed the id
@@ -985,13 +1084,25 @@ uncited_f = sorted(ledger_ids - cited_f, key=lambda s: int(s[1:]))
 print(f"finding ids: {len(ledger_ids)} in {FINDING_DOC} \u00b7 {len(cited_f)} cited across "
       f"{len({f for f, _, _ in fcites})} files \u00b7 {len(finding_bad)} cites with no row \u00b7 "
       f"{len(uncited_f)} rows never cited")
-for f, n, t in finding_bad[:20]:
-    print(f"  {f}:{n}: {t} is cited but has no row in {FINDING_DOC}")
-for t in uncited_f[:20]:
-    print(f"  {t} has a row and no cite -- its status column says whether that is expected")
+dump(finding_bad, lambda f, n, t: f"  {f}:{n}: {t} is cited but has no row in {FINDING_DOC}")
+dump(uncited_f, lambda t: f"  {t} has a row and no cite -- its status column says whether that is expected")
+
+# --- this file's own shape ---------------------------------------------------------------
+# dump() is the only sanctioned way to print a capped enumeration, because it prints the
+# withheld count: a summary line and the list under it cannot disagree (dump's docstring
+# records the 25-vs-20 report that made this necessary). A bare `for x in things[:20]:` at
+# module level is the shape there were seventeen of, and it now fails the build -- the rule
+# has a source in code, not a comment saying "prefer a helper".
+SELF = pathlib.Path(__file__).read_text(errors="replace").splitlines()
+SELF_SLICE_RE = re.compile(r"^for .* in [A-Za-z_][A-Za-z0-9_]*\[:\d+\]:\s*$")
+self_bad = [n for n, line in enumerate(SELF, 1) if SELF_SLICE_RE.match(line)]
+print(f"checker self-lint: {len(self_bad)} bare capped loops "
+      f"(dump() is the only sanctioned form)")
+dump(self_bad, lambda n: f"  {__file__}:{n}: {SELF[n - 1]}", cap=5)
 
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
-              or width_bad or idc_bad) else 0)
+              or width_bad or idc_bad or ve_dangling or ve_orphans
+              or self_bad) else 0)
 
