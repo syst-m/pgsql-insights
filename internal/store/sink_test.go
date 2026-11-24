@@ -244,7 +244,7 @@ func TestSampleRoundTrip(t *testing.T) {
 	s := openMem(t, seriesNow)
 	want := []collector.Sample{
 		{
-			Metric: "pg_stat_database_xact_commit",
+			Metric: "db_xact_commit_total",
 			Labels: map[string]string{
 				"namespace": "prod", "cluster": "pg", "pod": "pg-1",
 				"instance_role": "primary", "datname": "appdb",
@@ -257,7 +257,7 @@ func TestSampleRoundTrip(t *testing.T) {
 			StatsReset: time.Time{},
 		},
 		{
-			Metric:     "pg_stat_database_blocks_read",
+			Metric:     "db_blks_read_total",
 			Labels:     map[string]string{"namespace": "prod", "cluster": "pg", "pod": "pg-1", "datname": "ledger"},
 			Value:      -0.5, // a gauge may be negative; a uint-typed column would not survive
 			SourceTime: time.Unix(1700000001, 500000000),
@@ -265,7 +265,7 @@ func TestSampleRoundTrip(t *testing.T) {
 			StatsReset: time.Unix(1690000000, 0),
 		},
 		{
-			Metric:     "pg_stat_activity_count",
+			Metric:     "db_backends_by_state",
 			Labels:     map[string]string{"namespace": "prod", "cluster": "pg", "pod": "pg-1", "usename": "appuser"},
 			Value:      7,
 			SourceTime: time.Unix(1700000002, 0),
