@@ -80,6 +80,10 @@ var _ StoreSizer = (*collector.MemSink)(nil)
 // argument for putting the rule on the receiver. The two answers differ (a nil
 // MemSink renders the family absent, a nil Store renders it at 0) and that
 // asymmetry is store's to own; this function forwards whatever Used() says.
+// d2451de's TestStoreSizeOfNilStore pins the store half from inside store — the
+// same division that makes TestNewAcceptsTypedNilPerQuery the MemSink half's
+// test, and for the same reason: the package that names the type is the one that
+// can assert on it.
 //
 // prefix follows R9.2 the way UpTracker and HTTPRequests do it: "" selects
 // collector.DefaultPrefix, any other value is used verbatim.
