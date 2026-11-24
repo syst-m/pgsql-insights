@@ -601,7 +601,7 @@ type statementMember struct {
 	value func(StatementRow) float64
 }
 
-// statementMembers is R9.5's member list, in the order S25's ruling enumerates it.
+// statementMembers is R9.5's member list, in the order A3's S25 enumerates it.
 //
 // R9.5: "**Ruling (S25, from A3's review of the Phase 3/6b surface): this cell's
 // open question — which metrics are in the family — is answered `execution_time`,
@@ -612,21 +612,22 @@ type statementMember struct {
 // and sources it at database/user level).
 //
 // `calls` is not in the list either, even though naming.go:130 has a row for it
-// ("R3.2's Load column; R9.5's top-N ranking key"). S25 closed this cell's list at
-// four members and `calls` is not one of the four it names; the comment's "ranking
-// key" claim is also not what R9.5 ranks by — see topN's doc for the ranking rule.
+// ("R3.2's Load column; R9.5's top-N ranking key"). A3's S25 closed this cell's
+// list at four members and `calls` is not one of the four it names; the comment's
+// "ranking key" claim is also not what R9.5 ranks by — see topN's doc for the
+// ranking rule.
 //
 // The count gets one more sentence because two cells disagree about it. §5:544's
 // per-query row budgets "N per cluster × 6 metric series = 50 × 6 = **300**", and
-// R9.4's *aggregate* list is now six members — the four S25 named plus lock_time
-// and io_time, both admitted to that cell by later rulings. S25 closed this cell at
-// four and says so in terms ("the four named members are the R3.2 per-query sources
-// that exist per query"), and R9.4 protects the separation itself: "the two
-// families declare their member lists separately", and "A3's S25 closed R9.5's
-// *per-query* member list". So this file implements four and §5's 300 is the
-// pre-ruling number. The discrepancy is A3's to rule on; it is not resolvable from
-// here by picking a different count, and a collector that exported six would be
-// minting two members S25 withheld.
+// R9.4's *aggregate* list is now six members — the four A3's S25 named plus
+// lock_time and io_time, both admitted to that cell by later rulings. A3's S25
+// closed this cell at four and says so in terms ("the four named members are the
+// R3.2 per-query sources that exist per query"), and R9.4 protects the separation
+// itself: "the two families declare their member lists separately", and "A3's S25
+// closed R9.5's *per-query* member list". So this file implements four and §5's 300
+// is the pre-ruling number. The discrepancy is A3's to rule on; it is not resolvable
+// from here by picking a different count, and a collector that exported six would be
+// minting two members A3's S25 withheld.
 var statementMembers = []statementMember{
 	{column: "total_exec_time", value: func(r StatementRow) float64 { return r.TotalExecTimeMs / msPerSecond }},
 	{column: "rows", value: func(r StatementRow) float64 { return r.RowsReturned }},
