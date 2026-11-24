@@ -11,7 +11,9 @@
 //	GET /api/v1/insights/queries/series  batched per-minute series for up to 50
 //	                                    fingerprints (R8.11; see series.go)
 //	GET /api/v1/version   build metadata (R11.3)
-//	GET /metrics          pgsi_build_info only (R11.3; the full R9.2 catalogue lands in Phase 2)
+//	GET /metrics          the R9.8 hub (internal/metrics/):
+//	                      R11.3's pgsi_build_info, the R2.2 pair,
+//	                      pgsi_up
 //	GET /debug/pprof/*    Go runtime profiles (R8.7; follows --auth per R8.9)
 //	GET /                 the embedded SPA and its assets (R10.1 — see spa.go)
 //
@@ -38,6 +40,7 @@ import (
 
 	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/discovery"
+	"github.com/frankellis/pgsql-insights/internal/metrics"
 	"github.com/frankellis/pgsql-insights/internal/version"
 )
 
@@ -383,55 +386,32 @@ type VersionResponse struct {
 
 // handleVersion answers R11.3's third surface: the running binary's own
 // version/commit pair, the same two ldvar values the OCI label and
-// pgsi_build_info carry (see BuildInfoMetric below and the D6 note in
-// IMPLEMENTATION.md §5 for how CI asserts they agree).
+// pgsi_build_info carry (see metrics.BuildInfo in internal/metrics/ and the D6
+// note in IMPLEMENTATION.md §5 for how CI asserts they agree).
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, VersionResponse{Version: version.Version, Commit: version.Commit})
 }
 
-// BuildInfoMetric renders pgsi_build_info (R11.3, R9.8). Exported so the
-// Phase 2 MetricHub renders the same line rather than a second copy of it.
-func BuildInfoMetric() string {
-	return "# HELP pgsi_build_info Build metadata of the running pgsi binary.\n" +
-		"# TYPE pgsi_build_info gauge\n" +
-		fmt.Sprintf("pgsi_build_info{version=%q,commit=%q} 1\n", version.Version, version.Commit)
-}
-
-// handleMetrics is R9.1's exposition surface, and the body is R9.8's Phase 2
-// composition rather than one family: pgsi_build_info (R11.3), the collector's
-// two R2.2 families, and pgsi_scrape_target_up when a scheduler exists.
+// handleMetrics is R9.1's exposition surface: the R9.8 hub's body, plus the
+// content type and status the endpoint contract requires.
 //
-// It used to write BuildInfoMetric() alone, which is what BuildInfoMetric's own
-// comment predicted — "Exported so the Phase 2 MetricHub renders the same line
-// rather than a second copy of it" — and for a phase nothing outside this
-// handler called the export. Composing here is the smaller half of that hub: the
-// three families a running process actually has, concatenated in the order R9.8
-// lists them. When internal/metrics/ lands as the hub proper (R9.8's row names
-// it, and the remaining self-metrics need a store and an HTTP middleware to have
-// values at all), this handler delegates to it and the composition moves with it
-// — the Config fields stay, which is the part that stops the move being a
-// rewrite.
+// The body is metrics.Hub's, composed in internal/metrics/metrics.go. This
+// handler used to build that string itself, which is what the exported
+// BuildInfoMetric it once existed for ("Exported so the Phase 2 MetricHub
+// renders the same line rather than a second copy of it"); the hub has landed, so
+// the composition lives there and this handler is the HTTP half only.
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(s.metricsBody()))
 }
 
-// metricsBody concatenates the families this process can render.
-//
-// Each source returns "" when it has nothing to say — a Stats with no recorded
-// collectors emits no lines, a nil UpTracker emits no lines — so a server
-// running nothing but itself emits exactly BuildInfoMetric(), which is what
-// TestBuildInfoMetricMatchesHandler pins. It is also the exposition format's own
-// rule, the one collector/metrics.go:186 and collector/up.go:178 both
-// implement: a family with no series is absent, not a HELP/TYPE pair beside a
-// value the process never measured — and promtool reports the latter.
-//
-// The empty prefix on the Up render selects collector.DefaultPrefix rather than
-// being an unset field: R9.2's `metrics.prefix` is configurable, and the
-// UpTracker's own Render applies the default when the caller has no config, so
-// passing "" here is the documented way to say "use the default" and not an
-// accident of there being no prefix on api.Config.
+// metricsBody is the one call site connecting this server to the R9.8 hub: the
+// server's own collector stats and its scheduler's up tracker, rendered together
+// with the build family. The hub takes them as *collector.Stats and
+// *collector.UpTracker rather than as rendered strings, which is what keeps the
+// server owning its sources and the hub owning the composition — the part that
+// stops the move being a rewrite of the Config fields.
 func (s *Server) metricsBody() string {
-	return BuildInfoMetric() + s.metrics.Render() + s.cfg.Scheduler.Up().Render("")
+	return metrics.New(s.metrics, s.cfg.Scheduler.Up()).Render()
 }

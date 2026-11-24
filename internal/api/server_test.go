@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/frankellis/pgsql-insights/internal/metrics"
 	"github.com/frankellis/pgsql-insights/internal/version"
 )
 
@@ -106,8 +107,8 @@ func TestMetricsExposesBuildInfo(t *testing.T) {
 
 func TestBuildInfoMetricMatchesHandler(t *testing.T) {
 	s := newTestServer(t)
-	if got, want := do(t, s, http.MethodGet, "/metrics").Body.String(), BuildInfoMetric(); got != want {
-		t.Fatalf("handler body != BuildInfoMetric():\n%s\n---\n%s", got, want)
+	if got, want := do(t, s, http.MethodGet, "/metrics").Body.String(), metrics.BuildInfo(); got != want {
+		t.Fatalf("handler body != metrics.BuildInfo():\n%s\n---\n%s", got, want)
 	}
 }
 
