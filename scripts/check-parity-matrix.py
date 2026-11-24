@@ -111,8 +111,22 @@ print("in §4 not in §7.3:", sorted(def4 - set(index)))
 print("in §7.3 not in §4:", sorted(set(index) - def4))
 # --- A3-Q1.2: the annotated-ID list, generated (was hand-maintained in §7.3's prose) ---
 annotated = {}
+# A3's S39: the list used to be print-only -- assigned, populated, printed, read by no check
+# and not by the exit line, so a note the parser cannot read just made the line shorter.
+# text_notes is the source side of the same count: every parenthesised note the §7.3
+# cells contain, whether or not the parser managed to attach it to an id. A note in the
+# text that reaches no id is now a failure rather than a shorter print.
+text_notes = set()
+a_line = False   # A3's S40: was assigned-only; the two reads added with it need an init
 for line in src:
-    if line.startswith("### 7.3"): a_line = True
+    if line.startswith("### 7.3"): a_line = True; continue
+    # A3's S40: a_line used to be assigned and never read, so this loop walked every
+    # `^R\d+$` row in the document -- Appendix A's change-log rows included, which
+    # is why `(A3-M10)` at requirements.md:924 was being reported as a §7.3 note.
+    # The two sibling parsers (:63 for §7.3's index, :77 for §6's rows) both close
+    # their section with the same two lines; this one now does too.
+    if a_line and line.startswith("## ") and not line.startswith("### "): break
+    if not a_line: continue
     c = split_row(line)
     if not c or not re.match(r"^R\d+$", c[0]): continue
     for part in re.split(r"[·]", c[1]):
@@ -134,13 +148,25 @@ for line in src:
         for tok in split_tokens(ids):
             m = re.search(r"\(([^)]*)\)", tok)
             note = m.group(1).strip() if m else ""
-            for fid in expand(tok):
-                if note: annotated.setdefault(fid, set()).add(note)
+            if note:
+                # Recorded before the expand() loop, so a note on a token that expands
+                # to zero ids is still counted as present in the text -- which is the
+                # only way the coverage check below can see it.
+                text_notes.add(note)
+                for fid in expand(tok):
+                    annotated.setdefault(fid, set()).add(note)
         for note in (n.strip() for n in re.findall(r"\(([^)]*)\)", phase)):
             if not note: continue
+            text_notes.add(note)
             for fid in expand(ids):
                 annotated.setdefault(fid, set()).add(note)
 print("annotated ids (generated):", ", ".join(f"{k}:{'/'.join(sorted(v))}" for k, v in sorted(annotated.items())) or "none")
+gen_notes = {n for v in annotated.values() for n in v}
+unbound_notes = sorted(text_notes - gen_notes)
+print(f"annotation coverage: {len(text_notes)} notes in \u00a77.3 \u00b7 {len(gen_notes)} "
+      f"attached to an id \u00b7 {len(unbound_notes)} unbound")
+for n in unbound_notes[:10]:
+    print(f"  ({n}) is written in \u00a77.3 and attached to no id -- the parser cannot read it")
 print(f"mismatches: {len(bad)}")
 for b in bad: print("  ", b)
 
@@ -739,5 +765,5 @@ for t in uncited_f[:20]:
 
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
               or id_orphans or path_orphans or labels_bad or status_bad
-              or phase_bad or ms_bad or finding_bad) else 0)
+              or phase_bad or ms_bad or finding_bad or unbound_notes) else 0)
 
