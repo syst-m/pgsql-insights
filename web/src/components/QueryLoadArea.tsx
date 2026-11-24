@@ -51,12 +51,16 @@
  * contract*, which is what stops a caller from passing a plausible `0` and
  * turning "we do not have this" into "this minute had none". It is a number
  * now, summed from the field. The `null` leg survives in
- * `QueryLoadPoint.ioSec` for a source with no IO time to offer — the store's
- * -1 code, `store/statements.go § "noLockWait is query_rollup.lock_wait_ms's
- * \"no source\" value, -1" (:568)`, which `ioTimeSeconds` inherits the moment
- * `seriesSQL` reads `io_wait_ms` — and the
- * legend's `· n/a` plus the `qla-key--absent` styling are what render it, so a
- * source without IO still reads as absent rather than as zero.
+ * `QueryLoadPoint.ioSec` for a source with no IO time to offer, and since
+ * A3's ruling of R8.3 (`7cecc49`) the contract spells that absence with `null`
+ * itself — `ioTimeSeconds` is `number | null` at `api/types.ts:661`, a
+ * `*float64` on the Go side — and not with a sentinel. A5 put the two columns
+ * apart in the same week: the store's -1 code, `store/statements.go §
+ * "noLockWait is query_rollup.lock_wait_ms's \"no source\" value, -1" (:568)`,
+ * belongs to `lock_wait_ms` alone; `io_wait_ms` (`schema.go:236`) is a plain
+ * `REAL NOT NULL` with no default and no code, so a 0 there is a real 0. The
+ * legend's `· n/a` plus the `qla-key--absent` styling are what render the
+ * null, so a source without IO still reads as absent rather than as zero.
  *
  * The ask it documents is A1/A2's, not a local interface (R16.8), and A2 has
  * since answered it: the ask is right, and it is A3's ruling to make — growing
@@ -200,14 +204,27 @@ export interface QueryLoadPoint {
   /** Total execution time in the bucket, in **seconds** (types.ts:639). */
   execSec: number;
   /** IO time in the bucket, in seconds, or `null` when the source has no
-   *  IO-time value. `stackSeries` reads `ioTimeSeconds` and returns `null` for
-   *  a bucket any contributor of which reports the store's -1 code, because
-   *  `null` and `0` are different answers and a partial sum presented as the
-   *  total is the same lie as a plausible 0. The header's "two series" section
-   *  is the argument and the legend's `· n/a` is the rendering. */
+   *  IO-time value — `null` being the contract's only spelling of "no value"
+   *  since R8.3 was ruled at 7cecc49 (`ioTimeSeconds` is `number | null` at
+   *  `api/types.ts:661`, a `*float64` in the DTO). `stackSeries` returns `null`
+   *  for a bucket any contributor of which cannot answer, because `null` and
+   *  `0` are different answers and a partial sum presented as the total is the
+   *  same lie as a plausible 0. The header's "two series" section is the
+   *  argument and the legend's `· n/a` is the rendering. */
   ioSec: number | null;
 }
 
+/** The store's "no source" code, and which column it belongs to.
+ *
+ *  It is `query_rollup.lock_wait_ms`'s code — `store/statements.go §
+ *  "noLockWait is query_rollup.lock_wait_ms's \"no source\" value, -1" (:568)`
+ *  — and not `io_wait_ms`'s: that column (`schema.go:236`) is a plain
+ *  `REAL NOT NULL` with no default and no code, so a 0 in it is a real 0. The
+ *  check below is therefore a transition guard, not the live path: once the DTO
+ *  emits `null` per R8.3, a -1 in `ioTimeSeconds` is unreachable and the branch
+ *  is dead but harmless; until it does, a -1 arriving there is a value the
+ *  field should never carry, and summing it would be the lie the R8.3 ruling
+ *  exists to prevent. */
 const NO_IO_SOURCE = -1;
 
 /** Fold a batch of per-fingerprint series into one bucket-per-timestamp stack.
@@ -230,10 +247,11 @@ const NO_IO_SOURCE = -1;
  *  lengths. The two fields are not gated the same way. A non-finite execution
  *  time drops the point outright: the bucket's identity is its execution time,
  *  and a row whose exec is a lie has no trustworthy IO time either. An unusable
- *  IO time — non-finite, or the store's -1 code — keeps the point's execution
- *  time and marks the bucket's IO absent, which is what keeps `ioSec`'s `null`
- *  reachable from the data path and not only from a hand-built fixture. */
-
+ *  IO time keeps the point's execution time and marks the bucket's IO absent —
+ *  which is what keeps `ioSec`'s `null` reachable from the data path and not
+ *  only from a hand-built fixture — and "unusable" is `null` first (the
+ *  contract's answer, R8.3) with the -1 code checked alongside it for as long
+ *  as the Go field is still a plain `float64`. */
 export function stackSeries(series: readonly QuerySeries[]): QueryLoadPoint[] {
   const totals = new Map<string, { exec: number; io: number | null }>();
   for (const s of series) {
