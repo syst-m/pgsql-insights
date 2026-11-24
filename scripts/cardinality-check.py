@@ -12,15 +12,19 @@ lands) asserted in CI". This is that file.
 
 Two design decisions, both load-bearing:
 
-**It computes from §5's table, it does not count a live export.** The binary
-serves one metric today (`pgsi_build_info`, `internal/api/server.go:313`); the
-other families are Phase 2+ collector output, as `chart/README.md:260-270` says in
-terms. An assertion that scraped the running `/metrics` would be checking
-`1 < 24 480` — true, and proof of nothing. R13.4's wording points the other way
-anyway: the bound is defined "per §5" and measured "for a fixture cluster set",
-which is `testdata/api/clusters.json`, not for a running process. So the family
-table and the fixture are the inputs, and the same computation becomes the live
-check for free once Phase 2's MetricHub emits what the table promises.
+**It computes from §5's table, it does not count a live export.** What the
+binary serves is whatever `internal/metrics.Hub` composes, and that package's own
+header table is the authority on which families render today — this comment
+deliberately does not copy the count, because a count here is a second contract
+over a file that already counts itself (and did: it used to say "one metric
+today (`pgsi_build_info`, `internal/api/server.go:313`)", a line number and a
+total that both went stale in the first hub commit). An assertion that scraped
+the running `/metrics` would be checking a number that tracks the hub's progress
+rather than the budget — true, and proof of nothing. R13.4's wording points the
+other way anyway: the bound is defined "per §5" and measured "for a fixture
+cluster set", which is `testdata/api/clusters.json`, not for a running process.
+So the family table and the fixture are the inputs, and the same computation
+becomes the live check for free once the hub renders all eight.
 
 **Every number is parsed from a document; none is a Python literal.** A literal
 `SERIES = 24480` would be a second hand-computed number — the exact defect class
@@ -29,24 +33,37 @@ supersede, and the check would pass while both were wrong. So the family rows co
 out of requirements.md §5, the cluster set out of the fixture JSON, and the three
 competing published totals out of the two documents that publish them.
 
-The three-way number dispute this settles, and its verdict:
+The number dispute this settles, and its verdict:
 
 | Figure | Source | |
 |---|---|---|
 | 23 700 | requirements.md R13.4's headline ("~23.7 k series / ~1.5 GB") | oldest |
 | 24 300 | requirements.md §5's prose ("four clusters ≈ **24.3 k series**") | |
-| 24 480 | chart/README.md ("4 × 6 070 + 200 = 24 480 series") | **this script's answer** |
+| 24 480 | chart/README.md ("4 × 6 070 + 200 = 24 480 series") | |
+| 24 080 | this script — the table x the fixture, printed above | **current** |
 
-The script's answer is **24 480**: 4 fixture clusters × 6 070 unconditional series
-per cluster + 200 for the one cluster that has a Pooler. It is the only one of the
-three that is a function of the table and the fixture rather than a rounded prose
-estimate — which is why the chart README already picked it and filed the
-discrepancy instead of choosing silently (requirements.md:556-560 records that
-§5's prose "claims to have corrected R13.4 while R13.4 still carries the older
-figure"). R13.4's row is A3's file to amend, so this script does not fail on it:
-it reports the delta and gates on the highest published figure, which is the
-loosest defensible bound and the only one that does not require editing the spec
-from a tool script.
+The script's answer is **24 080**: 4 fixture clusters x 5 970 unconditional series
+per cluster + 200 for the one cluster that has a Pooler. It was **24 480** until
+the per-query row moved 300 → 200 — requirements.md:544, A3's S25 ruling closing
+R9.5's member list at four metrics instead of inheriting R9.4's six — and the
+whole 400-series gap to chart/README.md's figure is that one row, 100 per cluster
+x 4.
+
+Two published figures disagree with that, and the script treats them differently —
+an earlier version of this header said "this script does not fail on it" about the
+wrong one, so the two are now named separately:
+
+* §5's **prose** formula (requirements.md:551, still summing the pre-ruling 300
+  where the table row says 200) is check 1, and check 1 **fails**: it appends to
+  `failures` and `main` returns 1, so `make cardinality-check` — ci.yml:87 — is
+  red until A3 amends the prose to match the table. The table is the row-level
+  source and the prose is a summary of it; requirements.md:556-560 records the
+  same defect class ("§5's prose 'claims to have corrected R13.4 while R13.4
+  still carries the older figure'").
+* R13.4's **headline** (23 700) is check 2, and a merely-older published figure
+  never fails it: the gate is `max(published)`, the loosest defensible bound and
+  the only rule that does not require editing the spec from a tool script. The
+  computed 24 080 is under 24 480, so check 2 passes.
 """
 
 from __future__ import annotations
