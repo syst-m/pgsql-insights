@@ -595,6 +595,16 @@ def check_table_widths(root):
 # ships with its own proof -- the tree one commit earlier makes it print 1 and
 # exit 1 -- which is the standard this file holds itself to: a checker that
 # cannot fail is a comment.
+#
+# Read the printed line as two denominators, not one coverage number. The
+# adjacency count is a regression gate: it grows only when someone writes a *new*
+# id+cite sentence, so a small value (1 at 460bf28) is not a weak check, and a
+# large one is not a strong one -- it counts sentences written in a shape the
+# regex recognises, and prose that cites a row without the connector ("see the
+# table", "per requirements.md") is outside it by design. The row count is the
+# census: every requirement row's own cite in every phase table, re-checked on
+# every edit. Only .md targets are in either, matching check_path_citations'
+# scan set -- a wrong cite in a Go docblock is still caught by whoever typed it.
 IDCITE_RX = re.compile(
     # "R16.5 (`requirements.md:521`)", "R9.8 (requirements.md:401)", and the prose
     # forms "the R9.8 row at `requirements.md:401`" / "this R2.2 cell, in
