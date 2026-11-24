@@ -16,7 +16,8 @@
           "rows": 1200,
           "sharedBlocksHit": 48200,
           "sharedBlocksRead": 12,
-          "lockTimeSeconds": 0.0031
+          "lockTimeSeconds": 0.0031,
+          "ioTimeSeconds": 0.0412
         },
         {
           "timestamp": "2026-11-21T09:12:00Z",
@@ -24,7 +25,8 @@
           "rows": 1180,
           "sharedBlocksHit": 47910,
           "sharedBlocksRead": 8,
-          "lockTimeSeconds": 0.0028
+          "lockTimeSeconds": 0.0028,
+          "ioTimeSeconds": 0.0388
         }
       ]
     },
@@ -42,7 +44,8 @@
           "rows": 1,
           "sharedBlocksHit": 2140,
           "sharedBlocksRead": 3,
-          "lockTimeSeconds": 0.0009
+          "lockTimeSeconds": 0.0009,
+          "ioTimeSeconds": 0.0021
         }
       ]
     },

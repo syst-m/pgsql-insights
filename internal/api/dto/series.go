@@ -23,18 +23,31 @@ package dto
 
 import "time"
 
-// QuerySeriesPoint is one minute of one fingerprint's series. The five values
+// QuerySeriesPoint is one minute of one fingerprint's series. The six values
 // are R9.4's aggregate family members, named from the member list in
 // promql_catalogue.go rather than re-invented here: execution_time, rows,
-// shared_blocks_hit, shared_blocks_read, lock_time.
+// shared_blocks_hit, shared_blocks_read, lock_time, io_time.
 //
-// Carrying all five per point is what lets one response serve both R10.6's row
+// Carrying all six per point is what lets one response serve both R10.6's row
 // sparkline and R10.7's Query Detail chart, and it is why the route takes no
 // `metric=` parameter — R8.11's signature does not name one, and a per-metric
-// request would need five requests per page to fill one table of sparklines,
+// request would need six requests per page to fill one table of sparklines,
 // which is the R10.14 budget spent on the wrong thing.
 //
-// float64 for all five because that is the type the R9.4 metric family carries
+// io_time is the member the requirements.md ruling at 5668cb3 admitted to the
+// list — the second admission after lock_time — and it is the one value here
+// with no metric of its own: its catalogue entry is derived, the sum of the two
+// block-time counters, which is the same derivation R3.2's Load by IO wait
+// column publishes as `loadByIOWaitMs` on a list row. The store keeps the
+// number in milliseconds (`query.io_wait_ms`, `query_rollup.io_wait_ms`), so
+// the value here is that column over `msPerSecond`, the way
+// ExecutionTimeSeconds is `total_exec_ms` over the same constant. The store's
+// batched read does not select the column yet — internal/store/series.go's
+// `seriesSQL` lists six of the rollup's seven value columns — so until that
+// select lands the field carries the zero its type gives it rather than a
+// number this file invents.
+//
+// float64 for all six because that is the type the R9.4 metric family carries
 // (a Prometheus sample value); a per-minute delta derived from a counter is not
 // necessarily integral even when the underlying count is.
 type QuerySeriesPoint struct {
@@ -48,6 +61,7 @@ type QuerySeriesPoint struct {
 	SharedBlocksHit      float64 `json:"sharedBlocksHit"`
 	SharedBlocksRead     float64 `json:"sharedBlocksRead"`
 	LockTimeSeconds      float64 `json:"lockTimeSeconds"`
+	IOTimeSeconds        float64 `json:"ioTimeSeconds"`
 }
 
 // QuerySeries is one requested fingerprint's answer.

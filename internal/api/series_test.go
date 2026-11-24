@@ -81,6 +81,7 @@ func testPoint(t *testing.T) QuerySeriesPoint {
 		SharedBlocksHit:      48200,
 		SharedBlocksRead:     12,
 		LockTimeSeconds:      0.0031,
+		IOTimeSeconds:        0.0412,
 	}
 }
 
@@ -177,7 +178,8 @@ func TestQuerySeriesJSONFieldNames(t *testing.T) {
 		`","queryid":"8123456789012345678","namespace":"postgres","cluster":"onepg",` +
 		`"pod":"onepg-1","instanceRole":"primary","datname":"appdb","usename":"app",` +
 		`"points":[{"timestamp":"2026-11-21T09:12:00Z","executionTimeSeconds":0.4182,` +
-		`"rows":1200,"sharedBlocksHit":48200,"sharedBlocksRead":12,"lockTimeSeconds":0.0031}]}],` +
+		`"rows":1200,"sharedBlocksHit":48200,"sharedBlocksRead":12,"lockTimeSeconds":0.0031,` +
+		`"ioTimeSeconds":0.0412}]}],` +
 		`"meta":{"total":1,"truncated":false,"generatedAt":"2026-11-21T09:12:03Z"}}`
 	if string(b) != want {
 		t.Errorf("body =\n%s\nwant\n%s", b, want)
