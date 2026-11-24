@@ -215,3 +215,86 @@ func TestOpenSinkProfiles(t *testing.T) {
 		}
 	})
 }
+
+// TestScanArgs pins the composed pre-scan that R2.3's cmd/pgsi half and R13.7's
+// both ride on: the two dynamic-name families come out of argv, everything else
+// survives intact for Parse, and a bad interval is an error here rather than a
+// failure two steps later.
+//
+// The case that matters most is the pair in one argv. logx's scanner and
+// collector.IntervalOverridesFromArgs strip disjoint prefixes, so each one's
+// output is a valid input for the other, and the only way to catch a regression
+// where one scanner starts eating the other's argument is to feed both families
+// together — which is exactly what runServe and runConfig now do via scanArgs.
+// Testing them separately would leave that untested, and the two-call-sites-drift
+// bug this function exists to prevent is precisely a scanner change that one
+// command picks up and the other does not.
+func TestScanArgs(t *testing.T) {
+	t.Run("interval only", func(t *testing.T) {
+		pre, err := scanArgs([]string{"--interval.wal=45s", "--listen=:9"})
+		if err != nil {
+			t.Fatalf("scanArgs = %v, want nil", err)
+		}
+		if got := pre.intervals["wal"]; got != 45*time.Second {
+			t.Errorf("intervals[wal] = %v, want 45s", got)
+		}
+		// The contract with flag.Parse: the consumed entries are gone and the rest
+		// is byte-identical, not re-rendered. A scanner that rewrote
+		// `--listen=:9` to `--listen :9` would still parse but would break
+		// runConfig's claim that it reports what serve would use.
+		if len(pre.rest) != 1 || pre.rest[0] != "--listen=:9" {
+			t.Errorf("rest = %q, want [--listen=:9]", pre.rest)
+		}
+	})
+
+	t.Run("both dynamic families in one argv", func(t *testing.T) {
+		pre, err := scanArgs([]string{"--log-field-cluster=lab", "--interval.wal=45s", "--auth=none"})
+		if err != nil {
+			t.Fatalf("scanArgs = %v, want nil", err)
+		}
+		if got := pre.logFields.String(); got != "cluster=lab" {
+			t.Errorf("logFields = %q, want %q", got, "cluster=lab")
+		}
+		if got := pre.intervals["wal"]; got != 45*time.Second {
+			t.Errorf("intervals[wal] = %v, want 45s", got)
+		}
+		if len(pre.rest) != 1 || pre.rest[0] != "--auth=none" {
+			t.Errorf("rest = %q, want [--auth=none]", pre.rest)
+		}
+	})
+
+	// registry.go's own docblock promises "--interval.wal=0 -> error at parse
+	// time, not at registration". scanArgs is where that promise is kept now, so
+	// the error has to surface here rather than at newRegistry.
+	t.Run("a bad interval is a scan error", func(t *testing.T) {
+		if _, err := scanArgs([]string{"--interval.wal=0s"}); err == nil {
+			t.Error("scanArgs(--interval.wal=0s) = nil error, want one")
+		}
+	})
+
+	// The end-to-end shape both commands now produce, and the regression this
+	// change fixes: `pgsi config dump --interval.wal=45s` used to exit 2 with
+	// "flag provided but not defined" because runConfig parsed argv with no
+	// interval pre-scan. Feeding the pair through the same two calls runServe
+	// makes — scanArgs then newServeFlags then Parse — is the cheapest way to
+	// assert the two commands cannot disagree, since they now share the code.
+	t.Run("serve and config agree on the pair", func(t *testing.T) {
+		pre, err := scanArgs([]string{"--interval.database=2m", "--disable-collector=locks"})
+		if err != nil {
+			t.Fatalf("scanArgs = %v, want nil", err)
+		}
+		sf := newServeFlags(pre)
+		if err := sf.Parse(pre.rest); err != nil {
+			t.Fatalf("Parse(%q) = %v, want nil (disable-collector is declared now, so the pre-scan's rest parses clean)", pre.rest, err)
+		}
+		if *sf.disableCollector != "locks" {
+			t.Errorf("--disable-collector = %q, want %q", *sf.disableCollector, "locks")
+		}
+		if got := pre.intervals["database"]; got != 2*time.Minute {
+			t.Errorf("intervals[database] = %v, want 2m", got)
+		}
+		if got := collector.DisabledFromFlag(*sf.disableCollector); len(got) != 1 || got[0] != "locks" {
+			t.Errorf("DisabledFromFlag(%q) = %v, want [locks]", *sf.disableCollector, got)
+		}
+	})
+}

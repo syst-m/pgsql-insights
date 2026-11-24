@@ -45,8 +45,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/frankellis/pgsql-insights/internal/logx"
-
 	"go.yaml.in/yaml/v3"
 )
 
@@ -190,6 +188,16 @@ var settings = []setting{
 	{Flag: "max-concurrent-sql", Req: "R2.9"},
 	{Flag: "max-concurrent-http-scrapes", Req: "R2.9"},
 	{Flag: "scheduler-queue-depth", Req: "R2.9"},
+
+	// R2.3 — the collector disable list. requirements.md:294 names two flags and
+	// this is the one with a static name. --interval.<collector>= is the other and
+	// is deliberately not a row here: the table lists flags the FlagSet declares,
+	// and a dynamic name is not one flag but N, so it is a pre-scan product
+	// (cmd/pgsi/main.go's prescan.intervals) rather than a row — the same shape
+	// logx's set has, except that R13.7's got an fs.Var to hang a row on and this
+	// one has nothing to hang on. It sits between R2.9's three and R11.6's because
+	// that is where newServeFlags declares it.
+	{Flag: "disable-collector", Req: "R2.3"},
 
 	// R11.6 — the store profile. requirements.md:219 is the only place the spec
 	// spells the flag (`--store=memory`), in §3.4's Alternative row whose
@@ -587,15 +595,21 @@ func runConfig(args []string) int {
 		fmt.Fprint(os.Stderr, "usage: pgsi config dump [serve flags...]\n")
 		return 2
 	}
-	// The same pre-scan runServe does, so `config dump --log-field-cluster=x`
-	// resolves that field the same way `serve` would.
-	prefixed, rest, err := logx.FieldsFromArgs(args[1:])
+	// The same pre-scan runServe does, through the same function rather than a
+	// second copy of the same two calls — which is what makes the claim in this
+	// function's own docblock ("what would this process actually use") true for
+	// both dynamic families. Before scanArgs this line called
+	// logx.FieldsFromArgs alone, so `config dump --interval.wal=45s` died with
+	// "flag provided but not defined" while `serve --interval.wal=45s` accepted
+	// it: the dump reporting a value the server saw differently, in the opposite
+	// direction from the bug applyFlags names.
+	pre, err := scanArgs(args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 2
 	}
-	sf := newServeFlags(prefixed)
-	if err := sf.Parse(rest); err != nil {
+	sf := newServeFlags(pre)
+	if err := sf.Parse(pre.rest); err != nil {
 		return 2
 	}
 	rows, err := applyFlags(sf.FlagSet, OSEnv())

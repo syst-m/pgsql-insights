@@ -19,8 +19,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/frankellis/pgsql-insights/internal/logx"
 )
 
 // rowFor pulls one row out of a resolved table by flag name.
@@ -42,7 +40,7 @@ func rowFor(t *testing.T, rows []resolved, name string) resolved {
 // row with no flag behind it is a lie about the CLI surface.
 func TestTableCoversEveryFlag(t *testing.T) {
 	declared := map[string]bool{}
-	newServeFlags(logx.Fields{}).VisitAll(func(f *flag.Flag) { declared[f.Name] = true })
+	newServeFlags(prescan{}).VisitAll(func(f *flag.Flag) { declared[f.Name] = true })
 
 	for _, name := range configFlagNames() {
 		if !declared[name] {
@@ -179,6 +177,13 @@ func TestConfigMapKeys(t *testing.T) {
 		"max-concurrent-http-scrapes": "maxConcurrentHttpScrapes",
 		"scheduler-queue-depth":       "schedulerQueueDepth",
 
+		// R2.3's disable list (requirements.md:294's `--disable-collector=a,b`).
+		// Its own group rather than folded into R2.9's above because that block's
+		// comment counts itself as three, and its own rather than joined to
+		// store's below because "disable-collector": is longer than "store": and
+		// would re-pad that line.
+		"disable-collector": "disableCollector",
+
 		// R11.6's store profile (chart/values.yaml:64's `store` key).
 		"store": "store",
 	}
@@ -277,7 +282,7 @@ func TestPrecedenceChain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sf := newServeFlags(logx.Fields{})
+			sf := newServeFlags(prescan{})
 			if err := sf.Parse(tt.args); err != nil {
 				t.Fatalf("Parse(%v): %v", tt.args, err)
 			}
@@ -301,7 +306,7 @@ func TestPrecedenceChain(t *testing.T) {
 // the same field accesses runServe uses, that an env-supplied value lands in each
 // typed pointer.
 func TestApplyWritesThroughToThePointers(t *testing.T) {
-	sf := newServeFlags(logx.Fields{})
+	sf := newServeFlags(prescan{})
 	if err := sf.Parse(nil); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -362,7 +367,7 @@ func TestApplyWritesThroughToThePointers(t *testing.T) {
 // flag the command line set must survive apply untouched, because that survival
 // IS the "CLI flags > everything else" clause once the value is in a pointer.
 func TestApplyLeavesFlagGivenPointersAlone(t *testing.T) {
-	sf := newServeFlags(logx.Fields{})
+	sf := newServeFlags(prescan{})
 	if err := sf.Parse([]string{"--listen=:1234"}); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -379,7 +384,7 @@ func TestApplyLeavesFlagGivenPointersAlone(t *testing.T) {
 // The test asserts the variable name is in the message, because "invalid
 // duration" alone does not tell an operator which of thirty env vars to fix.
 func TestApplyRejectsMalformedValue(t *testing.T) {
-	sf := newServeFlags(logx.Fields{})
+	sf := newServeFlags(prescan{})
 	if err := sf.Parse(nil); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -401,7 +406,7 @@ func TestApplyRejectsMalformedValue(t *testing.T) {
 // `serve` — and the attribution is not, which is why runServe calls it exactly
 // once and why `config dump` resolves rather than applies twice.
 func TestApplyIsIdempotentOnValues(t *testing.T) {
-	sf := newServeFlags(logx.Fields{})
+	sf := newServeFlags(prescan{})
 	if err := sf.Parse(nil); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -435,7 +440,7 @@ func TestApplyIsIdempotentOnValues(t *testing.T) {
 // somewhere other than the terminal that produced it, so a token in the clear
 // turns a diagnostic into a credential leak.
 func TestSecretsMaskedInDump(t *testing.T) {
-	sf := newServeFlags(logx.Fields{})
+	sf := newServeFlags(prescan{})
 	if err := sf.Parse(nil); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -463,7 +468,7 @@ func TestSecretsMaskedInDump(t *testing.T) {
 
 	// A flag-given secret prints in the clear: the operator typed it, so hiding it
 	// would hide the one copy they are checking.
-	sf2 := newServeFlags(logx.Fields{})
+	sf2 := newServeFlags(prescan{})
 	if err := sf2.Parse([]string{"--auth-token=cli-token"}); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -484,7 +489,7 @@ func TestSecretsMaskedInDump(t *testing.T) {
 // line count is pinned to the table's length, so a flag that exists but does not
 // appear in the dump fails here rather than in someone's debugging session.
 func TestRenderDumpHasEveryRow(t *testing.T) {
-	sf := newServeFlags(logx.Fields{})
+	sf := newServeFlags(prescan{})
 	if err := sf.Parse(nil); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

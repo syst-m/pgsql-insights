@@ -188,20 +188,78 @@ type serveFlags struct {
 	maxConcurrentHTTPScrapes *int
 	schedulerQueueDepth      *int
 
+	// R2.3's two halves, which the requirement spells in two shapes and so cannot
+	// share one declaration. disableCollector is a declared flag: R2.3's
+	// `--disable-collector=a,b` is a single static string whose value is the list.
+	// intervals is a pre-scan product: `--interval.<collector>=` puts the
+	// collector name inside the flag *name*, and the flag package cannot declare a
+	// name it has to invent at runtime, so scanArgs lifts those entries out of
+	// argv before Parse and this field holds what it found — the same reason
+	// logField above carries logx's pre-scan result alongside its fs.Var.
+	disableCollector *string
+	intervals        map[string]time.Duration
+
 	// store selects which store the process writes to: R11.6's two profiles,
-	// §3.4:218's SQLite file and §3.4:219's ring buffers. It is its own alignment
-	// group for the same reason the three fields above it are — a five-character
-	// name joined to that block re-pads all three, and the group boundary is the
-	// only thing gofmt respects.
+	// §3.4:218's SQLite file and §3.4:219's ring buffers. Its group boundary here
+	// is readability, not gofmt: at five characters it re-pads nothing, because
+	// gofmt only re-pads a run when a name *longer* than that run's widest joins
+	// it — which is the real reason the R2.9 trio above is separate (24 characters
+	// against that block's 20) and the reason the sentence this one replaces, "a
+	// five-character name joined to that block re-pads all three", was never true
+	// of store.
 	store *string
+}
+
+// prescan is everything argv holds that the serve FlagSet cannot declare.
+//
+// Go's flag package only accepts names it was told about, so the two flag
+// families whose names get built at runtime have to be lifted out of argv before
+// Parse runs: R13.7's `--log-field-<key>=<value>` set, which logx's scanner
+// returns, and R2.3's `--interval.<collector>=<duration>` set, which
+// collector.IntervalOverridesFromArgs returns. This is what the lift produces,
+// plus the argument list left over for Parse.
+//
+// One type and one function because two commands have to agree about it. `serve`
+// and `config dump` both read argv, and R11.8's claim for the dump is that it
+// answers "what would serve use" — two commands each writing their own scanner
+// calls is the bug that claim exists to catch, which is the same argument
+// applyFlags' docblock makes about the ConfigMap layer. With one function here,
+// the two call sites differ only in their error prefix.
+type prescan struct {
+	// logFields is R13.7's --log-field-* set.
+	logFields logx.Fields
+	// intervals is R2.3's --interval.<collector>= set.
+	intervals map[string]time.Duration
+	// rest is argv with both sets removed: the list to hand to flag.Parse.
+	rest []string
+}
+
+// scanArgs runs both pre-scans, in one order, for both commands.
+//
+// The order between the two scanners does not matter — each strips only its own
+// prefix, so logx's output is a valid input for the interval scanner and the
+// reverse would do — but having *an* order does. It is the difference between one
+// rule about argv and two that can drift apart.
+func scanArgs(args []string) (prescan, error) {
+	fields, afterFields, err := logx.FieldsFromArgs(args)
+	if err != nil {
+		return prescan{}, err
+	}
+	intervals, rest, err := collector.IntervalOverridesFromArgs(afterFields)
+	if err != nil {
+		return prescan{}, err
+	}
+	return prescan{logFields: fields, intervals: intervals, rest: rest}, nil
 }
 
 // newServeFlags declares every `pgsi serve` flag and returns them as one value.
 //
-// `prefixed` is the --log-field-* set the R13.7 pre-scan lifted out of argv; it
-// seeds the --log-field flag's value so both spellings accumulate into one set,
-// exactly as runServe did before the extraction.
-func newServeFlags(prefixed logx.Fields) *serveFlags {
+// `pre` is the argv pre-scan, the two dynamic flag names lifted out before Parse
+// (see prescan). Its logFields half seeds the --log-field flag's value so both
+// R13.7 spellings accumulate into one set, exactly as runServe did before the
+// extraction; its intervals half is stored on the struct for newRegistry, the
+// only consumer, because there is no flag name to declare it under.
+func newServeFlags(pre prescan) *serveFlags {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	sf := &serveFlags{FlagSet: fs}
 
@@ -272,7 +330,7 @@ func newServeFlags(prefixed logx.Fields) *serveFlags {
 	// The flag value is seeded with the --log-field-* fields the pre-scan
 	// found, so both spellings accumulate into one set and flag's usage output
 	// still shows --log-field.
-	sf.logField = prefixed
+	sf.logField = pre.logFields
 	fs.Var(&sf.logField, "log-field", "extra structured log field as k=v (R13.7), repeatable; --log-field-<key>=<value> is also accepted")
 
 	// --- R1.1/R1.9 discovery ---------------------------------------------
@@ -322,6 +380,21 @@ func newServeFlags(prefixed logx.Fields) *serveFlags {
 	sf.maxConcurrentHTTPScrapes = fs.Int("max-concurrent-http-scrapes", 0, "global cap on concurrent HTTP scrapes (R2.9); 0 selects 64")
 	sf.schedulerQueueDepth = fs.Int("scheduler-queue-depth", 0, "collections the scheduler queues before it starts shedding them (R2.9); 0 selects 512")
 
+	// --- R2.3 collector selection --------------------------------------------
+	//
+	// One requirement, two flags, and only one of them is declarable here.
+	// registry.go:186-189 says which one and why: --disable-collector "is a single
+	// static flag (its value is the list, `--disable-collector=a,b`), so cmd/pgsi
+	// declares it with fs.String and splits on commas. Only the interval form has a
+	// dynamic *name*, and only it needs this function." So the interval half is
+	// assigned from the pre-scan rather than declared — there is no single name to
+	// declare, since --interval.wal and --interval.database are two names and R2.3's
+	// lab profile passes whichever subset it wants. The assignment sits here, next
+	// to the flag it is the other half of, exactly as the R13.7 block above assigns
+	// sf.logField from the same pre-scan before declaring its fs.Var.
+	sf.disableCollector = fs.String("disable-collector", "", "collectors to leave out of the registry (R2.3), comma-separated; empty enables every collector this process can build")
+	sf.intervals = pre.intervals
+
 	// --- R11.6 store profile ------------------------------------------------
 	// requirements.md spells the flag once — `--store=memory`, §3.4:219's
 	// Alternative row, whose rationale names the lab profile (R11.6) — and the
@@ -339,17 +412,19 @@ func newServeFlags(prefixed logx.Fields) *serveFlags {
 }
 
 func runServe(args []string) int {
-	// R13.7's `--log-field-*` shape cannot be declared as a Go flag (the flag
-	// package has no dynamic flag names), so the prefixed form is lifted out of
-	// argv before Parse sees it. Everything else parses normally, including the
-	// plain repeatable `--log-field k=v`.
-	prefixed, rest, err := logx.FieldsFromArgs(args)
+	// Both dynamic flag names come out of argv before Parse sees it: R13.7's
+	// `--log-field-*` family and R2.3's `--interval.<collector>=` family. Neither
+	// can be declared as a Go flag (the flag package has no dynamic flag names),
+	// and scanArgs is the one place the two scanners are composed, so `serve` and
+	// `config dump` cannot disagree about what argv meant. Everything else parses
+	// normally, including the plain repeatable `--log-field k=v`.
+	pre, err := scanArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		return 2
 	}
 
-	sf := newServeFlags(prefixed)
+	sf := newServeFlags(pre)
 
 	// Parse, then resolve. The order IS R11.8's precedence chain expressed as
 	// control flow: flag.Parse records which flags the command line actually set,
@@ -357,7 +432,7 @@ func runServe(args []string) int {
 	// command line beats the env and ConfigMap layers by construction rather than
 	// by a comparison. Running apply before Parse would invert that, because
 	// every env value would then be overwritten by the flag's own default.
-	if err := sf.Parse(rest); err != nil {
+	if err := sf.Parse(pre.rest); err != nil {
 		return 2
 	}
 	if _, err := applyFlags(sf.FlagSet, OSEnv()); err != nil {
@@ -490,7 +565,16 @@ func runServe(args []string) int {
 			Password: *sf.credPass,
 			SSLMode:  "",
 		})
-		reg, err := newRegistry(kc, opener, collector.Overrides{})
+		// The overrides are built from argv now: the interval map the pre-scan
+		// lifted out of it, and the disable list split out of --disable-collector
+		// by registry.go's own DisabledFromFlag. The argument used to be a bare
+		// collector.Overrides{}, which newRegistry's docblock documented as a gap
+		// left open on purpose pending R2.3's cmd/pgsi half — this is that half, so
+		// the two registry.go helpers that existed uncalled are now called.
+		reg, err := newRegistry(kc, opener, collector.Overrides{
+			Intervals: pre.intervals,
+			Disabled:  collector.DisabledFromFlag(*sf.disableCollector),
+		})
 		if err != nil {
 			log.Error("collector registry", "error", err.Error())
 			return 2
@@ -747,14 +831,17 @@ func openStoreFile(path string) (sinkBundle, error) {
 // (S4) — have no file yet, so there is nothing to construct; see targets.go for
 // why their targets are not produced either.
 //
-// The overrides argument is empty rather than built from argv, and that is a gap
-// this commit leaves open on purpose: R2.3's --interval.<collector>= and
-// --disable-collector= flags need R11.8's dynamic flag pre-scan (the logx.
-// FieldsFromArgs pattern applied to a second flag name), and registry.go's
-// IntervalOverridesFromArgs/DisabledFromFlag helpers exist for that. R2.3's own
-// row files the cmd/pgsi half of it with step 5's R11.8 work rather than with
-// this wiring, so the registry is built with defaults and the helpers stay
-// uncalled.
+// The overrides argument is built from argv now, by runServe's scanArgs. The
+// paragraph this replaces said it was "empty rather than built from argv, and that
+// is a gap this commit leaves open on purpose": R2.3's two flags needed R11.8's
+// dynamic flag pre-scan before cmd/pgsi had anything to pass, because the interval
+// form has a dynamic *name* and so needs the logx.FieldsFromArgs pattern applied
+// to a second flag name, and registry.go's IntervalOverridesFromArgs and
+// DisabledFromFlag existed for that and stayed uncalled. R2.3's own row filed the
+// cmd/pgsi half with step 5's R11.8 work rather than with that wiring; the chain
+// landed at bf55762, the second scan landed with the prescan/scanArgs pair in this
+// file, and both helpers are called from runServe now — so the registry gets the
+// intervals and the disable list the operator actually passed instead of defaults.
 func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overrides) (*collector.Registry, error) {
 	pooler, err := collector.NewPoolerCollector(kc.GetDirect, collector.PoolerConfig{})
 	if err != nil {
