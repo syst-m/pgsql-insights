@@ -203,6 +203,36 @@ type Config struct {
 	// returns ""), so the default is a convenience rather than a requirement and a
 	// caller can still set it to nil to opt out.
 	HTTPMetrics *metrics.HTTPRequests
+	// StoreSize is R13.5's pgsi_store_size_bytes gauge, the sixth family the R9.8
+	// hub composes (internal/metrics's StoreSizer, rendered by metrics.StoreSize at
+	// internal/metrics/store.go:90 and passed to the hub through
+	// metrics.WithStoreSize at :169). It is an interface for the reason
+	// PerQueryMetrics is one and HTTPMetrics is not: WithStoreSize's parameter type
+	// is the interface, so naming the interface here names what the call site takes
+	// — and there are two implementations to plan for, collector.MemSink
+	// (collector/sink.go:179, asserted at metrics/store.go:59) and *store.Store
+	// (internal/store/retention.go:346, since f634142), which no single concrete
+	// field could hold.
+	//
+	// It has no default in New, and that is the field's only content beyond the
+	// type: metrics.StoreSize returns "" for a nil source (store.go:91-92), so an
+	// unwired server — D9's `api` role, or any caller with no sink — renders the
+	// family absent, which is the hub's documented answer for a source with nothing
+	// to say. Defaulting it would mean constructing a sink this server never writes
+	// to, and a gauge reporting the size of an unused store is a wrong number rather
+	// than an absent one. The rule is also why cmd/pgsi assigns the sink it already
+	// builds for the scheduler rather than a second one: the gauge must report the
+	// store that is actually being filled.
+	//
+	// The typed-nil caveat is this field's, not a copy of the one above: the hub has
+	// no nil check on the store line (metrics.go:283-286 says so), so the renderer
+	// handles the shapes, and its two answers differ — a typed-nil
+	// *collector.MemSink renders the family absent (store.go:94-95) while a
+	// typed-nil *store.Store renders it at 0 (store.Used()'s nil-receiver answer,
+	// pinned from inside store by d2451de's TestStoreSizeOfNilStore).
+	// TestNewAcceptsTypedNilPerQuery below covers both from this side, in one New
+	// call, because both fields are on the same Config.
+	StoreSize metrics.StoreSizer
 
 	// Fleet is the inventory /api/v1/clusters serves (R8.2) and, through
 	// Readiness below, the thing /readyz reports on. In `pgsi serve` it is the
@@ -491,21 +521,29 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 // metricsBody is the one call site connecting this server to the R9.8 hub. The
-// hub composes five families (internal/metrics/metrics.go's RenderContext: the
-// build info, the collector duration/error pair, the scrape-target gauge,
-// R9.5's per-query family, and R9.8's own HTTP-request family) and this server
-// supplies four of them — its own *collector.Stats, its scheduler's
-// *collector.UpTracker, cfg.PerQueryMetrics, and cfg.HTTPMetrics — as values
-// rather than as rendered strings, which is what keeps the server owning its
-// sources and the hub owning the composition, the part that stops the move being
-// a rewrite of the Config fields.
+// hub composes six families, in internal/metrics/metrics.go's RenderContext
+// order: the build info, the collector duration/error pair, the scrape-target
+// gauge, R13.5's store-size gauge, R9.8's own HTTP-request family, and R9.5's
+// per-query catalogue family. This server supplies five of them — its own
+// *collector.Stats, its scheduler's *collector.UpTracker, cfg.PerQueryMetrics,
+// cfg.HTTPMetrics, and cfg.StoreSize — as values rather than as rendered
+// strings, which is what keeps the server owning its sources and the hub owning
+// the composition, the part that stops the move being a rewrite of the Config
+// fields.
 //
 // The ctx is the request's, threaded to metrics.RenderContext rather than
-// dropped on Render()'s context.Background() floor: one of the five families now
+// dropped on Render()'s context.Background() floor: one of the six families now
 // reads the SQLite store, so a scrape whose client disconnects mid-render can
 // cancel that read instead of finishing a query for a body nobody is reading.
+// The per-query family is the only one that can use it — StoreSize(src, prefix),
+// HTTPRequests.Render(prefix) (http.go:151) and collector.Stats.Render()
+// (collector/metrics.go:200) are synchronous string renders with no ctx
+// parameter — so adding the store-size source neither gains nor loses anything
+// from the threading, and the sentence above stays about the family it was
+// written for.
 func (s *Server) metricsBody(ctx context.Context) string {
 	return metrics.New(s.metrics, s.cfg.Scheduler.Up(),
 		metrics.WithPerQuery(s.cfg.PerQueryMetrics),
-		metrics.WithHTTPRequests(s.cfg.HTTPMetrics)).RenderContext(ctx)
+		metrics.WithHTTPRequests(s.cfg.HTTPMetrics),
+		metrics.WithStoreSize(s.cfg.StoreSize)).RenderContext(ctx)
 }

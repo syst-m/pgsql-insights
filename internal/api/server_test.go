@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/metrics"
 	"github.com/frankellis/pgsql-insights/internal/version"
 )
@@ -109,6 +111,63 @@ func TestBuildInfoMetricMatchesHandler(t *testing.T) {
 	s := newTestServer(t)
 	if got, want := do(t, s, http.MethodGet, "/metrics").Body.String(), metrics.BuildInfo(); got != want {
 		t.Fatalf("handler body != metrics.BuildInfo():\n%s\n---\n%s", got, want)
+	}
+}
+
+// nilPerQuerySource is this package's own metrics.PerQueryFamily implementation.
+// It has to be local: internal/store imports internal/api, so an api test cannot
+// import store to get a *store.Store to make a typed nil from — and that
+// limitation is what makes the test about api's handling rather than about the
+// implementation's. The compile-time line below is what keeps a signature drift
+// in PerQueryFamily from passing here silently.
+//
+// RenderPerQuery is on a pointer receiver with a nil check, mirroring the shape
+// d2415b1 gave store.RenderPerQuery (`if s == nil { return "", nil }`). A value
+// receiver would panic when the hub calls a nil *nilPerQuerySource, and the panic
+// would be the fake's rather than the code under test's — which is the difference
+// between a test that pins the contract and one that documents its own fixture.
+type nilPerQuerySource struct{}
+
+func (s *nilPerQuerySource) RenderPerQuery(context.Context, int, string) (string, error) {
+	if s == nil {
+		return "", nil
+	}
+	return "", nil
+}
+
+var _ metrics.PerQueryFamily = (*nilPerQuerySource)(nil)
+
+// TestNewAcceptsTypedNilPerQuery is the test internal/metrics/store.go cites
+// twice — at :70 for the PerQueryMetrics half ("the hazard d2415b1 removed from
+// store.RenderPerQuery … internal/api already carries in
+// TestNewAcceptsTypedNilPerQuery") and at :84 for the StoreSize half ("the same
+// division that makes TestNewAcceptsTypedNilPerQuery the MemSink half's test").
+// Both citations name one test, so it covers both fields in one New call: the
+// point is that api passes a typed nil through to a renderer that handles it,
+// rather than dereferencing it somewhere that requires a non-nil value.
+//
+// The assertion is the body equality rather than a per-family substring check,
+// because equality is the wider instrument: it fails if either typed nil
+// contributes any byte — an empty `# TYPE` pair, which is what promtool reports as
+// the wrong shape, or a duplicated family, or a render that ordered the body
+// differently. The explicit store-size absence check stays alongside it only
+// because that is the family whose nil the citing docblock is arguing about, and
+// a failure naming it is easier to read than a body diff.
+func TestNewAcceptsTypedNilPerQuery(t *testing.T) {
+	var perQuery *nilPerQuerySource // typed nil, not == nil
+	var sink *collector.MemSink     // typed nil, not == nil
+	s := New(Config{
+		Listen:          "127.0.0.1:0",
+		PerQueryMetrics: perQuery,
+		StoreSize:       sink,
+	})
+
+	body := s.metricsBody(context.Background())
+	if want := metrics.BuildInfo(); body != want {
+		t.Errorf("metrics body with two typed-nil sources != metrics.BuildInfo():\n%s\n---\n%s", body, want)
+	}
+	if strings.Contains(body, "pgsi_store_size_bytes") {
+		t.Errorf("body has pgsi_store_size_bytes for a typed-nil (*collector.MemSink)(nil):\n%s", body)
 	}
 }
 

@@ -463,9 +463,19 @@ func runServe(args []string) int {
 		// into NewScheduler and assigning the same variable to cfg.Metrics is
 		// equally correct; reading it back makes the equality structural instead of
 		// a thing to remember.
-		sched := collector.NewScheduler(collector.Config{}, reg, log, collector.NewMemSink(0), nil)
+		sink := collector.NewMemSink(0)
+		sched := collector.NewScheduler(collector.Config{}, reg, log, sink, nil)
 		cfg.Scheduler = sched
 		cfg.Metrics = sched.Stats()
+		// The store-size gauge gets the sink the scheduler writes into, for the
+		// reason cfg.Metrics gets the scheduler's own *Stats: one value, read out of
+		// the consumer rather than built a second time. api.Config.StoreSize's
+		// docblock states the rule (defaulting it would report the size of a store
+		// nobody writes to); this assignment is what makes the gauge report the one
+		// that is being filled. It is inside the discovery branch with the sink
+		// itself, so --discover=false leaves it nil and the family absent — the same
+		// answer that branch already gives for the scheduler's two families.
+		cfg.StoreSize = sink
 		// The targets func is called once per round rather than snapshotted here,
 		// which is what makes R1.9's "drop collectors within one resync" work: a
 		// pod that scaled out appears in the next round's set and starts
