@@ -216,6 +216,87 @@ type QueryView struct {
 	LoadColumns
 }
 
+// QueriesResponse is the body of GET /api/v1/insights/queries: R8.4's envelope
+// plus R3.1's extension-presence report.
+//
+// R8.4 states the envelope once as `Envelope[T]`, and a route that needs a key
+// beside `data` gets a named struct rather than a field in `meta` — the rule
+// ActiveQueriesResponse states for the active-queries route, and the reason this
+// route gets a name too. `meta` is reserved for paging and R10.22's
+// partial-render contract, so a per-route key parked there is a shared type
+// carrying a private field. The key this route needs is R3.1's, which asks for
+// presence "per cluster" on the same page whose rows are R3.2's queries: a caller
+// reading the queries of a cluster without pg_stat_statements has to learn that
+// from the response it already has, because R10.27's "not installed" screen is
+// this route's own fallback and a body that only says "zero rows" cannot tell an
+// empty result from an uninstrumented one.
+//
+// The type exists before its producer. internal/api/queries.go (A2's file) still
+// declares `QueriesEnvelope = Envelope[QueryView]`, and the handler's body changes
+// when that alias is swapped; until then this struct has no fetcher, which is the
+// ordinary state for a dto type — a type and the route that serves it are separate
+// artifacts, and the pair is dated in the route's commit rather than here.
+//
+// testdata/api/queries.json is unchanged by this commit for the same reason:
+// TestQueriesFixtureIsCanonical pins the fixture to `Envelope[QueryView]`, not to
+// this name, so there is nothing here for the byte-for-byte check to re-marshal.
+// The fixture gains `pgStatStatements` in the commit that switches that test's
+// type, and the `-update` run belongs to that commit, not to this one.
+type QueriesResponse struct {
+	// Data is R3.2's rows — R8.4's `data`, identical in shape to the other four
+	// list routes'. Never null: an empty list marshals to [].
+	Data []QueryView `json:"data"`
+
+	// Meta is R8.4's envelope metadata.
+	Meta Meta `json:"meta"`
+
+	// PGStatStatements is R3.1's report: one row per database the process knows
+	// about. It is a list rather than a single boolean because R3.1's unit of
+	// detection is a database and its unit of reporting is a cluster, and one
+	// boolean per response describes neither of them across a fleet.
+	PGStatStatements []ExtensionPresenceView `json:"pgStatStatements"`
+}
+
+// ExtensionPresenceView is one row of R3.1's per-database presence report.
+//
+// R3.1's sentence names two detection sources and one reporting scope: "Detect
+// `pg_stat_statements` presence per database (from `pg_extension` via S2 and from
+// `cnpg_pg_extensions_*` via S3) and report it per cluster." This struct is the
+// per-database half; the two identity fields are what make it reportable per
+// cluster.
+type ExtensionPresenceView struct {
+	// Namespace and Cluster are R10.16's cluster identity, the pair every list
+	// row in this package carries (QueryView, FleetRow, TagView). They are the
+	// join key: a per-database row without them cannot be attributed to the
+	// cluster whose page renders it, which is the half of R3.1's sentence that
+	// says "report it per cluster".
+	Namespace string `json:"namespace"`
+	Cluster   string `json:"cluster"`
+
+	// Database is R3.1's detection unit — "presence per database". The word is
+	// R3.2's `database`, not R9.3's `datname`, for the reason this file's header
+	// gives: the requirement that defines a column set names its fields, and R3.2
+	// defines this table's vocabulary while R9.3 defines a metric family's.
+	Database string `json:"database"`
+
+	// Installed is the tri-state R3.1's two sources force: nil means not known,
+	// &false means absent, &true means present.
+	//
+	// A plain bool cannot hold the first state, and the first state is not an edge
+	// case — it is the normal result of asking two sources that do not cover the
+	// same ground. S2 answers for every database in a cluster the driver can
+	// reach; S3 answers only for the databases a CNPG pod exports metrics for, so
+	// a database S2 reported and S3 has no series for is not a database without
+	// the extension. R10.27's screen renders the words "not installed", and
+	// rendering them for a database nobody measured is the difference between a
+	// gap and a wrong answer.
+	//
+	// omitempty on a *bool omits the key when the pointer is nil and emits `false`
+	// or `true` when it is not, which is what makes "absent from the body" a
+	// representable third state rather than a field that has to guess.
+	Installed *bool `json:"installed,omitempty"`
+}
+
 // QueryDetailView is GET /api/v1/insights/queries/{fingerprint} — R10.7's
 // Query Detail page, field for field.
 //

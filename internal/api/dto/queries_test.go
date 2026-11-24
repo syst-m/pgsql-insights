@@ -649,3 +649,46 @@ func TestEnvelopeShapeMatchesR84(t *testing.T) {
 		t.Errorf("Meta is missing one of R8.4's total/truncated/generatedAt/nextCursor: %v", got)
 	}
 }
+
+// TestQueriesResponseWireKeys pins the two types this commit adds to the wire
+// surface they promise.
+//
+// jsonKeys is the instrument: it asks encoding/json what the struct emits rather
+// than reading the field list, so a renamed tag, a reordered field or a new
+// omitempty shows up here — the same bar TestR32ColumnSetIsComplete holds
+// QueryView to. For QueriesResponse the assertion is that the body is R8.4's two
+// envelope keys plus R3.1's one: a fourth key needs a sentence in
+// requirements.md naming it before it needs a field here.
+//
+// The Installed assertion is the one that is not a naming check. The tri-state is
+// a type fact — *bool has three states and bool has two — and a preference stated
+// only in a docblock is the kind of claim this project has learned to distrust, so
+// the pointer is asserted through reflect rather than argued in prose.
+func TestQueriesResponseWireKeys(t *testing.T) {
+	got := jsonKeys(reflect.TypeOf(QueriesResponse{}))
+	want := []string{"data", "meta", "pgStatStatements"}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(want, got) {
+		t.Errorf("QueriesResponse's wire properties.\n got %v\nwant %v", got, want)
+	}
+
+	got = jsonKeys(reflect.TypeOf(ExtensionPresenceView{}))
+	want = []string{"namespace", "cluster", "database", "installed"}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(want, got) {
+		t.Errorf("ExtensionPresenceView's wire properties.\n got %v\nwant %v", got, want)
+	}
+
+	f, ok := reflect.TypeOf(ExtensionPresenceView{}).FieldByName("Installed")
+	if !ok {
+		t.Fatal("ExtensionPresenceView has no Installed field")
+	}
+	if f.Type.Kind() != reflect.Ptr || f.Type.Elem().Kind() != reflect.Bool {
+		t.Errorf("Installed is %s, want *bool (R3.1's two sources make `unknown` a real answer and bool has no encoding for it)", f.Type)
+	}
+	if tag := f.Tag.Get("json"); tag != "installed,omitempty" {
+		t.Errorf("Installed json tag is %q, want `installed,omitempty` (a nil pointer must be absent from the body, not `null`)", tag)
+	}
+}
