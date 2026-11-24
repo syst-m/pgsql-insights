@@ -63,7 +63,7 @@
 // running in two clusters is two rows whose only on-wette distinction is their load
 // numbers, and a fleet-wide request whose two rows happen to share every sorted
 // value yields one key, which keyset paging can place on at most one page. Every
-// cluster-scoped request (which is what web/src/routes.ts:262's `scope: "cluster"`
+// cluster-scoped request (which is what web/src/routes.ts:263's `scope: "cluster"`
 // and its `/c/:ns/:name/tags` path ask for) has exactly one row per tagHash and
 // cannot hit it. Fixing the general case means two fields on TagView, which moves the
 // fixture, types.ts and the document — a dto change and A1's call, not a line in this
@@ -81,7 +81,7 @@ import (
 )
 
 // TagsPath is R8.2's tags route, named once so server.go's registration, this
-// handler, the tests, api/openapi.yaml and web/src/routes.ts:259 all spell it
+// handler, the tests, api/openapi.yaml and web/src/routes.ts:260 all spell it
 // identically — the pattern ActiveQueriesPath, QueriesPath, QueryDetailPath,
 // QuerySeriesPath and QueryPlansPath set for their routes.
 //

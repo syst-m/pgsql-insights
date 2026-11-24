@@ -1681,7 +1681,7 @@ var openAPIPaths = []openAPIPath{
 			"        R8.2's tags route and R10.3's Tags tab: the per-tag rollup R3.12",
 			"        defines, paged. The path string is not authored here either — it is",
 			"        `api.TagsPath`, which is what server.go registers, what",
-			"        web/src/routes.ts:259's `endpoint:` field has always carried, and",
+			"        web/src/routes.ts:260's `endpoint:` field has always carried, and",
 			"        what this file's r8.2-catalogue listed until this commit moved the",
 			"        entry up to `paths` (the delete-rather-than-mark rule every earlier",
 			"        promotion states, and the disjointness R14.7 checks).",
