@@ -1,4 +1,15 @@
 import re, sys, pathlib, subprocess
+if len(sys.argv) < 2:
+    # The runner is scripts/check-parity-matrix.sh, which passes requirements.md. Called
+    # bare, this raised IndexError and exited 1 -- a usage error wearing the exit code of a
+    # failed gate, which is how a green tree got reported red (the coordinator ran
+    # `python3 scripts/check-parity-matrix.py` with no argument on 2026-11-24 and read the
+    # traceback as a gate failure). Usage exits 2, the code the GUARD paths already use for
+    # "the table shape changed, not a pass"; 1 means the gate ran and found something; 0
+    # means it ran and found nothing. Three states, three codes.
+    print("USAGE: scripts/check-parity-matrix.sh"
+          "  (or: python3 scripts/check-parity-matrix.py requirements.md)")
+    sys.exit(2)
 src = pathlib.Path(sys.argv[1]).read_text().splitlines()
 
 def split_row(line):
@@ -501,6 +512,75 @@ for n, rid, cell in status_bad[:20]:
     print(f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}")
 
 # ---------------------------------------------------------------------------
+# Table width: every row in a markdown table must carry its header's cell count.
+#
+# check_status_enum above reads cells[0] and cells[-1] and nothing in between, so a row with
+# an unescaped pipe in its prose -- or, the way A3 shipped IMPLEMENTATION.md:710 at 5cb8c24,
+# two literal `||` from concatenating three cell fragments that each carried their own pipes --
+# passes the enum check and renders as six columns under a four-column header. The coordinator
+# filed it; the gate could not have. The only length check in this file was `if len(cells) < 5`
+# in the §3 phase-table parser -- a parse guard for one table, not a rule about tables.
+#
+# Tables are found structurally: a `|...|` line whose next line is a `|---|` separator is a
+# header, and every `|...|` line after it, up to the first non-table line, is its row. An
+# earlier attempt keyed on a vocabulary of header texts (`Req`, `#`, `Phase`, ...) and produced
+# 16 false positives on tables whose header name it did not know -- the same failure as a
+# linter that only checks the files it has heard of. Widths come from split_row_esc, so
+# `--auth=none\|token` counts as one cell, which is how it renders.
+#
+# WIDTH_EXEMPT holds the pre-existing rows the first run found, so the check gates on new
+# damage without turning this commit into a rewrite of prose it did not write. Entries are
+# (file, line): a fix deletes its line, and so does any edit that moves the row -- an exemption
+# that expires when the line moves re-reports the row instead of silently passing it, which is
+# the direction worth failing in. The nine §11 rows are missing a column outright (the Reviewer
+# cell absorbed the Scope cell's `-> docs/reviews/...` suffix), and IMPLEMENTATION.md:867's D12
+# row has three pipes whose role -- separator or text -- is a judgement, not a mechanical fix.
+WIDTH_EXEMPT = {
+    ("IMPLEMENTATION.md", 867),
+    ("requirements.md", 842), ("requirements.md", 843), ("requirements.md", 844),
+    ("requirements.md", 845), ("requirements.md", 846), ("requirements.md", 847),
+    ("requirements.md", 848), ("requirements.md", 849),
+}
+WIDTH_DOC = ("IMPLEMENTATION.md", "requirements.md",
+             "docs/reviews/finding-index.md", "docs/agents.md")
+SEP_ROW_RE = re.compile(r"^\|[\s:|-]+\|$")
+
+def check_table_widths(root):
+    # (tables, rows, bad) -- bad rows are those whose width != their header's.
+    tables = rows = 0
+    bad = []
+    for rel in WIDTH_DOC:
+        lines = lines_of(root, rel)
+        i = 0
+        while i < len(lines):
+            line = lines[i].rstrip()
+            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            if line.startswith("|") and SEP_ROW_RE.match(nxt):
+                tables += 1
+                width = len(split_row_esc(line))
+                j = i + 2
+                while j < len(lines):
+                    row = lines[j].rstrip()
+                    if not row.startswith("|") or SEP_ROW_RE.match(row.strip()):
+                        break
+                    rows += 1
+                    n = len(split_row_esc(row))
+                    if n != width and (rel, j + 1) not in WIDTH_EXEMPT:
+                        bad.append((rel, j + 1, width, n,
+                                    split_row_esc(row)[0][:24]))
+                    j += 1
+                i = j
+            else:
+                i += 1
+    return tables, rows, bad
+
+width_tables, width_rows, width_bad = check_table_widths(root)
+print(f"table widths: {width_tables} tables \u00b7 {width_rows} rows \u00b7 "
+      f"{len(width_bad)} mismatched \u00b7 {len(WIDTH_EXEMPT)} exempt")
+for rel, n, w, n2, first in width_bad[:20]:
+    print(f"  {rel}:{n}: {n2} cells under a {w}-cell header -- first cell {first!r}")
+
+# ---------------------------------------------------------------------------
 # §3's phase table and §1's milestone table: the phase-level status, derived.
 #
 # check_status_enum above gates the 77 R-id rows and nothing else -- it is keyed on
@@ -765,5 +845,6 @@ for t in uncited_f[:20]:
 
 sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad
               or id_orphans or path_orphans or labels_bad or status_bad
-              or phase_bad or ms_bad or finding_bad or unbound_notes) else 0)
+              or phase_bad or ms_bad or finding_bad or unbound_notes
+              or width_bad) else 0)
 
