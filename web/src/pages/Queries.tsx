@@ -198,27 +198,41 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
    *  absent-means-unknown, so `routes.ts` mounting this component with plain
    *  `PageProps<any>` needs no change to pass.
    *
-   *  The named type that replaces it, as settled with A2 on 2026-11-24 (their
-   *  answer to this page's ask, and A1's to write — `dto/queries.go` is A1's):
+   *  The named type that replaces it, as written by A1 in `dto/queries.go` and
+   *  confirmed by A2 on 2026-11-24 — the shape went through three forms in one
+   *  day, so all three are recorded rather than only the last:
    *
+   *    // as A2 first sent it (my ask, their answer):
    *    dto.ExtensionPresenceView{ Namespace, Cluster, Database string; Installed bool }
+   *    // as A1 is writing it, and A2 corrected it to the same on 2026-11-24:
+   *    dto.QueriesResponse{ Data []QueryView `json:"data"`; Meta Meta `json:"meta"`; PGStatStatements []ExtensionPresenceView `json:"pgStatStatements"` }
+   *    dto.ExtensionPresenceView{ Namespace, Cluster, Database string; Installed *bool `json:"installed,omitempty"` }
    *
-   *  inside `QueriesResponse`. Measured at `e8f1005` neither type is in that
-   *  file yet, so the prop is still the source and this paragraph is the record
-   *  of what the flip changes it to. The earlier wording named `dto/clusters.go`
-   *  as the file that doesn't expose it; the answer moved the type to
-   *  `dto/queries.go`, which is why the field arrives with the queries payload
-   *  rather than with the fleet one.
+   *  `Installed` is a `*bool`, not a `bool`: nil is the key absent from the body,
+   *  `&false` is *not installed*, `&true` is *installed*. That is what makes the
+   *  tri-state below representable in the payload instead of only in this page —
+   *  a missing key and an explicit false used to be the same byte, which is the
+   *  whole reason the prop exists. Measured at `e8f1005` neither type is in the
+   *  file yet, so the prop is still the source. The earlier wording named
+   *  `dto/clusters.go` as the file that doesn't expose it; the answer moved the
+   *  type to `dto/queries.go` and ruled out putting it on `ClusterView` as well
+   *  (one fact, two read paths, two refresh timings — R16.8's class), which is
+   *  why the field arrives with the queries payload and not the fleet one. The
+   *  page reads it as `resp.pgStatStatements`, not as a boolean field.
    *
    *  **Resolve rule.** The payload answers per database, so a cluster with the
    *  extension in `appdb` and not in `metrics` has no single boolean answer. The
    *  page filters the rows to the route's cluster (`namespace` + `cluster` — the
-   *  only join available at this call site) and ANDs `installed` across them.
-   *  "Installed everywhere" is the conservative reading: any database lacking it
-   *  makes this panel's data partial, and `StatePanel.tsx:108` renders that as
-   *  `unavailable` rather than a false "installed and quiet". The per-database
-   *  rows are in the payload once the type lands, so surfacing them per database
-   *  later is a rendering change, not another API change. */
+   *  only join available at this call site) and ANDs `installed` across them,
+   *  where AND is three-valued to match the `*bool`: **nil** if any row is nil
+   *  (unknown beats false — an unreported database is not a missing one),
+   *  **false** if any row is `&false` and none is nil, **true** only when every
+   *  row is `&true`. "Installed everywhere" is the conservative reading: any
+   *  database lacking it makes this panel's data partial, and
+   *  `StatePanel.tsx:108` renders that as `unavailable` rather than a false
+   *  "installed and quiet". The per-database rows are in the payload once the
+   *  type lands, so surfacing them per database later is a rendering change, not
+   *  another API change. */
   extensionInstalled?: boolean;
   /** R8.11's batched series for the table's `Load sparkline` column, keyed by
    *  fingerprint.
