@@ -127,13 +127,13 @@ func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 // check for the whole exposition, so one bad row is a failed acceptance for every
 // good one.
 func TestCounterNamesEndInTotal(t *testing.T) {
-	for src, e := range exportNames {
+	for key, e := range exportNames {
 		if e.typ != TypeCounter || e.name == "" {
 			continue
 		}
 		if !strings.HasSuffix(e.name, "_total") {
-			t.Errorf("%s.%s -> %q is a counter without the _total suffix (promtool rejects it)",
-				src.View, src.Column, e.name)
+			t.Errorf("%s -> %q is a counter without the _total suffix (promtool rejects it)",
+				key, e.name)
 		}
 	}
 }
@@ -145,9 +145,9 @@ func TestCounterNamesEndInTotal(t *testing.T) {
 // the cheap version of the check; the row-level strings are what a reviewer
 // actually reads.
 func TestEveryNameHasAProvenance(t *testing.T) {
-	for src, e := range exportNames {
+	for key, e := range exportNames {
 		if strings.TrimSpace(e.src) == "" {
-			t.Errorf("%s.%s -> %q has no src (R14.7 needs a document to point at)", src.View, src.Column, e.name)
+			t.Errorf("%s -> %q has no src (R14.7 needs a document to point at)", key, e.name)
 		}
 	}
 }
@@ -161,29 +161,27 @@ func TestEveryNameHasAProvenance(t *testing.T) {
 // — silently merges two series in Prometheus and loses one value, which is the
 // failure R9.2's prefix requirement exists to prevent, one level down.
 //
-// The check is that every Source carrying a shared name Canonical()s to the same
+// The check is that every key carrying a shared name CanonicalKey()s to the same
 // place. That is the definition of "the same logical metric" this package uses, so
 // the test and the naming function cannot drift apart.
 func TestSharedNamesAreSuccessionOnly(t *testing.T) {
-	byName := map[string][]pgversion.Source{}
-	for src, e := range exportNames {
+	byName := map[string][]string{}
+	for key, e := range exportNames {
 		if e.name == "" {
 			continue
 		}
-		byName[e.name] = append(byName[e.name], src)
+		byName[e.name] = append(byName[e.name], key)
 	}
 
-	for name, srcs := range byName {
-		if len(srcs) < 2 {
+	for name, keys := range byName {
+		if len(keys) < 2 {
 			continue
 		}
-		want := Canonical(srcs[0].View, srcs[0].Column)
-		for _, src := range srcs[1:] {
-			if got := Canonical(src.View, src.Column); got != want {
-				t.Errorf("%q is shared by %s.%s and %s.%s, which Canonical() says are different metrics (%s.%s vs %s.%s): a real collision, not a rename pair",
-					name,
-					srcs[0].View, srcs[0].Column, src.View, src.Column,
-					want.View, want.Column, got.View, got.Column)
+		want := CanonicalKey(keys[0])
+		for _, key := range keys[1:] {
+			if got := CanonicalKey(key); got != want {
+				t.Errorf("%q is shared by %s and %s, which Canonical() says are different metrics (%s vs %s): a real collision, not a rename pair",
+					name, keys[0], key, want, got)
 			}
 		}
 	}
@@ -223,26 +221,20 @@ func TestCanonicalWalksTheSuccessionTable(t *testing.T) {
 // table is reordered. A naming function whose output depends on slice order is a
 // name that two builds disagree about.
 func TestCanonicalIsStableUnderTableOrder(t *testing.T) {
-	// Every Source the table mentions, resolved twice. The map is built once at
+	// Every key the table mentions, resolved twice. The map is built once at
 	// package init, so this is a cheap re-read rather than a rebuild — the real
 	// protection is that predecessorsBySource is a map keyed by Source, and Go
 	// gives a map no iteration order, so the build cannot depend on it.
-	var srcs []pgversion.Source
-	for src := range exportNames {
-		srcs = append(srcs, src)
+	var keys []string
+	for key := range exportNames {
+		keys = append(keys, key)
 	}
-	sort.Slice(srcs, func(i, j int) bool {
-		if srcs[i].View != srcs[j].View {
-			return srcs[i].View < srcs[j].View
-		}
-		return srcs[i].Column < srcs[j].Column
-	})
-	for _, src := range srcs {
-		first := Canonical(src.View, src.Column)
+	sort.Strings(keys)
+	for _, key := range keys {
+		first := CanonicalKey(key)
 		for i := 0; i < 3; i++ {
-			if got := Canonical(src.View, src.Column); got != first {
-				t.Fatalf("Canonical(%s.%s) is not stable: %s.%s then %s.%s",
-					src.View, src.Column, first.View, first.Column, got.View, got.Column)
+			if got := CanonicalKey(key); got != first {
+				t.Fatalf("CanonicalKey(%s) is not stable: %s then %s", key, first, got)
 			}
 		}
 	}

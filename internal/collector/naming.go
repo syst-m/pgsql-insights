@@ -2,6 +2,7 @@ package collector
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/frankellis/pgsql-insights/internal/collector/pgversion"
 )
@@ -44,16 +45,38 @@ import (
 //     collectors land (each one is "R9.7 (partial)" in §3.10's row for step 4,
 //     which is the word the row uses).
 //
+// The signature is unchanged by the widening on purpose: the parameter type is
+// what keeps every caller type-checked against pgversion.View, and retyping it to
+// take the key string would move the type check out of the compiler and into the
+// table. The body is the typed entry point — Canonical(view, column).String() — and
+// MetricNameFor is the general form for a key with no (view, column).
+//
 // The prefix stays out. R9.2 makes it configurable (`metrics.prefix`), and
 // metrics.go's DefaultPrefix is applied at render time, so a collector that baked
 // `pgsi_` into Sample.Metric would make metrics.prefix a lie. clock.go's
 // Sample.Metric doc is the normative statement of that ("pg_stat_database_xact_commit",
 // not "pgsi_pg_stat_database_xact_commit") and this function honours it.
 func MetricName(view pgversion.View, column string) string {
-	if e, ok := exportNames[Canonical(view, column)]; ok {
+	if e, ok := exportNames[Canonical(view, column).String()]; ok {
 		return e.name
 	}
 	return string(view) + "_" + column
+}
+
+// MetricNameFor returns the family name registered under an arbitrary export key,
+// and "" if the table has no row for it.
+//
+// It is the general form R9.4's amendment asks for. MetricName takes
+// (pgversion.View, string) because that is the typed identity of a PostgreSQL
+// catalog column, and a pgbouncer pooler family or a cnpg exporter family has no
+// such identity — `pgbouncer_pools_requests_waiting` is not a column of a view —
+// so no (view, column) signature can name it. The table holds those rows under
+// their bare member names and this function is how their collectors read them back.
+//
+// It does not apply the succession walk: a dotless key has no chain to walk, and
+// CanonicalKey is the form that decides whether one applies.
+func MetricNameFor(key string) string {
+	return exportNames[key].name
 }
 
 // MetricType is the Prometheus type of a family, which is the other half of what
@@ -89,8 +112,19 @@ type exportEntry struct {
 	src string
 }
 
-// exportNames is R9.4's naming table, keyed by the canonical (view, column)
-// identity.
+// exportNames is R9.4's naming table, keyed by the export key — the string form of
+// the canonical (view, column) identity, and since A3's amendment the only key type
+// the table admits.
+//
+// The key is a string literal, and that is a correctness property rather than a
+// style choice. Go detects duplicate keys in a map literal only when the keys are
+// constants, so the previous `pgversion.Source` composite-literal keys got no
+// duplicate detection at all: two rows for one (view, column) compiled and one
+// silently won. A string key is a constant, so the compiler now checks all 139.
+// MetricName and MetricTypeOf keep their (view, column) signatures as the typed
+// entry points and build the key with Source.String(); MetricNameFor and
+// MetricTypeFor take the key directly, which is how the dotless populations —
+// cnpg's and pgbouncer's families — get named. R9.4's amendment is the ruling.
 //
 // It is a table and not a formula because the committed names are not derivable:
 // pgsi_db_xact_commit_total shortens pg_stat_database to `db`,
@@ -112,7 +146,7 @@ type exportEntry struct {
 // is ahead of §3.3's step list there rather than behind it, and those collectors
 // inherit names from rows already here when they do. The other §3.3 collectors
 // contribute their views when they land.
-var exportNames = map[pgversion.Source]exportEntry{
+var exportNames = map[string]exportEntry{
 	// ---- R9.4's aggregate family: the five members R9.4's own sentence names ----
 	//
 	// "execution time, rows, shared block hits/reads, lock time, per (cluster,
@@ -120,41 +154,41 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// chart/templates/prometheusrule.yaml already uses (PGSILockWaitDominant
 	// reads pgsi_query_lock_time_seconds_total), because the catalogue's header
 	// says "Phase 2 implements to this table rather than the other way round".
-	{View: pgversion.ViewStatStatements, Column: "total_exec_time"}:  {name: "query_execution_time_seconds_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.execution_time"},
-	{View: pgversion.ViewStatStatements, Column: "rows"}:             {name: "query_rows_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.rows"},
-	{View: pgversion.ViewStatStatements, Column: "shared_blks_hit"}:  {name: "query_shared_blocks_hit_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.shared_blocks_hit"},
-	{View: pgversion.ViewStatStatements, Column: "shared_blks_read"}: {name: "query_shared_blocks_read_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.shared_blocks_read"},
-	{View: pgversion.ViewStatStatements, Column: "lock_time"}:        {name: "query_lock_time_seconds_total", typ: TypeCounter, src: "R9.4's lock_time member (the R9.11 ruling); PGSILockWaitDominant reads it"},
+	"pg_stat_statements.total_exec_time":  {name: "query_execution_time_seconds_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.execution_time"},
+	"pg_stat_statements.rows":             {name: "query_rows_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.rows"},
+	"pg_stat_statements.shared_blks_hit":  {name: "query_shared_blocks_hit_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.shared_blocks_hit"},
+	"pg_stat_statements.shared_blks_read": {name: "query_shared_blocks_read_total", typ: TypeCounter, src: "R9.4 aggregate; catalogue aggregate.shared_blocks_read"},
+	"pg_stat_statements.lock_time":        {name: "query_lock_time_seconds_total", typ: TypeCounter, src: "R9.4's lock_time member (the R9.11 ruling); PGSILockWaitDominant reads it"},
 	// calls is not one of R9.4's five but is R3.2's thirteen-column set's first
 	// counter, and R9.5's per-query family cannot rank top-N without it.
-	{View: pgversion.ViewStatStatements, Column: "calls"}: {name: "query_calls_total", typ: TypeCounter, src: "R3.2's Load column; R9.5's top-N ranking key"},
+	"pg_stat_statements.calls": {name: "query_calls_total", typ: TypeCounter, src: "R3.2's Load column; R9.5's top-N ranking key"},
 	// The two succession rows R2.4 enumerates for this view. Naming the pair once
 	// each is the entire point of Canonical: without it, a PG16 cluster exports
 	// query_shared_blk_read_time from blk_read_time and a PG17 cluster exports a
 	// second family from shared_blk_read_time.
-	{View: pgversion.ViewStatStatements, Column: "shared_blk_read_time"}:  {name: "query_shared_blk_read_time_seconds_total", typ: TypeCounter, src: "R2.4's enumerated rename pair (blk_read_time ≤PG16)"},
-	{View: pgversion.ViewStatStatements, Column: "shared_blk_write_time"}: {name: "query_shared_blk_write_time_seconds_total", typ: TypeCounter, src: "R2.4's enumerated rename pair (blk_write_time ≤PG16)"},
+	"pg_stat_statements.shared_blk_read_time":  {name: "query_shared_blk_read_time_seconds_total", typ: TypeCounter, src: "R2.4's enumerated rename pair (blk_read_time ≤PG16)"},
+	"pg_stat_statements.shared_blk_write_time": {name: "query_shared_blk_write_time_seconds_total", typ: TypeCounter, src: "R2.4's enumerated rename pair (blk_write_time ≤PG16)"},
 	// The local/temp block counters R3.2's thirteen columns list alongside the
 	// shared ones R9.4 names.
-	{View: pgversion.ViewStatStatements, Column: "shared_blks_dirtied"}: {name: "query_shared_blocks_dirtied_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "shared_blks_written"}: {name: "query_shared_blocks_written_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "local_blks_hit"}:      {name: "query_local_blocks_hit_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "local_blks_read"}:     {name: "query_local_blocks_read_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "local_blks_dirtied"}:  {name: "query_local_blocks_dirtied_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "local_blks_written"}:  {name: "query_local_blocks_written_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "temp_blks_read"}:      {name: "query_temp_blocks_read_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "temp_blks_written"}:   {name: "query_temp_blocks_written_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "total_plan_time"}:     {name: "query_plan_time_seconds_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "wal_records"}:         {name: "query_wal_records_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "wal_fpi"}:             {name: "query_wal_fpi_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
-	{View: pgversion.ViewStatStatements, Column: "wal_bytes"}:           {name: "query_wal_bytes_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.shared_blks_dirtied": {name: "query_shared_blocks_dirtied_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.shared_blks_written": {name: "query_shared_blocks_written_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.local_blks_hit":      {name: "query_local_blocks_hit_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.local_blks_read":     {name: "query_local_blocks_read_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.local_blks_dirtied":  {name: "query_local_blocks_dirtied_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.local_blks_written":  {name: "query_local_blocks_written_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.temp_blks_read":      {name: "query_temp_blocks_read_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.temp_blks_written":   {name: "query_temp_blocks_written_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.total_plan_time":     {name: "query_plan_time_seconds_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.wal_records":         {name: "query_wal_records_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.wal_fpi":             {name: "query_wal_fpi_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
+	"pg_stat_statements.wal_bytes":           {name: "query_wal_bytes_total", typ: TypeCounter, src: "R3.2's thirteen columns"},
 	// The pre-PG13 spelling of total_exec_time. Canonical() maps the PG13+ name
 	// here, so this entry is the one MetricName actually resolves to; it is
 	// written out rather than implied because the table is the enumeration R14.7
 	// checks against.
-	{View: pgversion.ViewStatStatements, Column: "total_time"}:     {name: "query_execution_time_seconds_total", typ: TypeCounter, src: "R2.4's first enumerated rename; R9.4 aggregate via its PG13+ successor"},
-	{View: pgversion.ViewStatStatements, Column: "blk_read_time"}:  {name: "query_shared_blk_read_time_seconds_total", typ: TypeCounter, src: "R2.4's second enumerated pair"},
-	{View: pgversion.ViewStatStatements, Column: "blk_write_time"}: {name: "query_shared_blk_write_time_seconds_total", typ: TypeCounter, src: "R2.4's second enumerated pair"},
+	"pg_stat_statements.total_time":     {name: "query_execution_time_seconds_total", typ: TypeCounter, src: "R2.4's first enumerated rename; R9.4 aggregate via its PG13+ successor"},
+	"pg_stat_statements.blk_read_time":  {name: "query_shared_blk_read_time_seconds_total", typ: TypeCounter, src: "R2.4's second enumerated pair"},
+	"pg_stat_statements.blk_write_time": {name: "query_shared_blk_write_time_seconds_total", typ: TypeCounter, src: "R2.4's second enumerated pair"},
 
 	// ---- R9.7's system family, pg_stat_activity half ----
 	//
@@ -194,8 +228,8 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// source view groups by, and the family name must name that dimension — which
 	// `db_backends_by_state` + `state` satisfies. The alternative, one family per
 	// state value, mints seven families to express one grouped count.
-	{View: pgversion.ViewStatActivity, Column: "backends_by_state"}:            {name: "db_backends_by_state", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_state"},
-	{View: pgversion.ViewStatActivity, Column: "backends_by_application_name"}: {name: "db_backends_by_application_name", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_application_name"},
+	"pg_stat_activity.backends_by_state":            {name: "db_backends_by_state", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_state"},
+	"pg_stat_activity.backends_by_application_name": {name: "db_backends_by_application_name", typ: TypeGauge, src: "R5.2 backends; catalogue backends_by_application_name"},
 	// Every one of the view's own columns is TypeNotExported, and that is the
 	// requirement rather than an omission. R9.1 lists "active-session rows" among
 	// the things that are "API + store only" and says "Metrics carry the numbers;
@@ -215,37 +249,37 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// state_change) are per-session start times, which is not what
 	// Sample.StatsReset means — pg_stat_activity has no epoch, so a row here
 	// marked as one would claim an epoch the view does not have.
-	{View: pgversion.ViewStatActivity, Column: "datid"}:            {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
-	{View: pgversion.ViewStatActivity, Column: "datname"}:          {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
-	{View: pgversion.ViewStatActivity, Column: "pid"}:              {name: "", typ: TypeNotExported, src: "R9.1: the identifier naming.go names as the anti-pattern"},
-	{View: pgversion.ViewStatActivity, Column: "leader_pid"}:       {name: "", typ: TypeNotExported, src: "R9.1: identifier (parallel worker's leader)"},
-	{View: pgversion.ViewStatActivity, Column: "usesysid"}:         {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
-	{View: pgversion.ViewStatActivity, Column: "usename"}:          {name: "", typ: TypeNotExported, src: "R9.3: the usename label, not a value"},
-	{View: pgversion.ViewStatActivity, Column: "application_name"}: {name: "", typ: TypeNotExported, src: "R9.3 label; the by_application_name family above is its metric form"},
-	{View: pgversion.ViewStatActivity, Column: "client_addr"}:      {name: "", typ: TypeNotExported, src: "R9.1 text half (inet)"},
-	{View: pgversion.ViewStatActivity, Column: "client_hostname"}:  {name: "", typ: TypeNotExported, src: "R9.1 text half"},
-	{View: pgversion.ViewStatActivity, Column: "client_port"}:      {name: "", typ: TypeNotExported, src: "R9.1: part of the connection identity"},
-	{View: pgversion.ViewStatActivity, Column: "backend_start"}:    {name: "", typ: TypeNotExported, src: "R4.1 Session duration operand, not a metric"},
-	{View: pgversion.ViewStatActivity, Column: "xact_start"}:       {name: "", typ: TypeNotExported, src: "R4.1 Transaction duration operand, not a metric"},
-	{View: pgversion.ViewStatActivity, Column: "query_start"}:      {name: "", typ: TypeNotExported, src: "R4.1 Query duration operand, not a metric"},
-	{View: pgversion.ViewStatActivity, Column: "state_change"}:     {name: "", typ: TypeNotExported, src: "R9.1: a timestamp, and not this view's epoch (it has none)"},
+	"pg_stat_activity.datid":            {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
+	"pg_stat_activity.datname":          {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
+	"pg_stat_activity.pid":              {name: "", typ: TypeNotExported, src: "R9.1: the identifier naming.go names as the anti-pattern"},
+	"pg_stat_activity.leader_pid":       {name: "", typ: TypeNotExported, src: "R9.1: identifier (parallel worker's leader)"},
+	"pg_stat_activity.usesysid":         {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
+	"pg_stat_activity.usename":          {name: "", typ: TypeNotExported, src: "R9.3: the usename label, not a value"},
+	"pg_stat_activity.application_name": {name: "", typ: TypeNotExported, src: "R9.3 label; the by_application_name family above is its metric form"},
+	"pg_stat_activity.client_addr":      {name: "", typ: TypeNotExported, src: "R9.1 text half (inet)"},
+	"pg_stat_activity.client_hostname":  {name: "", typ: TypeNotExported, src: "R9.1 text half"},
+	"pg_stat_activity.client_port":      {name: "", typ: TypeNotExported, src: "R9.1: part of the connection identity"},
+	"pg_stat_activity.backend_start":    {name: "", typ: TypeNotExported, src: "R4.1 Session duration operand, not a metric"},
+	"pg_stat_activity.xact_start":       {name: "", typ: TypeNotExported, src: "R4.1 Transaction duration operand, not a metric"},
+	"pg_stat_activity.query_start":      {name: "", typ: TypeNotExported, src: "R4.1 Query duration operand, not a metric"},
+	"pg_stat_activity.state_change":     {name: "", typ: TypeNotExported, src: "R9.1: a timestamp, and not this view's epoch (it has none)"},
 	// The synthetic column R4.3 asked for, kept as a row so the table stays the
 	// complete enumeration R14.7 checks. It has no name because the ruling that
 	// removed it from the exported block (S50) is a ruling that the family does
 	// not exist, and a row with a name and no family is the exact artefact S50
 	// filed: MetricName would return the name, ExportedMetricNames would publish
 	// it, and no document would have to agree.
-	{View: pgversion.ViewStatActivity, Column: "backends_by_wait_event"}: {name: "", typ: TypeNotExported, src: "R4.3; ruled not a metric family (A3's S50) — it is the Wait Events page's payload"},
-	{View: pgversion.ViewStatActivity, Column: "wait_event_type"}:        {name: "", typ: TypeNotExported, src: "R9.1 text half; R4.3's rollup of it is API-plane, not a family (S50)"},
-	{View: pgversion.ViewStatActivity, Column: "wait_event"}:             {name: "", typ: TypeNotExported, src: "R9.1 text half; R4.3's rollup of it is API-plane, not a family (S50)"},
-	{View: pgversion.ViewStatActivity, Column: "state"}:                  {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_state family above is its metric form"},
-	{View: pgversion.ViewStatActivity, Column: "backend_xid"}:            {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xid)"},
-	{View: pgversion.ViewStatActivity, Column: "backend_xmin"}:           {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xmin)"},
-	{View: pgversion.ViewStatActivity, Column: "query_id"}:               {name: "", typ: TypeNotExported, src: "R4.7's link to the R3 detail; R9.5's id, not a value"},
-	{View: pgversion.ViewStatActivity, Column: "query"}:                  {name: "", typ: TypeNotExported, src: "R9.1: query text is API-plane"},
+	"pg_stat_activity.backends_by_wait_event": {name: "", typ: TypeNotExported, src: "R4.3; ruled not a metric family (A3's S50) — it is the Wait Events page's payload"},
+	"pg_stat_activity.wait_event_type":        {name: "", typ: TypeNotExported, src: "R9.1 text half; R4.3's rollup of it is API-plane, not a family (S50)"},
+	"pg_stat_activity.wait_event":             {name: "", typ: TypeNotExported, src: "R9.1 text half; R4.3's rollup of it is API-plane, not a family (S50)"},
+	"pg_stat_activity.state":                  {name: "", typ: TypeNotExported, src: "R9.1 text half; the by_state family above is its metric form"},
+	"pg_stat_activity.backend_xid":            {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xid)"},
+	"pg_stat_activity.backend_xmin":           {name: "", typ: TypeNotExported, src: "R9.1: identifier (raw xmin)"},
+	"pg_stat_activity.query_id":               {name: "", typ: TypeNotExported, src: "R4.7's link to the R3 detail; R9.5's id, not a value"},
+	"pg_stat_activity.query":                  {name: "", typ: TypeNotExported, src: "R9.1: query text is API-plane"},
 	// blocking_pids is activity.go's Extra, not a matrix column — the same
 	// category as database.go's three pg_database Extras, which are also listed.
-	{View: pgversion.ViewStatActivity, Column: "blocking_pids"}: {name: "", typ: TypeNotExported, src: "R4.4's edge list; an array of identifiers, not a value"},
+	"pg_stat_activity.blocking_pids": {name: "", typ: TypeNotExported, src: "R4.4's edge list; an array of identifiers, not a value"},
 
 	// ---- R9.7's system family, pg_stat_database half ----
 	//
@@ -261,45 +295,45 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// and the other twelve R5.2 rows), with the column spellings from the matrix:
 	// the catalogue writes tuples_returned where PG spells it tup_returned, so
 	// the table carries both and the catalogue's spelling wins.
-	{View: pgversion.ViewStatDatabase, Column: "xact_commit"}:   {name: "db_xact_commit_total", typ: TypeCounter, src: "R5.2 transactions; catalogue system.xact_commit"},
-	{View: pgversion.ViewStatDatabase, Column: "xact_rollback"}: {name: "db_xact_rollback_total", typ: TypeCounter, src: "R5.2 transactions; catalogue system.xact_rollback"},
-	{View: pgversion.ViewStatDatabase, Column: "blks_hit"}:      {name: "db_blks_hit_total", typ: TypeCounter, src: "R5.2 blocks; catalogue system.blks_hit"},
-	{View: pgversion.ViewStatDatabase, Column: "blks_read"}:     {name: "db_blks_read_total", typ: TypeCounter, src: "R5.2 blocks; catalogue system.blks_read"},
-	{View: pgversion.ViewStatDatabase, Column: "tup_returned"}:  {name: "db_tuples_returned_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_returned"},
-	{View: pgversion.ViewStatDatabase, Column: "tup_fetched"}:   {name: "db_tuples_fetched_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_fetched"},
-	{View: pgversion.ViewStatDatabase, Column: "tup_inserted"}:  {name: "db_tuples_inserted_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_inserted"},
-	{View: pgversion.ViewStatDatabase, Column: "tup_updated"}:   {name: "db_tuples_updated_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_updated"},
-	{View: pgversion.ViewStatDatabase, Column: "tup_deleted"}:   {name: "db_tuples_deleted_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_deleted"},
-	{View: pgversion.ViewStatDatabase, Column: "temp_files"}:    {name: "db_temp_files_total", typ: TypeCounter, src: "R5.2 temp; catalogue system.temp_files"},
-	{View: pgversion.ViewStatDatabase, Column: "temp_bytes"}:    {name: "db_temp_bytes_total", typ: TypeCounter, src: "R5.2 temp; catalogue system.temp_bytes"},
-	{View: pgversion.ViewStatDatabase, Column: "deadlocks"}:     {name: "db_deadlocks_total", typ: TypeCounter, src: "R5.2 deadlocks; catalogue system.deadlocks"},
+	"pg_stat_database.xact_commit":   {name: "db_xact_commit_total", typ: TypeCounter, src: "R5.2 transactions; catalogue system.xact_commit"},
+	"pg_stat_database.xact_rollback": {name: "db_xact_rollback_total", typ: TypeCounter, src: "R5.2 transactions; catalogue system.xact_rollback"},
+	"pg_stat_database.blks_hit":      {name: "db_blks_hit_total", typ: TypeCounter, src: "R5.2 blocks; catalogue system.blks_hit"},
+	"pg_stat_database.blks_read":     {name: "db_blks_read_total", typ: TypeCounter, src: "R5.2 blocks; catalogue system.blks_read"},
+	"pg_stat_database.tup_returned":  {name: "db_tuples_returned_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_returned"},
+	"pg_stat_database.tup_fetched":   {name: "db_tuples_fetched_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_fetched"},
+	"pg_stat_database.tup_inserted":  {name: "db_tuples_inserted_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_inserted"},
+	"pg_stat_database.tup_updated":   {name: "db_tuples_updated_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_updated"},
+	"pg_stat_database.tup_deleted":   {name: "db_tuples_deleted_total", typ: TypeCounter, src: "R5.2 tuples; catalogue system.tuples_deleted"},
+	"pg_stat_database.temp_files":    {name: "db_temp_files_total", typ: TypeCounter, src: "R5.2 temp; catalogue system.temp_files"},
+	"pg_stat_database.temp_bytes":    {name: "db_temp_bytes_total", typ: TypeCounter, src: "R5.2 temp; catalogue system.temp_bytes"},
+	"pg_stat_database.deadlocks":     {name: "db_deadlocks_total", typ: TypeCounter, src: "R5.2 deadlocks; catalogue system.deadlocks"},
 	// The four D20 names as the prose's omissions, plus the sessions_* family it
 	// names in the same breath.
-	{View: pgversion.ViewStatDatabase, Column: "conflicts"}:                {name: "db_conflicts_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
-	{View: pgversion.ViewStatDatabase, Column: "checksum_failures"}:        {name: "db_checksum_failures_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
-	{View: pgversion.ViewStatDatabase, Column: "blk_read_time"}:            {name: "db_blk_read_time_seconds_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
-	{View: pgversion.ViewStatDatabase, Column: "blk_write_time"}:           {name: "db_blk_write_time_seconds_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
-	{View: pgversion.ViewStatDatabase, Column: "session_time"}:             {name: "db_session_time_seconds_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
-	{View: pgversion.ViewStatDatabase, Column: "active_time"}:              {name: "db_active_time_seconds_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
-	{View: pgversion.ViewStatDatabase, Column: "idle_in_transaction_time"}: {name: "db_idle_in_transaction_time_seconds_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
-	{View: pgversion.ViewStatDatabase, Column: "sessions"}:                 {name: "db_sessions_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
-	{View: pgversion.ViewStatDatabase, Column: "sessions_abandoned"}:       {name: "db_sessions_abandoned_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
-	{View: pgversion.ViewStatDatabase, Column: "sessions_fatal"}:           {name: "db_sessions_fatal_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
-	{View: pgversion.ViewStatDatabase, Column: "sessions_killed"}:          {name: "db_sessions_killed_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
+	"pg_stat_database.conflicts":                {name: "db_conflicts_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
+	"pg_stat_database.checksum_failures":        {name: "db_checksum_failures_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
+	"pg_stat_database.blk_read_time":            {name: "db_blk_read_time_seconds_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
+	"pg_stat_database.blk_write_time":           {name: "db_blk_write_time_seconds_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
+	"pg_stat_database.session_time":             {name: "db_session_time_seconds_total", typ: TypeCounter, src: "D20: named by R9.7 as an R5.2 omission"},
+	"pg_stat_database.active_time":              {name: "db_active_time_seconds_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
+	"pg_stat_database.idle_in_transaction_time": {name: "db_idle_in_transaction_time_seconds_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
+	"pg_stat_database.sessions":                 {name: "db_sessions_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
+	"pg_stat_database.sessions_abandoned":       {name: "db_sessions_abandoned_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
+	"pg_stat_database.sessions_fatal":           {name: "db_sessions_fatal_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
+	"pg_stat_database.sessions_killed":          {name: "db_sessions_killed_total", typ: TypeCounter, src: "D20: the sessions_* family R9.7 names"},
 	// numbackends is the per-database connection gauge R5.2's "backends" family
 	// covers from this side; the catalogue's backends_by_state and
 	// backends_by_application_name are pg_stat_activity derivations and live with
 	// that view.
-	{View: pgversion.ViewStatDatabase, Column: "numbackends"}: {name: "db_backends", typ: TypeGauge, src: "R5.2 backends (per-database gauge)"},
+	"pg_stat_database.numbackends": {name: "db_backends", typ: TypeGauge, src: "R5.2 backends (per-database gauge)"},
 	// checksum_last_failure and stats_reset are timestamps that qualify other
 	// metrics rather than measurements of their own; R9.1 puts them on the API
 	// plane and R3.3 reads stats_reset as the counter epoch.
-	{View: pgversion.ViewStatDatabase, Column: "checksum_last_failure"}: {name: "", typ: TypeNotExported, src: "R9.1 text half: qualifies checksum_failures"},
-	{View: pgversion.ViewStatDatabase, Column: "stats_reset"}:           {name: "", typ: TypeNotExported, src: "R3.3 counter epoch, not a metric"},
+	"pg_stat_database.checksum_last_failure": {name: "", typ: TypeNotExported, src: "R9.1 text half: qualifies checksum_failures"},
+	"pg_stat_database.stats_reset":           {name: "", typ: TypeNotExported, src: "R3.3 counter epoch, not a metric"},
 	// The projection's non-value columns, listed so the table is the complete
 	// enumeration R14.7 checks rather than a list of the interesting subset.
-	{View: pgversion.ViewStatDatabase, Column: "datid"}:   {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
-	{View: pgversion.ViewStatDatabase, Column: "datname"}: {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
+	"pg_stat_database.datid":   {name: "", typ: TypeNotExported, src: "R9.1: identifier, not a value"},
+	"pg_stat_database.datname": {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
 
 	// ---- R9.7's system family, pg_database half ----
 	//
@@ -308,27 +342,27 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// age(datminmxid), computed in the SELECT because PG renders them as
 	// functions of the stored xid. The matrix's own columns (datfrozenxid,
 	// datminmxid) are identifiers and stay unexported.
-	{View: pgversion.ViewDatabase, Column: "size"}:          {name: "db_size_bytes", typ: TypeGauge, src: "R5.2 database sizes; catalogue system.database_size_bytes"},
-	{View: pgversion.ViewDatabase, Column: "frozenxid_age"}: {name: "db_txid_age", typ: TypeGauge, src: "R5.2/R7.5 TXID age; catalogue system.txid_age"},
-	{View: pgversion.ViewDatabase, Column: "minmxid_age"}:   {name: "db_mxid_age", typ: TypeGauge, src: "R5.2/R7.5 MXID age; catalogue system.mxid_age"},
-	{View: pgversion.ViewDatabase, Column: "datfrozenxid"}:  {name: "", typ: TypeNotExported, src: "R9.1: the xid behind frozenxid_age"},
-	{View: pgversion.ViewDatabase, Column: "datminmxid"}:    {name: "", typ: TypeNotExported, src: "R9.1: the xid behind minmxid_age"},
-	{View: pgversion.ViewDatabase, Column: "oid"}:           {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
-	{View: pgversion.ViewDatabase, Column: "datname"}:       {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
+	"pg_database.size":          {name: "db_size_bytes", typ: TypeGauge, src: "R5.2 database sizes; catalogue system.database_size_bytes"},
+	"pg_database.frozenxid_age": {name: "db_txid_age", typ: TypeGauge, src: "R5.2/R7.5 TXID age; catalogue system.txid_age"},
+	"pg_database.minmxid_age":   {name: "db_mxid_age", typ: TypeGauge, src: "R5.2/R7.5 MXID age; catalogue system.mxid_age"},
+	"pg_database.datfrozenxid":  {name: "", typ: TypeNotExported, src: "R9.1: the xid behind frozenxid_age"},
+	"pg_database.datminmxid":    {name: "", typ: TypeNotExported, src: "R9.1: the xid behind minmxid_age"},
+	"pg_database.oid":           {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
+	"pg_database.datname":       {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
 
 	// ---- R9.7's system family, pg_stat_database_conflicts ----
 	//
 	// D20 names `conflicts` as one of the omissions R5.2's prose leaves out; this
 	// view is the per-type breakdown of the pg_stat_database.conflicts counter,
 	// so the family names are db_conflicts_<type>_total alongside it.
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "confl_lock"}:               {name: "db_conflicts_lock_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "confl_tablespace"}:         {name: "db_conflicts_tablespace_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "confl_snapshot"}:           {name: "db_conflicts_snapshot_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "confl_bufferpin"}:          {name: "db_conflicts_bufferpin_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "confl_deadlock"}:           {name: "db_conflicts_deadlock_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "confl_active_logicalslot"}: {name: "db_conflicts_active_logicalslot_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type (PG16+)"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "datid"}:                    {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
-	{View: pgversion.ViewStatDatabaseConflicts, Column: "datname"}:                  {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
+	"pg_stat_database_conflicts.confl_lock":               {name: "db_conflicts_lock_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
+	"pg_stat_database_conflicts.confl_tablespace":         {name: "db_conflicts_tablespace_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
+	"pg_stat_database_conflicts.confl_snapshot":           {name: "db_conflicts_snapshot_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
+	"pg_stat_database_conflicts.confl_bufferpin":          {name: "db_conflicts_bufferpin_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
+	"pg_stat_database_conflicts.confl_deadlock":           {name: "db_conflicts_deadlock_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type"},
+	"pg_stat_database_conflicts.confl_active_logicalslot": {name: "db_conflicts_active_logicalslot_total", typ: TypeCounter, src: "D20: R5.2's conflicts omission, per type (PG16+)"},
+	"pg_stat_database_conflicts.datid":                    {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
+	"pg_stat_database_conflicts.datname":                  {name: "", typ: TypeNotExported, src: "R9.3: the datname label, not a value"},
 
 	// ---- R9.7's system family, pg_stat_wal and pg_stat_archiver ----
 	//
@@ -340,29 +374,29 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// wal_sync_time) keep names here even though PG18 stops exporting them,
 	// because a metric that stops existing is still a documented metric — and
 	// succession.go's four retire rows are what records that it stopped.
-	{View: pgversion.ViewStatWAL, Column: "wal_records"}:      {name: "wal_records_total", typ: TypeCounter, src: "R5.2 WAL; D20's union over pg_stat_wal"},
-	{View: pgversion.ViewStatWAL, Column: "wal_fpi"}:          {name: "wal_fpi_total", typ: TypeCounter, src: "R5.2 WAL; D20's union over pg_stat_wal"},
-	{View: pgversion.ViewStatWAL, Column: "wal_bytes"}:        {name: "wal_generated_bytes_total", typ: TypeCounter, src: "R5.2 WAL; catalogue system.wal_generated_bytes"},
-	{View: pgversion.ViewStatWAL, Column: "wal_buffers_full"}: {name: "wal_buffers_full_total", typ: TypeCounter, src: "R5.2 WAL; D20's union over pg_stat_wal"},
-	{View: pgversion.ViewStatWAL, Column: "wal_write"}:        {name: "wal_write_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
-	{View: pgversion.ViewStatWAL, Column: "wal_sync"}:         {name: "wal_sync_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
-	{View: pgversion.ViewStatWAL, Column: "wal_write_time"}:   {name: "wal_write_time_seconds_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
-	{View: pgversion.ViewStatWAL, Column: "wal_sync_time"}:    {name: "wal_sync_time_seconds_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
+	"pg_stat_wal.wal_records":      {name: "wal_records_total", typ: TypeCounter, src: "R5.2 WAL; D20's union over pg_stat_wal"},
+	"pg_stat_wal.wal_fpi":          {name: "wal_fpi_total", typ: TypeCounter, src: "R5.2 WAL; D20's union over pg_stat_wal"},
+	"pg_stat_wal.wal_bytes":        {name: "wal_generated_bytes_total", typ: TypeCounter, src: "R5.2 WAL; catalogue system.wal_generated_bytes"},
+	"pg_stat_wal.wal_buffers_full": {name: "wal_buffers_full_total", typ: TypeCounter, src: "R5.2 WAL; D20's union over pg_stat_wal"},
+	"pg_stat_wal.wal_write":        {name: "wal_write_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
+	"pg_stat_wal.wal_sync":         {name: "wal_sync_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
+	"pg_stat_wal.wal_write_time":   {name: "wal_write_time_seconds_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
+	"pg_stat_wal.wal_sync_time":    {name: "wal_sync_time_seconds_total", typ: TypeCounter, src: "R5.2 WAL; retired at PG18 (succession.go)"},
 	// wal.go exports stats_reset as a gauge (the unix timestamp of the last
 	// pg_stat_statements reset) rather than only as R3.3's in-band epoch, because
 	// R3.3's counter-reset detection has to be able to answer the question from
 	// the metric plane for a cluster whose samples it no longer holds.
-	{View: pgversion.ViewStatWAL, Column: "stats_reset"}: {name: "wal_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch, exported as the conventional _timestamp_seconds gauge"},
+	"pg_stat_wal.stats_reset": {name: "wal_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch, exported as the conventional _timestamp_seconds gauge"},
 
-	{View: pgversion.ViewStatArchiver, Column: "archived_count"}:     {name: "archiver_archived_count_total", typ: TypeCounter, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
-	{View: pgversion.ViewStatArchiver, Column: "failed_count"}:       {name: "archiver_failed_count_total", typ: TypeCounter, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
-	{View: pgversion.ViewStatArchiver, Column: "last_archived_time"}: {name: "archiver_last_archived_timestamp_seconds", typ: TypeGauge, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
-	{View: pgversion.ViewStatArchiver, Column: "last_failed_time"}:   {name: "archiver_last_failed_timestamp_seconds", typ: TypeGauge, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
-	{View: pgversion.ViewStatArchiver, Column: "stats_reset"}:        {name: "archiver_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch, exported as the conventional _timestamp_seconds gauge"},
+	"pg_stat_archiver.archived_count":     {name: "archiver_archived_count_total", typ: TypeCounter, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
+	"pg_stat_archiver.failed_count":       {name: "archiver_failed_count_total", typ: TypeCounter, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
+	"pg_stat_archiver.last_archived_time": {name: "archiver_last_archived_timestamp_seconds", typ: TypeGauge, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
+	"pg_stat_archiver.last_failed_time":   {name: "archiver_last_failed_timestamp_seconds", typ: TypeGauge, src: "R5.2 WAL archiving; D20's union over pg_stat_archiver"},
+	"pg_stat_archiver.stats_reset":        {name: "archiver_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch, exported as the conventional _timestamp_seconds gauge"},
 	// The two WAL-file *name* columns are text (000000010000000000000001) and R9.1
 	// puts them on the API plane; wal.go reads them for the detail response.
-	{View: pgversion.ViewStatArchiver, Column: "last_archived_wal"}: {name: "", typ: TypeNotExported, src: "R9.1 text half"},
-	{View: pgversion.ViewStatArchiver, Column: "last_failed_wal"}:   {name: "", typ: TypeNotExported, src: "R9.1 text half"},
+	"pg_stat_archiver.last_archived_wal": {name: "", typ: TypeNotExported, src: "R9.1 text half"},
+	"pg_stat_archiver.last_failed_wal":   {name: "", typ: TypeNotExported, src: "R9.1 text half"},
 
 	// ---- R9.7's system family, the pg_stat_bgwriter → pg_stat_checkpointer move ----
 	//
@@ -372,29 +406,29 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// rules "change if Phase 2 picks others". The catalogue picked these two, so
 	// both spellings of each pair resolve to one name and the chart's rules and
 	// the exporter agree on PG16 and PG17 both.
-	{View: pgversion.ViewStatBgwriter, Column: "checkpoints_timed"}:     {name: "checkpoints_timed_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_timed"},
-	{View: pgversion.ViewStatBgwriter, Column: "checkpoints_req"}:       {name: "checkpoints_requested_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_requested"},
-	{View: pgversion.ViewStatBgwriter, Column: "checkpoint_write_time"}: {name: "checkpoint_write_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints; D20's union"},
-	{View: pgversion.ViewStatBgwriter, Column: "checkpoint_sync_time"}:  {name: "checkpoint_sync_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints; D20's union"},
-	{View: pgversion.ViewStatBgwriter, Column: "buffers_checkpoint"}:    {name: "buffers_checkpoint_total", typ: TypeCounter, src: "R5.2 checkpoints; D20's union"},
-	{View: pgversion.ViewStatBgwriter, Column: "buffers_backend"}:       {name: "buffers_backend_total", typ: TypeCounter, src: "R5.2 checkpoints; retired at PG18 (succession.go)"},
-	{View: pgversion.ViewStatBgwriter, Column: "buffers_backend_fsync"}: {name: "buffers_backend_fsync_total", typ: TypeCounter, src: "R5.2 checkpoints; retired at PG18 (succession.go)"},
+	"pg_stat_bgwriter.checkpoints_timed":     {name: "checkpoints_timed_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_timed"},
+	"pg_stat_bgwriter.checkpoints_req":       {name: "checkpoints_requested_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_requested"},
+	"pg_stat_bgwriter.checkpoint_write_time": {name: "checkpoint_write_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints; D20's union"},
+	"pg_stat_bgwriter.checkpoint_sync_time":  {name: "checkpoint_sync_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints; D20's union"},
+	"pg_stat_bgwriter.buffers_checkpoint":    {name: "buffers_checkpoint_total", typ: TypeCounter, src: "R5.2 checkpoints; D20's union"},
+	"pg_stat_bgwriter.buffers_backend":       {name: "buffers_backend_total", typ: TypeCounter, src: "R5.2 checkpoints; retired at PG18 (succession.go)"},
+	"pg_stat_bgwriter.buffers_backend_fsync": {name: "buffers_backend_fsync_total", typ: TypeCounter, src: "R5.2 checkpoints; retired at PG18 (succession.go)"},
 	// The four survivors at PG17 (matrix_data.go's PG17 bgwriter set is exactly
 	// these plus stats_reset).
-	{View: pgversion.ViewStatBgwriter, Column: "buffers_clean"}:    {name: "bgwriter_buffers_clean_total", typ: TypeCounter, src: "R5.2 checkpoints family; D20's union"},
-	{View: pgversion.ViewStatBgwriter, Column: "maxwritten_clean"}: {name: "bgwriter_maxwritten_clean_total", typ: TypeCounter, src: "R5.2 checkpoints family; D20's union"},
-	{View: pgversion.ViewStatBgwriter, Column: "buffers_alloc"}:    {name: "bgwriter_buffers_alloc_total", typ: TypeCounter, src: "R5.2 checkpoints family; D20's union"},
-	{View: pgversion.ViewStatBgwriter, Column: "stats_reset"}:      {name: "bgwriter_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch"},
+	"pg_stat_bgwriter.buffers_clean":    {name: "bgwriter_buffers_clean_total", typ: TypeCounter, src: "R5.2 checkpoints family; D20's union"},
+	"pg_stat_bgwriter.maxwritten_clean": {name: "bgwriter_maxwritten_clean_total", typ: TypeCounter, src: "R5.2 checkpoints family; D20's union"},
+	"pg_stat_bgwriter.buffers_alloc":    {name: "bgwriter_buffers_alloc_total", typ: TypeCounter, src: "R5.2 checkpoints family; D20's union"},
+	"pg_stat_bgwriter.stats_reset":      {name: "bgwriter_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch"},
 
-	{View: pgversion.ViewStatCheckpointer, Column: "num_timed"}:           {name: "checkpoints_timed_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_timed (PG17+ spelling)"},
-	{View: pgversion.ViewStatCheckpointer, Column: "num_requested"}:       {name: "checkpoints_requested_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_requested (PG17+ spelling)"},
-	{View: pgversion.ViewStatCheckpointer, Column: "write_time"}:          {name: "checkpoint_write_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints (PG17+ spelling)"},
-	{View: pgversion.ViewStatCheckpointer, Column: "sync_time"}:           {name: "checkpoint_sync_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints (PG17+ spelling)"},
-	{View: pgversion.ViewStatCheckpointer, Column: "buffers_written"}:     {name: "buffers_checkpoint_total", typ: TypeCounter, src: "R5.2 checkpoints (PG17+ spelling)"},
-	{View: pgversion.ViewStatCheckpointer, Column: "restartpoints_timed"}: {name: "restartpoints_timed_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
-	{View: pgversion.ViewStatCheckpointer, Column: "restartpoints_req"}:   {name: "restartpoints_requested_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
-	{View: pgversion.ViewStatCheckpointer, Column: "restartpoints_done"}:  {name: "restartpoints_done_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
-	{View: pgversion.ViewStatCheckpointer, Column: "stats_reset"}:         {name: "checkpointer_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch"},
+	"pg_stat_checkpointer.num_timed":           {name: "checkpoints_timed_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_timed (PG17+ spelling)"},
+	"pg_stat_checkpointer.num_requested":       {name: "checkpoints_requested_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_requested (PG17+ spelling)"},
+	"pg_stat_checkpointer.write_time":          {name: "checkpoint_write_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints (PG17+ spelling)"},
+	"pg_stat_checkpointer.sync_time":           {name: "checkpoint_sync_time_seconds_total", typ: TypeCounter, src: "R5.2 checkpoints (PG17+ spelling)"},
+	"pg_stat_checkpointer.buffers_written":     {name: "buffers_checkpoint_total", typ: TypeCounter, src: "R5.2 checkpoints (PG17+ spelling)"},
+	"pg_stat_checkpointer.restartpoints_timed": {name: "restartpoints_timed_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
+	"pg_stat_checkpointer.restartpoints_req":   {name: "restartpoints_requested_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
+	"pg_stat_checkpointer.restartpoints_done":  {name: "restartpoints_done_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
+	"pg_stat_checkpointer.stats_reset":         {name: "checkpointer_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch"},
 
 	// ---- R9.7's system family, the replication views ----
 	//
@@ -402,15 +436,15 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// gives per walsender and per slot, so the aliases it projects (count,
 	// active_count, lost_count, <lag>_seconds_max) are the table's keys for this
 	// pair of views exactly as `size` and `frozenxid_age` are pg_database's.
-	{View: pgversion.ViewStatReplication, Column: "count"}:                  {name: "replication_streaming_count", typ: TypeGauge, src: "R5.2 replication: walsenders on this primary"},
-	{View: pgversion.ViewStatReplication, Column: "write_lag_seconds_max"}:  {name: "replication_write_lag_seconds", typ: TypeGauge, src: "R5.2 replication lag: worst standby"},
-	{View: pgversion.ViewStatReplication, Column: "flush_lag_seconds_max"}:  {name: "replication_flush_lag_seconds", typ: TypeGauge, src: "R5.2 replication lag: worst standby"},
-	{View: pgversion.ViewStatReplication, Column: "replay_lag_seconds_max"}: {name: "replication_replay_lag_seconds", typ: TypeGauge, src: "R5.2 replication lag: worst standby"},
-	{View: pgversion.ViewStatReplication, Column: "sync_count"}:             {name: "replication_sync_count", typ: TypeGauge, src: "R5.2 replication: sync-state standbys (R5.5 topology)"},
-	{View: pgversion.ViewReplicationSlots, Column: "count"}:                 {name: "replication_slots_count", typ: TypeGauge, src: "R5.2 slots: slots defined"},
-	{View: pgversion.ViewReplicationSlots, Column: "active_count"}:          {name: "replication_slots_active_count", typ: TypeGauge, src: "R5.2 slots: active slots"},
-	{View: pgversion.ViewReplicationSlots, Column: "lost_count"}:            {name: "replication_slots_lost_count", typ: TypeGauge, src: "R5.2 slots: wal_status='lost'"},
-	{View: pgversion.ViewReplicationSlots, Column: "inactive_count"}:        {name: "replication_slots_inactive_count", typ: TypeGauge, src: "R5.2 slots: inactive slots (PG17+ inactive_since)"},
+	"pg_stat_replication.count":                  {name: "replication_streaming_count", typ: TypeGauge, src: "R5.2 replication: walsenders on this primary"},
+	"pg_stat_replication.write_lag_seconds_max":  {name: "replication_write_lag_seconds", typ: TypeGauge, src: "R5.2 replication lag: worst standby"},
+	"pg_stat_replication.flush_lag_seconds_max":  {name: "replication_flush_lag_seconds", typ: TypeGauge, src: "R5.2 replication lag: worst standby"},
+	"pg_stat_replication.replay_lag_seconds_max": {name: "replication_replay_lag_seconds", typ: TypeGauge, src: "R5.2 replication lag: worst standby"},
+	"pg_stat_replication.sync_count":             {name: "replication_sync_count", typ: TypeGauge, src: "R5.2 replication: sync-state standbys (R5.5 topology)"},
+	"pg_replication_slots.count":                 {name: "replication_slots_count", typ: TypeGauge, src: "R5.2 slots: slots defined"},
+	"pg_replication_slots.active_count":          {name: "replication_slots_active_count", typ: TypeGauge, src: "R5.2 slots: active slots"},
+	"pg_replication_slots.lost_count":            {name: "replication_slots_lost_count", typ: TypeGauge, src: "R5.2 slots: wal_status='lost'"},
+	"pg_replication_slots.inactive_count":        {name: "replication_slots_inactive_count", typ: TypeGauge, src: "R5.2 slots: inactive slots (PG17+ inactive_since)"},
 
 	// ---- R9.7's system family, the settings views ----
 	//
@@ -420,9 +454,9 @@ var exportNames = map[pgversion.Source]exportEntry{
 	// the same series is the alternative. Those names are built by familyFor, not
 	// by this table, and the table carries only the three counts pg_file_settings
 	// collapses to.
-	{View: pgversion.ViewFileSettings, Column: "count"}:         {name: "file_settings_count", typ: TypeGauge, src: "R5.2 settings card: lines postgresql.conf sets"},
-	{View: pgversion.ViewFileSettings, Column: "applied_count"}: {name: "file_settings_applied_count", typ: TypeGauge, src: "R5.2 settings card: lines that applied"},
-	{View: pgversion.ViewFileSettings, Column: "error_count"}:   {name: "file_settings_error_count", typ: TypeGauge, src: "R5.2 settings card: lines carrying an error (PGSISettingsNotApplied)"},
+	"pg_file_settings.count":         {name: "file_settings_count", typ: TypeGauge, src: "R5.2 settings card: lines postgresql.conf sets"},
+	"pg_file_settings.applied_count": {name: "file_settings_applied_count", typ: TypeGauge, src: "R5.2 settings card: lines that applied"},
+	"pg_file_settings.error_count":   {name: "file_settings_error_count", typ: TypeGauge, src: "R5.2 settings card: lines carrying an error (PGSISettingsNotApplied)"},
 }
 
 // Canonical returns the spelling a (view, column) pair's metric family is named
@@ -465,6 +499,40 @@ func Canonical(view pgversion.View, column string) pgversion.Source {
 		seen[src] = true
 		src = row.From
 	}
+}
+
+// CanonicalKey returns the export key a key's family is named after.
+//
+// A dotted key is an SQL-view member, so this is Canonical(view, column).String():
+// the string form of the typed walk, reached by splitting the key at the dot
+// Source.String() puts between the two halves. A dotless key — the cnpg and
+// pgbouncer populations R9.4's amendment let into the table — has no succession
+// chain to walk, because every row in succession.go is a PostgreSQL catalog column.
+// Those keys are their own canonical, which is the same answer Canonical gives for a
+// pair with no succession row.
+//
+// It exists for the cardinality guard in naming_test.go, whose whole question is
+// "do these two keys name one metric or two", and which otherwise cannot ask that
+// question of a key the typed Canonical does not accept.
+func CanonicalKey(key string) string {
+	view, column, ok := splitExportKey(key)
+	if !ok {
+		return key
+	}
+	return Canonical(pgversion.View(view), column).String()
+}
+
+// splitExportKey splits an export key into its view and column halves.
+//
+// The dot is the only separator Source.String() can emit and a column name never
+// contains one, so the first dot is the boundary. A key with no dot is not an
+// SQL-view member and has no (view, column) to return.
+func splitExportKey(key string) (view, column string, ok bool) {
+	i := strings.IndexByte(key, '.')
+	if i < 0 {
+		return "", "", false
+	}
+	return key[:i], key[i+1:], true
 }
 
 // predecessorsBySource indexes the succession table backwards: for every
@@ -522,7 +590,23 @@ var predecessorsBySource = func() map[pgversion.Source]pgversion.Succession {
 // per-family, and a counter whose name lacks `_total` fails
 // `promtool check metrics`, which Phase 2's acceptance runs.
 func MetricTypeOf(view pgversion.View, column string) (MetricType, bool) {
-	e, ok := exportNames[Canonical(view, column)]
+	e, ok := exportNames[Canonical(view, column).String()]
+	if !ok || e.typ == TypeNotExported {
+		return TypeNotExported, false
+	}
+	return e.typ, true
+}
+
+// MetricTypeFor is MetricTypeOf's general-form twin: the type of the family
+// registered under an arbitrary export key.
+//
+// The amendment names MetricNameFor and stops there, but the renderer needs a type
+// for every family it prints — `# TYPE` is per family — and MetricTypeOf's
+// (view, column) signature cannot reach a dotless key. A pgbouncer family with a
+// name and no reachable type is an invalid exposition, so the same argument that
+// named the general-form name names the general-form type.
+func MetricTypeFor(key string) (MetricType, bool) {
+	e, ok := exportNames[key]
 	if !ok || e.typ == TypeNotExported {
 		return TypeNotExported, false
 	}
