@@ -97,7 +97,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/frankellis/pgsql-insights/internal/collector"
@@ -165,13 +164,19 @@ type perQuerySeries struct {
 // labelString renders the series' label set in the exposition's braces.
 //
 // Sorted by key, and %q for the value, which is the collector's convention
-// (collector/metrics.go:354's labelString) and not an accident of style: the
+// (collector/metrics.go:398's LabelString) and not an accident of style: the
 // fingerprint is a hex string and the six values are all plain, but a cluster
 // name with a quote in it would produce an unparseable line, and %q is the one
-// place the escaping rule can live. It is a method here rather than a call of the
-// collector's, because that one is unexported and takes a map — and taking a map
-// for a fixed six-label set is how a missing label becomes possible at runtime
-// instead of at compile time.
+// place the escaping rule can live.
+//
+// Why a method here and not a call of the collector's, as of A2's 69d2f8d
+// exporting it: the export removed half the original reason — it used to be
+// unexported — and left the half that is about the signature. The collector's
+// takes a map[string]string, and for a fixed six-label set a map is how a missing
+// label becomes possible at runtime instead of at compile time; this one walks a
+// [6][2]string built from six named struct fields, so the set cannot be short.
+// The value formatter has no such argument, which is why RenderPerQuery calls
+// collector.FormatFloat directly instead of keeping a second copy of it.
 func (s perQuerySeries) labelString() string {
 	pairs := [6][2]string{
 		{"cluster", s.cluster},
@@ -240,15 +245,6 @@ var perQueryMembers = []perQueryMember{
 	},
 }
 
-// formatMetricValue renders a float the way the collector's renderer does.
-//
-// 'g' with -1 precision is collector/metrics.go:197's formatFloat, copied because
-// that one is unexported: 1.5 renders as "1.5" and 1.0 as "1", which is what
-// keeps a golden test of this body a string comparison instead of a parse.
-func formatMetricValue(v float64) string {
-	return strconv.FormatFloat(v, 'g', -1, 64)
-}
-
 // RenderPerQuery returns the R9.5 per-query family's exposition body for the
 // store's current rows: the top N series per cluster, four members each.
 //
@@ -310,7 +306,7 @@ func (s *Store) RenderPerQuery(ctx context.Context, topN int, prefix string) (st
 		fmt.Fprintf(&b, "# HELP %s %s\n", name, m.help)
 		fmt.Fprintf(&b, "# TYPE %s %s\n", name, collector.TypeCounter)
 		for _, ser := range series {
-			fmt.Fprintf(&b, "%s%s %s\n", name, ser.labelString(), formatMetricValue(m.value(ser)))
+			fmt.Fprintf(&b, "%s%s %s\n", name, ser.labelString(), collector.FormatFloat(m.value(ser)))
 		}
 	}
 	return b.String(), nil
