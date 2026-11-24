@@ -4,11 +4,12 @@
  * payload — so the test proves the routing and the state choice together, and
  * R16.7's visual suite screenshots the same six screens. */
 
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { App } from "../App";
 import { COLUMNS } from "../components/ClusterTable";
+import { ROW_HEIGHT } from "../components/VirtualList";
 import {
   FIXTURE_EMPTY,
   FIXTURE_FLEET,
@@ -102,6 +103,35 @@ describe("Fleet page", () => {
     expect(within(menu as HTMLElement).getByRole("button", { name: /Columns/ }).textContent).toBe(
       `Columns${COLUMNS.length}/${COLUMNS.length}`,
     );
+  });
+
+  it("renders the density toggle and puts the choice on the table (R10.18)", () => {
+    // The same shape as the column-menu assertion above: the toggle existed in
+    // `VirtualList` and was mounted on Queries only, while R10.18 names *every*
+    // table over 100 rows. The wiring is the thing being tested — the control,
+    // the attribute the CSS reads, and the inline height the window math uses.
+    const { container } = renderPage("/", FIXTURE_FLEET);
+    const toggle = container.querySelector(".card-actions .segmented");
+    expect(toggle).not.toBeNull();
+    expect(container.querySelector("table.data")?.getAttribute("data-density")).toBe("compact");
+    expect(container.querySelector("table.data tbody tr")?.getAttribute("style")).toContain(
+      `height: ${ROW_HEIGHT.compact}px`,
+    );
+    fireEvent.click(within(toggle as HTMLElement).getByRole("button", { name: "Comfortable" }));
+    expect(container.querySelector("table.data")?.getAttribute("data-density")).toBe("comfortable");
+    expect(container.querySelector("table.data tbody tr")?.getAttribute("style")).toContain(
+      `height: ${ROW_HEIGHT.comfortable}px`,
+    );
+  });
+
+  it("windows the table with no spacers when every row fits (R10.18)", () => {
+    // Four rows in a 640px viewport is a window that covers the whole set, so the
+    // correct render is four rows and zero spacers. The spacer arithmetic itself
+    // is `VirtualList.test.tsx`'s; this is the assertion that the Fleet table went
+    // through the primitive instead of mapping `rows` directly.
+    const { container } = renderPage("/", FIXTURE_FLEET);
+    expect(container.querySelectorAll("table.data tbody tr.virtual-spacer")).toHaveLength(0);
+    expect(rows(container)).toHaveLength(4);
   });
 });
 

@@ -13,9 +13,12 @@
  * ("fleet", COLUMNS)` is the same hook the Queries page uses, and mounting it
  * here is what makes R10.20's "every wide table" true of both tables rather than
  * one (A3's S22 — the menu existed, was tested, and was unreachable on Fleet).
+ * The second exception is R10.18's density toggle, local state for the same
+ * reason and owned by the same kind of component: a row height is a rendering
+ * preference, not a place you can link to.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import type { ClientConfig } from "../api/client";
 import type { ClusterHealth, FleetResponse } from "../api/types";
@@ -27,6 +30,7 @@ import { useFleet } from "../state/useFleet";
 import { HealthBar } from "../components/HealthBar";
 import { ClusterTable, COLUMNS } from "../components/ClusterTable";
 import { ColumnMenu, useColumnVisibility } from "../components/ColumnMenu";
+import { DensityToggle, type Density } from "../components/VirtualList";
 import { StatePanel, derivePanelState, copyFor } from "../components/StatePanel";
 
 export interface FleetPageProps {
@@ -60,6 +64,13 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
   // R10.20's per-view selection, above the early return because it is a hook and
   // because the menu has to exist in the same render as the table it controls.
   const columns = useColumnVisibility({ viewId: "fleet", columns: COLUMNS });
+
+  // R10.18's density, the page's second piece of local state and local for the
+  // same reason as the columns above: R10.16's URL contract lists the *navigable*
+  // state, and a row height is a rendering preference with no URL story.
+  // `compact` is what this table rendered before it had a density at all, so the
+  // default is the existing look rather than a new one.
+  const [density, setDensity] = useState<Density>("compact");
 
   // Full-panel states replace the body entirely (R10.12's named fixtures).
   if (panel === "loading" || panel === "empty" || panel === "error") {
@@ -100,6 +111,7 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
           <div className="card-actions">
             <span className="card-meta num">{rows.length} shown</span>
             <ColumnMenu columns={COLUMNS} visible={columns.visible} onChange={columns.setVisible} />
+            <DensityToggle density={density} onChange={setDensity} />
           </div>
         </div>
         <div className={data.refreshing ? "hold-previous" : undefined}>
@@ -107,6 +119,7 @@ export function FleetPage({ state, onPatch, cfg, fixtureOverride }: FleetPagePro
             rows={rows}
             state={state}
             columns={columns.visible}
+            density={density}
             onSort={(key) => onPatch({ sort: key, dir: nextDir(state, key) })}
             onOpen={(id) => onPatch({ page: "cluster", cluster: id })}
           />

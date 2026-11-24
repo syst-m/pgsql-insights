@@ -17,13 +17,26 @@
  * broken. `renderCell` is the per-column switch now, so header and body are the
  * same map over the same `visible` array. `QueryTable` has had that shape since
  * it was written; this is the two tables converging on it.
+ *
+ * ── R10.18 on this table ──────────────────────────────────────────────────
+ *
+ * R10.18 (:428) asks for virtualization *and* a density toggle "on every table
+ * that can exceed 100 rows", and the Fleet table qualifies the same way the
+ * Queries table does — R8.10 caps a list page at `limit=` 500. It used to render
+ * both halves only on `QueryTable`: the requirement's own wording named every
+ * table, and a page whose table renders 500 `<tr>`s while its sibling windows 27
+ * is the difference between the requirement and the implementation. The body is
+ * now windowed through `VirtualList`'s `useVirtualWindow` — the `<table>` adopter
+ * pattern, spacer `<tr>`s with `colSpan` — and the density value is the page's,
+ * threaded in rather than defaulted here, for the reason the prop states.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 
 import type { SortKey, UrlState } from "../state/urlState";
 import type { FleetRow } from "../api/types";
+import { ROW_HEIGHT, useVirtualWindow, type Density } from "./VirtualList";
 import { StatusChip } from "./StatusGlyph";
 import { formatNumber, formatPercent, formatSize, formatTimestamp, formatDurationMs, NULL_VALUE } from "../lib/format";
 
@@ -76,20 +89,58 @@ export interface ClusterTableProps {
    *  and `QueryTable` applies in its own `visible` memo. Omitted means all of
    *  them, which is what a caller that has not adopted the menu passes. */
   columns?: readonly string[];
+  /** R10.18's density half. Required rather than defaulted, the way
+   *  `QueryTable` requires it: a default here is a second answer to a question
+   *  the page already answers with its toggle, and the two disagree the moment a
+   *  page renders the toggle without threading the value down — the table then
+   *  shows one density while the control shows another. */
+  density: Density;
+  /** Height of the scroll viewport in px (R10.18's virtualization half). A
+   *  number rather than a measurement, for `QueryTable`'s stated reason: these
+   *  tables live in fixed-height cards, and a ResizeObserver's first frame is 0,
+   *  which is the empty-table flash R10.22's skeleton exists to prevent. */
+  viewportHeight?: number;
 }
 
 /** The default set, so omitting `columns` renders all ten. */
 const ALL_KEYS: readonly string[] = COLUMNS.map((c) => c.key);
 
-export function ClusterTable({ rows, state, onSort, onOpen, columns }: ClusterTableProps) {
+export function ClusterTable({
+  rows,
+  state,
+  onSort,
+  onOpen,
+  columns,
+  density,
+  viewportHeight = 640,
+}: ClusterTableProps) {
   const visible = useMemo(() => {
     const wanted = columns ?? ALL_KEYS;
     return COLUMNS.filter((c) => wanted.includes(c.key));
   }, [columns]);
 
+  const rowHeight = ROW_HEIGHT[density];
+
+  // The scroll position is the only state this table owns, and it is not a
+  // navigable one: R10.16's URL contract has no `?scrollTop=`, and adding one
+  // would put a pixel offset in the back button.
+  const [scrollTop, setScrollTop] = useState(0);
+  const onScroll = useCallback((e: { currentTarget: EventTarget | null }) => {
+    const target = e.currentTarget as { scrollTop?: number } | null;
+    if (target && typeof target.scrollTop === "number") setScrollTop(target.scrollTop);
+  }, []);
+
+  const win = useVirtualWindow({ count: rows.length, rowHeight, viewportHeight, scrollTop });
+  const slice = rows.slice(win.start, win.end);
+
   return (
-    <div className="table-wrap">
-      <table className="data" data-testid="cluster-table">
+    <div
+      className="table-wrap"
+      onScroll={onScroll}
+      style={{ height: viewportHeight, overflowY: "auto" }}
+      data-testid="cluster-table-scroll"
+    >
+      <table className="data" data-testid="cluster-table" data-density={density}>
         <caption className="sr-only">
           PostgreSQL clusters in the fleet, sorted by {state.sort} {state.dir === "asc" ? "ascending" : "descending"}
         </caption>
@@ -124,15 +175,29 @@ export function ClusterTable({ rows, state, onSort, onOpen, columns }: ClusterTa
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => {
+          {/* The two spacers are what make the scrollbar the right length, and
+              they are rows rather than divs because the rows they stand in for
+              are rows — base.css:720 is what stops one rendering as an empty
+              row in the middle of the table. */}
+          {win.padTop > 0 && (
+            <tr className="virtual-spacer" aria-hidden="true">
+              <td colSpan={visible.length} style={{ height: win.padTop, padding: 0 }} />
+            </tr>
+          )}
+          {slice.map((c) => {
             const id = `${c.namespace}/${c.name}`;
             const selected = state.row === id;
             return (
-              <tr key={id} data-selected={selected || undefined} data-health={c.health}>
+              <tr key={id} data-selected={selected || undefined} data-health={c.health} style={{ height: rowHeight }}>
                 {visible.map((col) => renderCell(c, col, onOpen))}
               </tr>
             );
           })}
+          {win.padBottom > 0 && (
+            <tr className="virtual-spacer" aria-hidden="true">
+              <td colSpan={visible.length} style={{ height: win.padBottom, padding: 0 }} />
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

@@ -144,7 +144,9 @@ describe("ClusterTable", () => {
   /** Render the table on its own so the assertions cannot be satisfied by
    *  markup from another test's render. */
   function table(rows: readonly FleetRow[] = FIXTURE_CLUSTERS): HTMLElement {
-    return render(<ClusterTable rows={rows} state={DEFAULT_STATE} onSort={noop} onOpen={noop} />).container;
+    return render(
+      <ClusterTable rows={rows} state={DEFAULT_STATE} onSort={noop} onOpen={noop} density="compact" />,
+    ).container;
   }
 
   it("renders one row per cluster", () => {
