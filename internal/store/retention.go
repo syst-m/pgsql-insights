@@ -325,6 +325,32 @@ func (s *Store) fileBytes() (int64, error) {
 	return info.Size(), nil
 }
 
+// Used is the store's size in bytes, and it is the method
+// internal/metrics/store.go's StoreSizer declares for R9.8's sixth family
+// (pgsi_store_size_bytes, R13.5). That file names this one as the number the
+// SQLite profile contributes — its own source is collector.MemSink.Used() — and
+// metrics.WithStoreSize is the hub option that takes it. Cited by symbol and not
+// by line: internal/metrics is another slot's file and it moves — the :167 this
+// sentence carried at authoring time was :169 within the hour.
+//
+// It is fileBytes with the error collapsed, because the StoreSizer contract has
+// no error return and a failed stat has one honest answer: the 0 fileBytes
+// already returns on its error path and for the memory profile.
+//
+// Nil-receiver-safe for the reason d2415b1 made RenderPerQuery so. metrics'
+// StoreSize special-cases exactly one typed nil —
+// `if s, ok := src.(*collector.MemSink); ok && s == nil` — so a StoreSizer
+// holding (*Store)(nil) fails that assertion, calls through to here, and would
+// dereference s.cfg through IsMemory; the hub's own `h.store != nil` field check
+// has the same blind spot for the same reason.
+func (s *Store) Used() int64 {
+	if s == nil {
+		return 0
+	}
+	n, _ := s.fileBytes()
+	return n
+}
+
 // rowsAffected turns a driver count into the report's int, with 0 for a driver
 // that declines to report one (modernc always reports it; the guard is so a future
 // driver that returns -1 does not put a negative in a count field).

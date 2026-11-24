@@ -3,15 +3,19 @@
 // rollup history at the window, the plans at their own retention, the sink rows,
 // the orphan pass (A3's S46), the eviction loop — plus the two helpers at the
 // bottom (fileBytes' memory-profile zero and rowsAffected' missing-count guard).
+// TestStoreUsed is appended after the helpers rather than beside its method, so
+// the order above stays the order in the file.
 package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/frankellis/pgsql-insights/internal/metrics"
 	"github.com/frankellis/pgsql-insights/internal/query"
 )
 
@@ -585,4 +589,53 @@ func TestRowsAffected(t *testing.T) {
 	if got := rowsAffected(res); got != 1 {
 		t.Errorf("rowsAffected = %d, want 1 for a single insert", got)
 	}
+}
+
+// var _ metrics.StoreSizer = (*Store)(nil) is the compile-time pin that Store
+// satisfies the interface internal/metrics/store.go declares for
+// pgsi_store_size_bytes — the same trick internal/metrics/metrics_test.go's
+// `var _ metrics.PerQueryFamily = (*store.Store)(nil)` pin uses. Cited by symbol,
+// not line: that file is another slot's and it moves. It is in a test file because
+// that interface exists
+// precisely so neither package imports the other (internal/metrics/store.go says
+// as much: "declaring it here costs neither package an import"), and a production
+// assertion would spend the import edge the interface was designed not to need.
+var _ metrics.StoreSizer = (*Store)(nil)
+
+// TestStoreUsed covers the Used() accessor metrics.WithStoreSize takes for
+// pgsi_store_size_bytes (R13.5).
+//
+// The file-profile case compares Used() with an os.Stat the test performs itself.
+// Used()'s body is fileBytes, so an assertion of Used()==fileBytes() restates the
+// implementation; the test's own os.Stat is a second measurement that can
+// disagree, which is what makes the case able to fail. The nil-receiver case is
+// the d2415b1 lesson applied to the second metrics entry point: metrics'
+// StoreSize special-cases the typed nil for *collector.MemSink only, so a
+// StoreSizer holding (*Store)(nil) reaches this method rather than being filtered,
+// and without the guard the call dereferences s.cfg through IsMemory.
+func TestStoreUsed(t *testing.T) {
+	t.Run("nil receiver", func(t *testing.T) {
+		var s *Store
+		if got := s.Used(); got != 0 {
+			t.Errorf("(*Store)(nil).Used() = %d, want 0 (the number for a store that holds nothing)", got)
+		}
+	})
+
+	t.Run("memory profile", func(t *testing.T) {
+		s := openMem(t, time.Unix(1700000000, 0).UTC())
+		if got := s.Used(); got != 0 {
+			t.Errorf("Used() on the memory profile = %d, want 0 (fileBytes' documented zero)", got)
+		}
+	})
+
+	t.Run("file profile", func(t *testing.T) {
+		s := openFileAt(t, time.Unix(1700000000, 0).UTC(), DefaultMaxFileBytes)
+		info, err := os.Stat(s.cfg.Path)
+		if err != nil {
+			t.Fatalf("os.Stat(%s): %v", s.cfg.Path, err)
+		}
+		if got := s.Used(); got != info.Size() {
+			t.Errorf("Used() = %d, want the file's %d bytes", got, info.Size())
+		}
+	})
 }
