@@ -40,18 +40,20 @@
  *
  * ── mounting ──────────────────────────────────────────────────────────────
  *
- * `routes.ts` has the entry (`page: "query-detail"`, `requirement: "R10.7"`,
- * `path: "/c/:ns/:name/queries/:fingerprint"`) with `component: null`. Flipping
- * it to `QueryDetailPage` is A4's one-line edit — adding a page means a file here
- * and an entry there, and this commit is the file.
+ * `routes.ts:204` holds the entry (`page: "query-detail"`,
+ * `requirement: "R10.7"`, `path: "/c/:ns/:name/queries/:fingerprint"`) and its
+ * `component:` is this file — the file-plus-entry pair that replaced the old
+ * `App.tsx` if-chain. The flip A4 owed this file has happened.
  */
 
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 
 import { FIXTURE_QUERY_DETAIL } from "../api/fixtures";
 import type { QueryDetailView, QuerySeries } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
 import type { UrlState } from "../state/urlState";
+import { useQueryDetail } from "../state/useQueryDetail";
+import { seriesParamsFor, useQuerySeries } from "../state/useQuerySeries";
 import { formatTimestamp, utcTitle } from "../lib/format";
 
 import { QueryLoadChart } from "../components/QueryLoadChart";
@@ -120,25 +122,63 @@ export interface QueryDetailPageProps extends PageProps<QueryDetailView> {
    *  with one `fingerprints=` value.
    *
    *  A prop, not a field on `QueryDetailView`, because the DTO cannot inline it:
-   *  `types.ts:575` says so outright — "There is no `points`/`series` field
-   *  here… `QuerySeries` is declared in `internal/api`, which imports this
+   *  `web/src/api/types.ts:575` says so outright — "There is no `points`/`series`
+   *  field here… `QuerySeries` is declared in `internal/api`, which imports this
    *  package, so referencing it from here is an import cycle. Ask the series
-   *  endpoint for the chart instead of expecting it on this object." It is
-   *  optional because `client.ts` has no `fetchQuerySeries` yet (the ask on A4);
-   *  when absent, the load panel renders R10.13's one-line explanation rather
-   *  than a blank frame. */
+   *  endpoint for the chart instead of expecting it on this object."
+   *
+   *  The page now asks. It calls `useQuerySeries` with a batch of one — the
+   *  fingerprint the URL names, which is `web/src/api/client.ts:384-385`'s "the
+   *  one R10.7's detail chart reuses with a batch of one" — and this prop is the
+   *  caller's override, the same role `fixtureOverride` plays for the payload.
+   *  When neither has one, the load panel renders R10.13's one-line explanation
+   *  rather than a blank frame. */
   series?: QuerySeries;
 }
 
 /** R10.7's Query Detail page. */
 export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
-  const { state, series } = props;
+  const { state } = props;
 
-  // The same fixture pattern as every other page in `pages/`: the payload is the
-  // prop when a caller has one, the fixture otherwise, and the swap when A4 adds
-  // `fetchQueryDetail` is the three lines the Queries page documents.
-  const view: QueryDetailView = props.fixtureOverride ?? FIXTURE_QUERY_DETAIL;
-  const params = detailParamsFrom(state);
+  // The extraction is one function (A3's ruling lives in it) and it is memoised
+  // because `useQueryDetail.ts:92-101` makes params identity load identity: a
+  // fresh object per render is a fresh `load` per render, and `load` calls
+  // `setState`, so that is a render loop and not merely an extra request.
+  const params = useMemo(() => detailParamsFrom(state), [state]);
+  // The page's own extraction, not the hook file's `detailParamsFrom`: the two
+  // agree on the required triple, and this one also carries A3's optional
+  // `?db=`/`?user=`, which `client.ts:317`'s `QueryDetailParams` accepts
+  // structurally and the route documents. Importing the hook's version would
+  // shadow this exported one and drop the two optionals A3 ruled on.
+  const { state: detail } = useQueryDetail(props.cfg, params);
+  // The payload is the prop when a caller has one, the fetched detail once the
+  // hook has one, the fixture otherwise — `Fleet.tsx:45-47`'s three lines, in the
+  // order the other pages use.
+  const view: QueryDetailView = props.fixtureOverride ?? detail.detail ?? FIXTURE_QUERY_DETAIL;
+
+  // R8.11's batch of one, for the load chart. Memoised under the same rule as the
+  // params above: the fingerprint array is the fetch params' first argument, so
+  // building it inline in the render body would hand the params a fresh array on
+  // every render even when nothing else changed.
+  const seriesParams = useMemo(
+    () => seriesParamsFor(params === null ? [] : [params.fingerprint], state),
+    [params, state],
+  );
+  const { state: seriesData } = useQuerySeries(props.cfg, seriesParams);
+  // The batch envelope is keyed by fingerprint; this page wants the one entry
+  // whose fingerprint matches the payload it is rendering, not the first entry in
+  // the envelope — the two differ as soon as the URL and the payload disagree.
+  const series =
+    props.series ??
+    seriesData.series?.data.find((entry) => entry.fingerprint === view.fingerprint);
+
+  // Every hook above runs before this return: a hook below an early return is a
+  // different hook count between renders, which is the rule `Fleet.tsx:64-65`
+  // states for its column menu. A detail URL with no fingerprint has nothing to
+  // render and no fixture to render either — `useQueryDetail` answers `idle` for
+  // null params and never fetches (`useQueryDetail.ts:123-127`), so the page says
+  // so instead of drawing a header around the fixture.
+  if (params === null) return <NoSuchQuery {...props} />;
 
   // R10.24's trail is literally "Fleet → Cluster → Query Detail". The Queries
   // list sits between the cluster and the detail — it is the page that links here
@@ -149,12 +189,12 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
 
   return (
     // The extracted params are on the element so the extraction is observable
-    // without exporting a test-only render: this is the argument the fetcher will
-    // be called with once `client.ts` has `fetchQueryDetail`, and a page that
-    // parsed the URL into a local and never used it is the bug a test should
-    // catch. The value shown in the header is the payload's own fingerprint, so
-    // the two agree only if the extraction is right.
-    <div className="page" data-page="query-detail" data-fingerprint={params?.fingerprint ?? ""}>
+    // without exporting a test-only render: this is the value `useQueryDetail`
+    // passes to `client.ts:323`'s `fetchQueryDetail` as `params.fingerprint`, and
+    // a page that parsed the URL into a local and never used it is the bug a test
+    // should catch. The value shown in the header is the payload's own
+    // fingerprint, so the two agree only if the extraction is right.
+    <div className="page" data-page="query-detail" data-fingerprint={params.fingerprint}>
       <header className="page-head">
         <div>
           <p className="breadcrumb">
@@ -222,5 +262,35 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
         cluster={view.cluster}
       />
     </div>
+  );
+}
+
+/** A query-detail URL that names no fingerprint.
+ *
+ *  `withState` already degrades such a URL to the Queries list
+ *  (`useQueryDetail.ts:76-78`), so this is the hand-typed case the router cannot
+ *  fix on its own. The frame says what is missing and offers the way back, the
+ *  same shape `ClusterDetail.tsx`'s `UnknownCluster` uses for a cluster that is
+ *  not in the snapshot — a detail page with no subject is a page state, and
+ *  rendering the fixture under a heading the URL does not name would be the
+ *  quieter wrong answer. */
+function NoSuchQuery({ state, onPatch }: PageProps<QueryDetailView>) {
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">Query Detail</h2>
+      </div>
+      <p className="card-note">
+        This URL does not name a fingerprint
+        {state.cluster === null ? "" : ` in ${state.cluster}`}.
+      </p>
+      <button
+        type="button"
+        className="btn"
+        onClick={() => onPatch({ page: "queries", cluster: state.cluster })}
+      >
+        Back to Queries
+      </button>
+    </section>
   );
 }

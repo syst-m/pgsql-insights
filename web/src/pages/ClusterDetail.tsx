@@ -27,32 +27,41 @@
  * ── where the Query load series come from ──────────────────────────────────
  *
  * R8.11's batched route is the only source — `client.ts:395`'s
- * `fetchQuerySeries` — and the chart takes its input as a prop rather than
- * fetching for itself, because R8.11's whole claim is that *one* response
- * serves this chart, R10.6's sparkline column and R10.7's detail chart. So the
- * page is the caller: it reads `querySeries` off its props and, while no caller
- * has one yet, defaults to the contract fixture filtered to the row's cluster —
- * the same way the row itself comes from `FIXTURE_CLUSTERS` rather than from a
- * fetch. The filter is not decoration: `QuerySeries` names its own namespace
- * and cluster (`api/types.ts:687`) and the chart plots whatever array it is
- * handed, so a batch belonging to another cluster is the one way this page can
- * be wrong without anything failing.
+ * `fetchQuerySeries` — and the page is the caller, because R8.11's whole claim
+ * is that *one* response serves this chart, R10.6's sparkline column and
+ * R10.7's detail chart. The batch needs fingerprints, and the only honest
+ * source for a cluster's fingerprints is that cluster's own query list, so the
+ * page calls `useQueries` first and hands its rows to `useQuerySeries`: one
+ * series call for N fingerprints rather than N calls, which is the feeding
+ * R9.13's batch exists for. `fetchQueries`' default limit is 50
+ * (`internal/api/paging.go:50`'s `DefaultLimit`, passed through unclamped —
+ * `client.ts:263-264`) and the batch's cap is 50
+ * (`internal/api/series.go:56`'s `MaxBatchFingerprints`, above which the server
+ * answers `InvalidRequest` because R8.10 forbids the clamp), so a page that
+ * renders a whole list can hand it over entire without tripping the cap; a
+ * page that wants 80 needs a paging story, and that ask predates this wiring.
  *
- * Two facts about the fetcher come with it, both A2's. `topN` is a
- * `fetchQueries` (`client.ts:284`) question, because R9.13's batch exists to be
- * fed that way — one series call for N fingerprints rather than N calls — and
- * the batch is capped at 50 (`MaxBatchFingerprints`), above which the server
- * answers `InvalidRequest` rather than truncating (R8.10 forbids the clamp), so
- * a page that wants 80 needs a paging story and not a slice. And in fixture
- * mode the fetcher ignores its params entirely (`client.ts:400-403`), so the
- * fixture default and a fixture-mode fetch return the same three series — all
- * three of which belong to `open-webui/open-webui-pg`, which is why the other
- * three reference clusters still render the empty chart.
+ * The `querySeries` prop stays as the caller's override — `Fleet.tsx:44-47`'s
+ * shape, prop first, then the fetched payload, then the contract fixture so the
+ * chart has something to render before the first response lands — and in
+ * fixture mode both fetchers ignore their params entirely (`client.ts:400-403`
+ * for the series arm), so the prop, the fetch and the fixture answer with the
+ * same three series, all three of which belong to `open-webui/open-webui-pg`;
+ * the other three reference clusters still render the empty chart.
+ *
+ * The filter is not decoration: `QuerySeries` names its own namespace and
+ * cluster (`web/src/api/types.ts:694-695`) and the chart plots whatever array
+ * it is handed, so a batch belonging to another cluster is the one way this
+ * page can be wrong without anything failing.
  */
+
+import { useMemo } from "react";
 
 import type { FleetRow, PoolerView, QuerySeries, ServiceView } from "../api/types";
 import { FIXTURE_CLUSTERS, FIXTURE_QUERY_SERIES } from "../api/fixtures";
 import type { ClusterTab, UrlState } from "../state/urlState";
+import { listParamsFrom, useQueries } from "../state/useQueries";
+import { seriesParamsFor, useQuerySeries } from "../state/useQuerySeries";
 import type { PageProps } from "../routes";
 import { StatusChip } from "../components/StatusGlyph";
 import { daysUntil, formatNumber, formatSize, formatTimestamp, NULL_VALUE } from "../lib/format";
@@ -72,13 +81,15 @@ const TABS: readonly { key: ClusterTab; label: string }[] = [
 /** What the R10.5 route accepts, in one shape: the `PageProps` half is A4's
  *  generic, the rest is this page's.
  *
- *  `querySeries` is the page's only real input, and it is optional for the same
- *  reason the row comes from `FIXTURE_CLUSTERS` rather than from a fetch: the
- *  fetcher exists (`client.ts:395`) and no caller has one yet. The header's
- *  "where the Query load series come from" section is the argument and the
- *  fixture is the stand-in; when `useQuerySeries` lands, this prop is what it
- *  fills and the page needs no other change — the same shape
- *  `QueryDetailPageProps` uses for R10.7's chart. */
+ *  `querySeries` is the caller's copy of the R8.11 batch, and it is optional
+ *  because the page no longer needs one handed to it: the page calls
+ *  `useQuerySeries` itself, which is `Fleet.tsx:44-47`'s pattern and the same
+ *  shape `QueryDetailPageProps` uses for R10.7's chart. A caller that has a
+ *  batch — the visual suite, a test, a parent that already fetched one — passes
+ *  it here and the page uses that instead of its own; the header's "where the
+ *  Query load series come from" section is the argument for the fetch, and the
+ *  contract fixture is what the chart has to render before the first response
+ *  lands. */
 export interface ClusterDetailPageProps extends PageProps {
   /** R8.11's batched per-minute series, for this cluster and one window. */
   querySeries?: readonly QuerySeries[];
@@ -92,11 +103,34 @@ export interface ClusterDetailPageProps extends PageProps {
  *  new page needed an App.tsx edit. A detail page that cannot find its row is a
  *  page state, not a router state.
  *
- *  `cfg` and `fixtureOverride` stay accepted and unused — the page renders the
- *  row the URL names and does not fetch, and they exist because `PageProps` is
+ *  `cfg` is now used — it is what the two hooks below fetch with.
+ *  `fixtureOverride` stays accepted and unused: the fleet payload it carries is
+ *  not what this page renders. The row comes from `FIXTURE_CLUSTERS` and the
+ *  series from `useQuerySeries`, each with its own override, and `PageProps` is
  *  one contract for every page, which is what replaced the if-chain.
  */
 export function ClusterDetailPage(props: ClusterDetailPageProps) {
+  // Every hook runs above the unknown-cluster return: a hook below an early
+  // return is a different hook count between renders, which is the rule
+  // `Fleet.tsx:64-65` states for its column menu.
+  //
+  // The two memos are the caller half of the params contract — `useQueries.ts:22-28`
+  // says it outright ("a page passing params has to do the same to them"):
+  // params identity is load identity, so a fresh object per render is a fresh
+  // fetch per render, and since `load` calls `setState` that is a render loop
+  // and not merely an extra request. `fps` is memoised on its own because
+  // `seriesParamsFor` takes the array itself; mapping the rows inline in the
+  // render body would hand the params a fresh array on every render even when
+  // the rows did not change.
+  const listParams = useMemo(() => listParamsFrom(props.state), [props.state]);
+  const { state: queries } = useQueries(props.cfg, listParams);
+  const fps = useMemo(
+    () => (queries.queries?.queries ?? []).map((row) => row.fingerprint),
+    [queries.queries],
+  );
+  const seriesParams = useMemo(() => seriesParamsFor(fps, props.state), [fps, props.state]);
+  const { state: series } = useQuerySeries(props.cfg, seriesParams);
+
   const cluster = FIXTURE_CLUSTERS.find((c) => `${c.namespace}/${c.name}` === props.state.cluster);
   if (cluster === undefined) return <UnknownCluster {...props} />;
   return (
@@ -104,7 +138,7 @@ export function ClusterDetailPage(props: ClusterDetailPageProps) {
       cluster={cluster}
       state={props.state}
       onPatch={props.onPatch}
-      querySeries={props.querySeries ?? FIXTURE_QUERY_SERIES.data}
+      querySeries={props.querySeries ?? series.series?.data ?? FIXTURE_QUERY_SERIES.data}
     />
   );
 }
@@ -129,11 +163,13 @@ function UnknownCluster({ state, onPatch }: PageProps) {
 
 /** Narrow a batch of R8.11 series down to the ones belonging to one cluster.
  *
- *  `QuerySeries` names its own namespace and cluster (`api/types.ts:687`) and
- *  `QueryLoadArea` plots whatever array it is handed, so a batch fetched for
- *  another cluster is the one way this page can render a chart that is wrong
- *  without anything failing. The route entry applies this to the fixture, and
- *  a caller with a real batch gets the same narrowing for free. */
+ *  `QuerySeries` names its own namespace and cluster
+ *  (`web/src/api/types.ts:694-695`) and `QueryLoadArea` plots whatever array it
+ *  is handed, so a batch fetched for another cluster is the one way this page
+ *  can render a chart that is wrong without anything failing. The Overview tab
+ *  applies this to whatever batch the entry resolved — the prop, the fetch, or
+ *  the fixture — so every caller gets the narrowing rather than only the one
+ *  that passed an array in. */
 export function seriesForCluster(
   cluster: Pick<FleetRow, "namespace" | "name">,
   series: readonly QuerySeries[],
@@ -147,9 +183,17 @@ export interface ClusterDetailProps {
   cluster: FleetRow;
   state: UrlState;
   onPatch: (patch: Partial<UrlState>) => void;
-  /** R8.11's series for this cluster, already narrowed by `seriesForCluster`.
-   *  Required here and optional on the route entry: the entry always resolves
-   *  one — the prop, or the fixture — so the body never has to ask. */
+  /** R8.11's batch, whole — the prop, the fetched payload, or the fixture,
+   *  whichever the entry resolved. Required here and optional on the entry
+   *  because the entry always resolves one, so the body never has to ask.
+   *
+   *  Not narrowed. The batch is scoped by the request (`seriesParamsFor` puts
+   *  the URL's namespace and cluster in it) but nothing filters it to this row,
+   *  and `QuerySeries` names its own cluster, so the Overview tab narrows it
+   *  with `seriesForCluster` at the point it plots it — which is the only place
+   *  the narrowing is correct, since no other tab renders a series at all.
+   *  (A3's S54: this sentence used to promise an already-narrowed array while
+   *  the entry passed the whole batch and `Overview` did the filtering.) */
   querySeries: readonly QuerySeries[];
 }
 

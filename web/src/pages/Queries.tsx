@@ -65,9 +65,11 @@ import { useCallback, useMemo, useState } from "react";
 
 import { toQueriesResponse } from "../api/envelope";
 import { FIXTURE_QUERIES } from "../api/fixtures";
-import type { QueryResponse, QuerySeries, QueryView } from "../api/types";
+import type { QueryResponse, QuerySeries, QuerySeriesEnvelope, QueryView } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
 import { TIME_RANGES, type SortDir, type SortKey, type TimeRange, type UrlState } from "../state/urlState";
+import { listParamsFrom, useQueries } from "../state/useQueries";
+import { seriesParamsFor, useQuerySeries } from "../state/useQuerySeries";
 import { formatTimestamp } from "../lib/format";
 import { ColumnMenu, useColumnVisibility } from "../components/ColumnMenu";
 import { ExtensionNotInstalled } from "../components/ExtensionNotInstalled";
@@ -200,34 +202,53 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
   /** R8.11's batched series for the table's `Load sparkline` column, keyed by
    *  fingerprint.
    *
-   *  A prop, not a fetch, for the same reason `extensionInstalled` is one:
-   *  `client.ts` has no `fetchQuerySeries` yet (the standing ask on A4), and
-   *  inventing a local fetcher would duplicate the one A4's file owns. Once
-   *  `useQueries` returns the series alongside the rows, this becomes
-   *  `queries.series` and the prop's only consumer is the `<QueryTable>` call
-   *  below. Optional and partial by nature — R8.11's batch endpoint returns one
+   *  The page fetches its own batch now — `useQuerySeries` over the fingerprints
+   *  in the payload it is rendering, the batch-of-N `client.ts:384-385` names as
+   *  this column's source — and this prop is the caller's override, the same role
+   *  `fixtureOverride` plays for the rows. It cannot become a field on
+   *  `QueryResponse`: R16.8 pins `web/src/api/types.ts` to the Go DTO and the DTO
+   *  has no series field to inline (the detail half documents the import-cycle
+   *  ruling). Optional and partial by nature — R8.11's batch endpoint returns one
    *  entry per query that has data, so a 50-row page with 37 series is normal
    *  and the 13 rows without one render `—`. */
   series?: Record<string, QuerySeries>;
 }
 
+/** Index an R8.11 envelope by fingerprint, which is the shape `QueryTable`'s
+ *  `series` prop takes.
+ *
+ *  The envelope carries one entry per fingerprint that has data
+ *  (`client.ts:362-367`), so indexing a 50-row page's batch to 37 entries is the
+ *  normal answer. A later entry for the same fingerprint wins over an earlier
+ *  one, which is what R5.7's per-pod entries (`QuerySeries.pod`) make possible:
+ *  the table row asks for the cluster-aggregated one, and the last one in the
+ *  array is as good a guess as any until the table grows a per-pod column. */
+export function seriesByFingerprint(
+  env: QuerySeriesEnvelope | null,
+): Record<string, QuerySeries> {
+  const byFingerprint: Record<string, QuerySeries> = {};
+  for (const entry of env?.data ?? []) byFingerprint[entry.fingerprint] = entry;
+  return byFingerprint;
+}
+
 export function QueriesPage(props: QueriesPageProps) {
   const { state, onPatch } = props;
 
-  // `props.cfg` is accepted and unused, exactly as `ClusterDetail.tsx` accepts
-  // it: `client.ts` has no `fetchQueries` yet, so there is nothing to pass it
-  // to. The swap, when A4 adds it, is
-  //   const { state: data, refresh } = useQueries(props.cfg);
-  //   const resp = props.fixtureOverride ?? data.queries;
-  // — the same three lines `Fleet.tsx:35-37` are, and the reason the fixture
-  // path is written as `?? toQueriesResponse(FIXTURE_QUERIES)` rather than as
-  // the only source.
-  const resp: QueryResponse = props.fixtureOverride ?? toQueriesResponse(FIXTURE_QUERIES);
-  // There is no fetch to have a phase for yet, so the payload is always here.
-  // `deriveQueryPanelState` still takes the phase rather than an implicit one,
-  // because the moment `useQueries` lands the `loading` branch is live and the
-  // page must not have to be re-derived to notice.
-  const phase: FetchPhase = "ready";
+  // The swap the previous comment on these lines documented for three rounds,
+  // and it is `Fleet.tsx:45-47` verbatim in shape: the page calls the hook, the
+  // prop still wins, and the contract fixture is what's on screen before the
+  // first response lands. `listParams` is memoised because
+  // `useQueries.ts:22-28` makes params identity load identity — "a caller that
+  // builds a fresh object every render refetches every render", and since `load`
+  // calls `setState` that is a render loop rather than merely an extra request.
+  const listParams = useMemo(() => listParamsFrom(state), [state]);
+  const { state: data, refresh } = useQueries(props.cfg, listParams);
+  const resp: QueryResponse =
+    props.fixtureOverride ?? data.queries ?? toQueriesResponse(FIXTURE_QUERIES);
+  // The phase the comment above this one insisted on having as a parameter
+  // instead of an implicit: with a prop the page is showing a named fixture, so
+  // it is `ready` whatever the fetch is doing; without one it is the hook's.
+  const phase: FetchPhase = props.fixtureOverride !== undefined ? "ready" : data.phase;
 
   const patch = useCallback(
     (p: QueryUrlPatch) => onPatch(p as Partial<UrlState>),
@@ -246,6 +267,26 @@ export function QueriesPage(props: QueriesPageProps) {
   );
   const rows = useMemo(() => filterQueries(resp.queries, filters), [resp.queries, filters]);
   const databases = useMemo(() => databaseOptions(resp.queries), [resp.queries]);
+
+  // R8.11's batch for the sparkline column: every fingerprint in the served
+  // payload, in one call (`client.ts:384-385`'s batch-of-N). It is fed from
+  // `resp.queries` and not from `rows` for the reason the banner below draws for
+  // the same pair — a filter is a view over the served set, so typing in the
+  // search box must not change what was asked for. The params are memoised for
+  // the load-identity reason above. An empty list is `InvalidRequest`
+  // (`client.ts:362-367`), so the call only means something once the payload has
+  // rows; its error is not this page's error state (the rows' own is, via
+  // `panel`), and the column degrades to `—`.
+  const seriesParams = useMemo(
+    () => seriesParamsFor(resp.queries.map((row) => row.fingerprint), state),
+    [resp.queries, state],
+  );
+  const { state: seriesData } = useQuerySeries(props.cfg, seriesParams);
+  const series = useMemo(
+    () => props.series ?? seriesByFingerprint(seriesData.series),
+    [props.series, seriesData.series],
+  );
+
   const columns = useColumnVisibility({ viewId: "queries", columns: QUERY_COLUMNS });
 
   // The one piece of local state the page owns. R10.16's URL contract lists
@@ -275,7 +316,7 @@ export function QueriesPage(props: QueriesPageProps) {
         {panel === "unavailable" ? (
           <ExtensionNotInstalled cluster={state.cluster} onEnable={NO_ACTION} />
         ) : (
-          <StatePanel state={panel} copy={QUERY_COPY} onAction={NO_ACTION} />
+          <StatePanel state={panel} copy={QUERY_COPY} onAction={refresh} />
         )}
       </div>
     );
@@ -311,7 +352,7 @@ export function QueriesPage(props: QueriesPageProps) {
         <QueryTable
           rows={rows}
           columns={columns.visible}
-          series={props.series}
+          series={series}
           sort={sort}
           dir={state.dir}
           onSort={(key) => patch({ sort: key, dir: nextDir(sort, state.dir, key) })}
