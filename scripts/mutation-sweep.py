@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """mutation-sweep.py — A5's mutation sweep over internal/query and internal/store.
 
+Spec: requirements.md R14.10 (Mutation sweep), the requirement that names this file —
+rowed by A3 on 2026-11-24 from A5's wording, under the §11 rule-4 precedent. Cited by
+id rather than by line number, because an id survives the rewording a `:499`-style cite
+cannot; the row's own text is the source for what the sweep owes (exit status, the
+SITES coverage rule, and the row-or-refute obligation for a survivor).
+
 A test that cannot fail is not a test. The cheapest way to find one is to break the
 code it covers and watch the test fail; a test that still passes measured nothing,
 which is the defect class finding-index S56/S57 rows (an assertion comparing a
