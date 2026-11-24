@@ -5,8 +5,8 @@
  * **row expansion to the blocking chain**, and the **Terminate action behind
  * the R4.5 gate**. The route entry is `routes.ts:211-220` (`page: "active"`,
  * `requirement: "R10.8"`, `endpoint: "GET /api/v1/active-queries"`,
- * `path: "/c/:ns/:name/active"`, `inNav: true`); its `component:` is still
- * `null`, and flipping it is A4's edit — the pair this file completes.
+ * `path: "/c/:ns/:name/active"`, `inNav: true`); its `component:` was flipped
+ * from `null` to this file by A4 in `a5e5be0`, the other half of the pair.
  *
  * ── why the blocking chain is in this file and not in a `BlockingChains.tsx` ─
  *
@@ -63,6 +63,7 @@
 
 import { useMemo, useState, type ReactElement } from "react";
 
+import { SESSION_NOUN } from "../api/envelope";
 import { FIXTURE_ACTIVE_QUERIES } from "../api/fixtures";
 import type {
   ActiveQueriesResponse,
@@ -156,7 +157,7 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
   // R10.22's wording is composed from the payload rather than written here: the
   // read that served 47 of 51 sessions has to name the four, which is what
   // `copyFor`'s `source` argument does and a fixed sentence cannot.
-  const bannerCopy = copyFor(panel, { meta: resp.meta, data: resp.data }, ACTIVE_COPY);
+  const bannerCopy = copyFor(panel, { meta: resp.meta, data: resp.data }, ACTIVE_COPY, SESSION_NOUN);
 
   // The one piece of local state the page owns besides the expansion: which row
   // is showing its Confirm/Cancel. R4.5 requires a confirmed action, and a

@@ -19,7 +19,7 @@ import type {
   FleetRow,
   QueryResponse,
 } from "../api/types";
-import { partialBanner, type BannerSource } from "../api/envelope";
+import { CLUSTER_NOUN, partialBanner, type BannerNoun, type BannerSource } from "../api/envelope";
 import { FIXTURE_EMPTY, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "../api/fixtures";
 
 export type PanelState = "loading" | "empty" | "partial" | "unavailable" | "ready" | "error";
@@ -283,17 +283,26 @@ export const ACTIVE_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   },
 };
 
+/** The copy for one state, with R10.22's composed body swapped in for `partial`.
+ *
+ *  `noun` is the subject the banner counts (`QUERY_NOUN`, `SESSION_NOUN`, …) and
+ *  defaults to `CLUSTER_NOUN`, which is what every call site before the Active
+ *  Queries page wanted and what `Fleet.tsx` still passes by omission. It is
+ *  inert for every state but `partial`, because only that state composes a body
+ *  from a payload — which is why `StatePanel` can forward it while passing
+ *  `undefined` for `source`. */
 export function copyFor(
   state: PanelState,
   source?: BannerSource,
   table: Record<Exclude<PanelState, "ready">, PanelCopy> = FLEET_COPY,
+  noun: BannerNoun = CLUSTER_NOUN,
 ): PanelCopy | null {
   if (state === "ready") return null;
   const copy = table[state];
   // R10.22's wording is composed from the payload, not fixed: the page that
   // served 3 of 4 clusters has to name the fourth, which generic copy cannot.
   if (state === "partial" && source !== undefined) {
-    const derived = partialBanner(source);
+    const derived = partialBanner(source, noun);
     if (derived !== null) return { ...copy, body: derived };
   }
   return copy;

@@ -63,7 +63,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { toQueriesResponse } from "../api/envelope";
+import { QUERY_NOUN, toQueriesResponse } from "../api/envelope";
 import { FIXTURE_QUERIES } from "../api/fixtures";
 import type { QueryResponse, QuerySeries, QuerySeriesEnvelope, QueryView } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
@@ -325,7 +325,7 @@ export function QueriesPage(props: QueriesPageProps) {
   // The banner half: `partial` only, and from the response rather than from
   // `rows` — a filter is a view over the served set, not a smaller response
   // (the same distinction `Fleet.tsx:66` draws).
-  const bannerCopy = copyFor(panel, { meta: resp.meta, data: resp.queries }, QUERY_COPY);
+  const bannerCopy = copyFor(panel, { meta: resp.meta, data: resp.queries }, QUERY_COPY, QUERY_NOUN);
 
   return (
     <div className="page" data-page="queries">

@@ -480,7 +480,9 @@ describe("ActiveQueriesPage — R10.12's named states", () => {
     // truncated flag — see the next case. `copyFor` composes the sentence from
     // the response rather than using ACTIVE_COPY's fixed body, so the served
     // count in the banner is `data.length` (R8.4's rule, enforced by
-    // `partialBanner` reading the source, not `meta.total`).
+    // `partialBanner` reading the source, not `meta.total`). The noun is
+    // `SESSION_NOUN`, passed at `ActiveQueries.tsx:160`, so the sentence counts
+    // sessions — the page's own subject — not the clusters the fleet counts.
     const resp: ActiveQueriesResponse = {
       ...FIXTURE_ACTIVE_QUERIES,
       meta: {
@@ -495,7 +497,7 @@ describe("ActiveQueriesPage — R10.12's named states", () => {
     const banner = container.querySelector(".banner");
     expect(banner).not.toBeNull();
     expect(banner?.textContent).toContain("Partial results");
-    expect(banner?.textContent).toContain("3 clusters served, more pages available");
+    expect(banner?.textContent).toContain("3 sessions served, more pages available");
     expect(banner?.textContent).toContain("1 namespace still in the first discovery pass (open-webui)");
     expect(container.querySelector('[data-testid="active-table"]')).not.toBeNull();
   });

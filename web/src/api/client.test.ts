@@ -36,6 +36,7 @@ import {
   type FixtureName,
 } from "./client";
 import {
+  CLUSTER_NOUN,
   ContractError,
   emptyEnvelope,
   parseActiveQueriesResponse,
@@ -44,6 +45,8 @@ import {
   parseQuerySeries,
   parseSessionView,
   partialBanner,
+  QUERY_NOUN,
+  SESSION_NOUN,
   toFleetResponse,
   toQueriesResponse,
 } from "./envelope";
@@ -575,6 +578,33 @@ describe("partialBanner", () => {
     // 1:1 from `data`, so the two arms cannot drift apart.
     expect(partialBanner(toFleetResponse(truncatedPartial))).toBe(banner);
     expect(partialBanner(FIXTURE_TRUNCATED_PARTIAL)).toBe(banner);
+  });
+
+  it("counts the subject the caller names, in both numbers", () => {
+    // The sentence hardcoded "cluster(s)", so the Queries and Active Queries
+    // pages both announced clusters above a table of something else (A6's
+    // finding on `99f37f0`). The *pair* form is what this case exists to pin:
+    // `QUERY_NOUN` has to yield "1 query" and "9 queries", and a one-string
+    // parameter with an `s` appended renders "1 querys" — which a test that only
+    // checked the plural would pass by accident.
+    expect(partialBanner(env(1, { total: 1, truncated: false, loading: ["cookbook"] }), QUERY_NOUN)).toBe(
+      "1 query served. 1 namespace still in the first discovery pass (cookbook).",
+    );
+    expect(partialBanner(env(3, { total: 3, truncated: false, loading: ["cookbook"] }), QUERY_NOUN)).toBe(
+      "3 queries served. 1 namespace still in the first discovery pass (cookbook).",
+    );
+    expect(
+      partialBanner(
+        env(3, { total: 3, truncated: true, nextCursor: "eyJv", loading: ["cookbook"] }),
+        SESSION_NOUN,
+      ),
+    ).toBe(
+      "3 sessions served, more pages available. 1 namespace still in the first discovery pass (cookbook).",
+    );
+    // Omitting the argument is byte-identical to passing `CLUSTER_NOUN`, which is
+    // the guarantee `Fleet.tsx` and every pre-existing case above rely on.
+    const m: Omit<Meta, "generatedAt"> = { total: 3, truncated: false, loading: ["cookbook"] };
+    expect(partialBanner(env(3, m))).toBe(partialBanner(env(3, m), CLUSTER_NOUN));
   });
 
   it("truncates a long namespace list instead of wrapping the banner", () => {

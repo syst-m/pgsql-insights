@@ -358,12 +358,12 @@ describe("the page's states (R10.12, in the queries' nouns)", () => {
     expect(banner.getAttribute("role")).toBe("status");
     expect(within(banner).getByText("Partial results")).toBeInTheDocument();
     // The body is composed from the payload (R10.22), not from a `partial` key —
-    // and asserting the whole string is deliberate: it is the test that goes red
-    // when A4 parameterises `partialBanner`'s noun. Today it says
-    // "1 cluster served" above a *queries* payload, which is the ask; the
-    // requirement (R10.22's served-count) is satisfied either way, so the page
-    // passes the source through rather than falling back to the static copy.
-    expect(within(banner).getByText("1 cluster served. 1 namespace still in the first discovery pass (cookbook).")).toBeInTheDocument();
+    // and asserting the whole string is deliberate: this is the test that went
+    // red when A4 parameterised `partialBanner`'s noun. `Queries.tsx:328` now
+    // passes `QUERY_NOUN`, so the sentence counts queries; before that it said
+    // "1 cluster served" above a *queries* payload, which satisfied R10.22's
+    // served-count while naming the wrong thing.
+    expect(within(banner).getByText("1 query served. 1 namespace still in the first discovery pass (cookbook).")).toBeInTheDocument();
     expect(container.querySelector("table.data")).not.toBeNull();
   });
 

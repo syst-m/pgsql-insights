@@ -685,6 +685,24 @@ function rowsServed<T>(source: BannerSource<T>): number {
   return "data" in source ? source.data.length : source.clusters.length;
 }
 
+/** What the served-count sentence counts, in both grammatical numbers.
+ *
+ *  A pair, not one string, because the plural is not derivable: the Queries
+ *  page needs "1 query served" and "9 queries served", and `query + "s"` is the
+ *  wrong one of those two. The old code hardcoded `cluster${n === 1 ? "" : "s"}`,
+ *  which was right for exactly one of the three pages that now call this — the
+ *  other two rendered "3 clusters served" above a table of sessions (A6's
+ *  finding on `99f37f0`) and above a table of queries.
+ *
+ *  `CLUSTER_NOUN` is the parameter's default so every pre-existing call site —
+ *  `Fleet.tsx`, `StatePanel.test.tsx`, and the whole `partialBanner` suite in
+ *  `client.test.ts` — keeps its exact string. */
+export type BannerNoun = { readonly one: string; readonly many: string };
+
+export const CLUSTER_NOUN: BannerNoun = { one: "cluster", many: "clusters" };
+export const QUERY_NOUN: BannerNoun = { one: "query", many: "queries" };
+export const SESSION_NOUN: BannerNoun = { one: "session", many: "sessions" };
+
 /** R10.22's banner sentence, composed from the response rather than read from a
  *  `partial` key the API does not emit.
  *
@@ -692,8 +710,13 @@ function rowsServed<T>(source: BannerSource<T>): number {
  *  (R8.10), which is a paging affordance, not a warning. The banner fires only
  *  when a namespace failed or is still loading, which is what R10.22's
  *  "3 of 4 clusters shown, and it says so" is about. `meta.generatedAt` is
- *  R10.21's page-header stamp and is deliberately not a banner input either. */
-export function partialBanner<T>(source: BannerSource<T>): string | null {
+ *  R10.21's page-header stamp and is deliberately not a banner input either.
+ *
+ *  The `namespace(s)` nouns in the two reason clauses stay hardcoded: `meta
+ *  .failed` and `meta.loading` list namespaces on every page (R4.1's read is
+ *  per-cluster but the failure set is the discovery pass's), so only the
+ *  *subject* noun varies — which is why `noun` governs the served clause alone. */
+export function partialBanner<T>(source: BannerSource<T>, noun: BannerNoun = CLUSTER_NOUN): string | null {
   const meta = source.meta;
   const failed = meta.failed ?? [];
   const loading = meta.loading ?? [];
@@ -715,7 +738,7 @@ export function partialBanner<T>(source: BannerSource<T>): string | null {
     parts.push(`${failed.length} namespace${failed.length === 1 ? "" : "s"} failed to sync: ${detail}`);
   }
 
-  const served = `${rowsServed(source)} cluster${rowsServed(source) === 1 ? "" : "s"} served`;
+  const served = `${rowsServed(source)} ${rowsServed(source) === 1 ? noun.one : noun.many} served`;
   const paging = meta.truncated && meta.nextCursor !== undefined ? ", more pages available" : "";
   return `${served}${paging}. ${parts.join("; ")}.`;
 }
