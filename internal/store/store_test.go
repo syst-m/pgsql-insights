@@ -50,9 +50,13 @@ func TestOpenMemory(t *testing.T) {
 			if !s.IsMemory() {
 				t.Errorf("Open(%q).IsMemory() = false, want true", path)
 			}
-			if got := s.RetentionWindow(); got != MemoryWindow {
+			// The literal, not MemoryWindow: Open sets StatementRetention *from*
+			// that constant, so `got != MemoryWindow` compares a value against
+			// itself and cannot fail for a wrong one — changing the constant to
+			// 25 h left this test green while the spec value it names is 24 h.
+			if got := s.RetentionWindow(); got != 24*time.Hour {
 				t.Errorf("Open(%q).RetentionWindow() = %v, want %v (§3.4:219's 24 h)",
-					path, got, MemoryWindow)
+					path, got, 24*time.Hour)
 			}
 			// The single-connection rule is what makes ":memory:" one database
 			// rather than one database per pooled connection.
@@ -86,9 +90,12 @@ func TestOpenFile(t *testing.T) {
 	if s.IsMemory() {
 		t.Error("IsMemory() = true for a file path")
 	}
-	if got := s.RetentionWindow(); got != DefaultStatementRetention {
+	// Same shape as the memory case above: DefaultStatementRetention is what
+	// Open assigns, so the constant is on both sides of the comparison. The
+	// literal is the §3.4:222 value the message cites.
+	if got := s.RetentionWindow(); got != 7*24*time.Hour {
 		t.Errorf("RetentionWindow() = %v, want %v (retention.statementSnapshots: 7d, §3.4:222)",
-			got, DefaultStatementRetention)
+			got, 7*24*time.Hour)
 	}
 	if mode := s.journalMode; mode != "wal" {
 		t.Errorf("journal_mode = %q, want wal (§3.4:223)", mode)
