@@ -89,7 +89,7 @@ func readFixture(t *testing.T, path string, into any) {
 // TestQueriesFixtureIsCanonical is the commit queries.go's docblock
 // pre-announced: "The fixture gains `pgStatStatements` in the commit that
 // switches that test's type, and the -update run belongs to that commit" — the
-// deferral a83612b recorded when it added QueriesResponse, open for the 74
+// deferral a83612b recorded when it added QueriesResponse, open for the 75
 // commits between that commit and this one (git rev-list --count a83612b..HEAD).
 //
 // Pinning to the type the route returns, rather than to the generic envelope it
@@ -636,24 +636,36 @@ func TestTagsFixtureIsSane(t *testing.T) {
 	}
 }
 
-// TestEnvelopeShapeMatchesR84 checks the three new envelopes against R8.4's
-// sentence: "every list endpoint supports … and returns `{data, meta:{total,
-// truncated, generatedAt, nextCursor}}`".
+// TestEnvelopeShapeMatchesR84 checks the envelopes against R8.4's sentence:
+// "every list endpoint supports … and returns `{data, meta:{total, truncated,
+// generatedAt, nextCursor}}`".
+//
+// The want column exists because the table no longer holds one shape. The three
+// Envelope[X] rows assert R8.4's two keys; the QueriesResponse row asserts the
+// three keys the queries route actually emits, and that third key,
+// pgStatStatements, is R3.1's per-database presence report — not pagination
+// metadata, so it has no home inside {data, meta}. D19 in IMPLEMENTATION.md §5
+// records the deviation and licenses keeping the shape; before that row this test
+// named Envelope[QueryView], a type the route had stopped returning, so a field
+// could vanish from the body GET /insights/queries writes and every test in the
+// package stayed green (A3's S123, filed against ae9cc86). One shared want cannot
+// express both shapes, which is what the column is for.
 func TestEnvelopeShapeMatchesR84(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		typ  reflect.Type
+		want []string
 	}{
-		{"Envelope[QueryView]", reflect.TypeOf(Envelope[QueryView]{})},
-		{"Envelope[PlanSampleView]", reflect.TypeOf(Envelope[PlanSampleView]{})},
-		{"Envelope[TagView]", reflect.TypeOf(Envelope[TagView]{})},
+		{"Envelope[QueryView]", reflect.TypeOf(Envelope[QueryView]{}), []string{"data", "meta"}},
+		{"Envelope[PlanSampleView]", reflect.TypeOf(Envelope[PlanSampleView]{}), []string{"data", "meta"}},
+		{"Envelope[TagView]", reflect.TypeOf(Envelope[TagView]{}), []string{"data", "meta"}},
+		{"QueriesResponse", reflect.TypeOf(QueriesResponse{}), []string{"data", "meta", "pgStatStatements"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := jsonKeys(tc.typ)
 			slices.Sort(got)
-			want := []string{"data", "meta"}
-			if !slices.Equal(got, want) {
-				t.Errorf("got %v, want %v (R8.4's {data, meta})", got, want)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
 	}
