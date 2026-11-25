@@ -26,10 +26,10 @@ go 1.26.0
 
 require (
 	github.com/jackc/pgx/v5 v5.13.0
-	go.yaml.in/yaml/v3 v3.0.4
-	k8s.io/api v0.37.1
-	k8s.io/apimachinery v0.37.1
-	k8s.io/client-go v0.37.1
+	go.yaml.in/yaml/v3 v3.0.6
+	k8s.io/api v0.37.2
+	k8s.io/apimachinery v0.37.2
+	k8s.io/client-go v0.37.2
 	modernc.org/sqlite v1.63.0
 )
 
