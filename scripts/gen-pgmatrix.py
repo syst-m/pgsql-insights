@@ -31,26 +31,83 @@ from collections import OrderedDict
 
 BASE = "https://www.postgresql.org/docs/{major}/{page}"
 
-# (major, page, cache slug) for every documentation page we read. The page, not
-# the file name, is the unit: one page documents several views
-# (monitoring-stats.html documents pg_stat_activity, pg_stat_archiver, …;
-# pgstatstatements.html documents both pg_stat_statements and
-# pg_stat_statements_info; view-pg-replication-slots.html documents
+# The documentation pages every one of the six majors publishes, as
+# (page, cache slug) pairs. The page, not the file name, is the unit: one page
+# documents several views (monitoring-stats.html documents pg_stat_activity,
+# pg_stat_archiver, …; pgstatstatements.html documents both pg_stat_statements
+# and pg_stat_statements_info; view-pg-replication-slots.html documents
 # pg_replication_slots). The slug is the file name --cache looks for.
+BASE_PAGES = (
+    ("monitoring-stats.html", "pg%s"),
+    ("pgstatstatements.html", "pgs%s"),
+    ("view-pg-settings.html", "set%s"),
+    ("view-pg-replication-slots.html", "slot%s"),
+    ("view-pg-locks.html", "v%s-locks"),
+    ("view-pg-file-settings.html", "v%s-file-settings"),
+    ("catalog-pg-database.html", "cat%s-database"),
+    ("catalog-pg-extension.html", "ext%s"),
+)
+
+# Pages the docs publish for some majors and not others, keyed by major.
+#
+# This exists because the majors do not all document the same set of relations,
+# and a page that 404s is not a parse failure to tolerate silently — it is the
+# difference between "this major has no such view" and "the fetch broke".
+# pg_wait_events is the case: view-pg-wait-events.html answers 200 for 17 and 18
+# and 404 for 13, 14, 15 and 16, and R4.3's own parenthetical — "Use
+# `pg_wait_events` (PG17+)" — is the spec saying the same thing. Before this
+# entry the generator could not emit the view at all, which made the table's
+# pg_wait_events row the one piece of hand-written content in a file whose first
+# line says DO NOT EDIT (added in f5bb41c), and meant any regeneration silently
+# reverted it.
+EXTRA_PAGES = {
+    17: (("view-pg-wait-events.html", "vwe%s"),),
+    18: (("view-pg-wait-events.html", "vwe%s"),),
+}
+
+# (major, page, cache slug) for every documentation page we read.
 PAGES = [
     (m, page, slug)
     for m in range(13, 19)
-    for page, slug in (
-        ("monitoring-stats.html", "pg%s"),
-        ("pgstatstatements.html", "pgs%s"),
-        ("view-pg-settings.html", "set%s"),
-        ("view-pg-replication-slots.html", "slot%s"),
-        ("view-pg-locks.html", "v%s-locks"),
-        ("view-pg-file-settings.html", "v%s-file-settings"),
-        ("catalog-pg-database.html", "cat%s-database"),
-        ("catalog-pg-extension.html", "ext%s"),
-    )
+    for page, slug in BASE_PAGES + tuple(EXTRA_PAGES.get(m, ()))
 ]
+
+# Extra prose for a column-set constant, keyed by the constant's name.
+#
+# The generated docblock is one line — "<Name> is <view>'s N columns on
+# PostgreSQL <majors>" — and every fact in that line is derived from the table.
+# Some constants carry a fact the table cannot derive. pg_wait_events exists on 17
+# and 18 alone and R4.3's "(PG17+)" is why the activity collector reads it
+# conditionally rather than declaring it in the set that drives its applicability;
+# that prose is about the *consumer*, and no amount of parsing the docs page
+# produces it.
+#
+# It lived in matrix_data.go as a hand-written comment, which is a comment in a
+# file whose first line says DO NOT EDIT: the first regeneration after f5bb41c
+# would have deleted it. Keying it here is what makes hand prose survive a
+# regeneration — the alternative is prose that silently vanishes the first time
+# someone regenerates the table for another reason, which is how f5bb41c's wrong
+# column names survived too.
+DOC_NOTES = {
+    "WaitEventsPG17to18": (
+        "//",
+        "// R4.3 is the requirement that names this view: \"Use `pg_wait_events` (PG17+) to",
+        "// validate and label event names on versions that have it.\" The parenthetical is",
+        "// the reason the row is keyed 17 and 18 and not 13–18 — the view does not exist",
+        "// before PG17 — and it is why the activity collector reads it conditionally",
+        "// rather than declaring it in the set that drives its applicability:",
+        "// AppliesToViews is the all-views rule, so a view that exists on two majors would",
+        "// make the collector inapplicable on the four majors where pg_stat_activity is",
+        "// perfectly readable.",
+        "//",
+        "// The view is a catalogue, not a statistic: it lists the event names the running",
+        "// server can report, so its rows are the legal values of pg_stat_activity's",
+        "// wait_event_type and wait_event columns. That is what makes it a validator — an",
+        "// event string on a session row that is not in this catalogue came from a server",
+        "// this matrix does not agree with, which is the producer/consumer disagreement",
+        "// R16.8 files and R4.3 names a use for.",
+    ),
+}
 
 # --- parsing the three HTML shapes the docs use ------------------------------------
 # <table class="table" summary="pg_locks Columns" border="1">        single-view pages
@@ -250,6 +307,11 @@ def emit(matrix):
             span = ", ".join(str(m) for m in ms) if len(ms) <= 3 \
                 else "%d–%d" % (min(ms), max(ms))
             a("// %s is %s's %d columns on PostgreSQL %s." % (name, v, len(cols), span))
+            # Hand prose that the table itself cannot produce (see DOC_NOTES). Without
+            # this the generator overwrites it on the next run, which is how a
+            # DO-NOT-EDIT file ends up with a comment in it that nobody can regenerate.
+            for note in DOC_NOTES.get(name, ()):
+                a(note)
             a("const %s = `%s`" % (name, "\n" + wrap(cols) + "\n"))
             a("")
 

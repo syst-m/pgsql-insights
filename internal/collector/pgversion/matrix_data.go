@@ -493,7 +493,13 @@ const StatioAllSequencesPG13to18 = `
 	relid schemaname relname blks_read blks_hit
 `
 
-// WaitEventsPG17to18 is pg_wait_events's 3 columns on PostgreSQL 17 and 18.
+// StatioAllTablesPG13to18 is pg_statio_all_tables's 11 columns on PostgreSQL 13–18.
+const StatioAllTablesPG13to18 = `
+	relid schemaname relname heap_blks_read heap_blks_hit idx_blks_read
+	idx_blks_hit toast_blks_read toast_blks_hit tidx_blks_read tidx_blks_hit
+`
+
+// WaitEventsPG17to18 is pg_wait_events's 3 columns on PostgreSQL 17, 18.
 //
 // R4.3 is the requirement that names this view: "Use `pg_wait_events` (PG17+) to
 // validate and label event names on versions that have it." The parenthetical is
@@ -511,13 +517,7 @@ const StatioAllSequencesPG13to18 = `
 // this matrix does not agree with, which is the producer/consumer disagreement
 // R16.8 files and R4.3 names a use for.
 const WaitEventsPG17to18 = `
-	event_type event description
-`
-
-// StatioAllTablesPG13to18 is pg_statio_all_tables's 11 columns on PostgreSQL 13–18.
-const StatioAllTablesPG13to18 = `
-	relid schemaname relname heap_blks_read heap_blks_hit idx_blks_read
-	idx_blks_hit toast_blks_read toast_blks_hit tidx_blks_read tidx_blks_hit
+	type name description
 `
 
 // columnsByMajor is the matrix: view → major → the column-set constant for

@@ -90,8 +90,8 @@ func actFixture(t *testing.T, tgt Target, sessions []Row, waitEvents [][2]string
 			rows := make([]Row, 0, len(waitEvents))
 			for _, pair := range waitEvents {
 				rows = append(rows, Row{
-					"event_type":    pair[0],
-					"event":         pair[1],
+					"type":          pair[0],
+					"name":          pair[1],
 					"description":   "fake",
 					SourceNowColumn: fixedSourceNow,
 				})

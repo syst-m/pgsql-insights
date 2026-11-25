@@ -637,11 +637,21 @@ type waitKey struct{ Type, Event string }
 
 // waitCatalogue turns pg_wait_events's rows into the set of legal (type, event)
 // pairs.
+//
+// The two sides spell the pair differently and the mapping is the whole function.
+// The catalogue's columns are `type` and `name` (pgversion/matrix_data.go:519,
+// which is the docs page R2.4's generator parses rather than a transcription of
+// it); pg_stat_activity's are `wait_event_type` and `wait_event`, which is the
+// spelling R4.3's "(type, event)" wording uses and Session's fields carry. The
+// names are not interchangeable: reading the catalogue with the activity column
+// names yields two empty strings, the blank check below skips every row, and the
+// catalogue comes back empty — which validates every waiting session on PG17 as
+// unknown, the exact false-positive R4.3's "(PG17+)" exists to avoid.
 func waitCatalogue(rows []Row) map[waitKey]bool {
 	cat := make(map[waitKey]bool, len(rows))
 	for _, r := range rows {
-		typ, _ := r.Get("event_type")
-		ev, _ := r.Get("event")
+		typ, _ := r.Get("type")
+		ev, _ := r.Get("name")
 		if typ == "" && ev == "" {
 			continue
 		}
