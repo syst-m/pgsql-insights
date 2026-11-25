@@ -2293,9 +2293,9 @@ paths:
 # both `paths` and here gets one key here, not one per verb and not one per page; a
 # route two requirements name (R8.2's catalogue and R10.3's page) is filed under the
 # one that enumerates the route, with the other named in the entry's own comment.
-# Two keys exist today, `x-planned-paths:` at :56 and `r8.2-catalogue:` at :133 — one
+# Two keys exist today, `x-planned-paths:` at :56 and `r8.2-catalogue:` at :145 — one
 # container and one requirement — and the four requirement keys that used to be here
-# are retirement notes, not keys: r4.5-actions (:146), r8.3-promql-pair (:168), and
+# are retirement notes, not keys: r4.5-actions (:156), r8.3-promql-pair (:178), and
 # r8.11-batched-series and r8.7-debug at the foot of the file. That closes the
 # spelling: `planned_r8_2:`, `R8.2:` and a bare `catalogue:` are all unavailable,
 # because a key named for a page rather than a requirement is how one route ends up

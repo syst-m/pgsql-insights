@@ -218,7 +218,19 @@ var openAPITags = []string{
 type openAPIPath struct {
 	Path   string
 	Status string
-	Lines  []string
+
+	// Catalogue marks an entry whose `x-promql-catalogue:` block the generator
+	// emits from Catalogue.For(Path) instead of carrying as authored Lines
+	// (S138). R8.3 requires the catalogue to be enumerated in the document, and
+	// promql_catalogue.go is the table the handlers answer from, so a copy of the
+	// list here is a second contract with nothing checking it -- the same failure
+	// class as a test expectation typed where an import would do. The flag is
+	// per-entry rather than global for the reason openAPISchema.Generated gives
+	// for schemas: one flip is one block in the diff, and an entry that is not
+	// marked is emitted from its Lines exactly as before.
+	Catalogue bool
+
+	Lines []string
 }
 
 var openAPIPaths = []openAPIPath{
@@ -1317,8 +1329,9 @@ var openAPIPaths = []openAPIPath{
 		},
 	},
 	{
-		Path:   "/api/v1/metrics/query",
-		Status: "implemented",
+		Path:      "/api/v1/metrics/query",
+		Status:    "implemented",
+		Catalogue: true,
 		Lines: []string{
 			"",
 			"  # ---------------------------------------------------------------------------",
@@ -1349,19 +1362,6 @@ var openAPIPaths = []openAPIPath{
 			"  #                  so they get different statuses.",
 			"  # ---------------------------------------------------------------------------",
 			"  /api/v1/metrics/query:",
-			"    x-promql-catalogue:",
-			"      - aggregate.cache_hit_ratio",
-			"      - aggregate.execution_time",
-			"      - aggregate.io_time",
-			"      - aggregate.lock_time",
-			"      - aggregate.rows",
-			"      - aggregate.shared_blocks_hit",
-			"      - aggregate.shared_blocks_read",
-			"      - perquery.execution_time",
-			"      - perquery.lock_time",
-			"      - perquery.rows",
-			"      - perquery.shared_blocks_hit",
-			"      - perquery.shared_blocks_read",
 			"    get:",
 			"      tags: [metrics]",
 			"      operationId: getQueryMetrics",
@@ -1440,52 +1440,12 @@ var openAPIPaths = []openAPIPath{
 		},
 	},
 	{
-		Path:   "/api/v1/metrics/system",
-		Status: "implemented",
+		Path:      "/api/v1/metrics/system",
+		Status:    "implemented",
+		Catalogue: true,
 		Lines: []string{
 			"",
 			"  /api/v1/metrics/system:",
-			"    x-promql-catalogue:",
-			"      - system.backends_by_application_name",
-			"      - system.backends_by_state",
-			"      - system.blks_hit",
-			"      - system.blks_read",
-			"      - system.checkpoints_requested",
-			"      - system.checkpoints_timed",
-			"      - system.cnpg_pg_is_in_recovery",
-			"      - system.cnpg_pg_replication_lag_seconds",
-			"      - system.cnpg_pg_status",
-			"      - system.database_size_bytes",
-			"      - system.deadlocks",
-			"      - system.mxid_age",
-			"      - system.pgbouncer_stats_avg_bind_count",
-			"      - system.pgbouncer_stats_avg_client_parse_count",
-			"      - system.pgbouncer_stats_avg_query_count",
-			"      - system.pgbouncer_stats_avg_query_time",
-			"      - system.pgbouncer_stats_avg_recv",
-			"      - system.pgbouncer_stats_avg_sent",
-			"      - system.pgbouncer_stats_avg_server_parse_count",
-			"      - system.pgbouncer_stats_avg_wait_time",
-			"      - system.pgbouncer_stats_avg_xact_count",
-			"      - system.pgbouncer_stats_avg_xact_time",
-			"      - system.pgbouncer_stats_total_query_count",
-			"      - system.pgbouncer_stats_total_received",
-			"      - system.pgbouncer_stats_total_sent",
-			"      - system.pgbouncer_stats_total_wait_time",
-			"      - system.pgbouncer_stats_total_xact_count",
-			"      - system.temp_bytes",
-			"      - system.temp_files",
-			"      - system.tps",
-			"      - system.tuples_deleted",
-			"      - system.tuples_fetched",
-			"      - system.tuples_inserted",
-			"      - system.tuples_returned",
-			"      - system.tuples_updated",
-			"      - system.txid_age",
-			"      - system.wal_generated_bytes",
-			"      - system.wal_size_bytes",
-			"      - system.xact_commit",
-			"      - system.xact_rollback",
 			"    get:",
 			"      tags: [metrics]",
 			"      operationId: getSystemMetrics",

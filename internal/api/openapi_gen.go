@@ -135,7 +135,14 @@ func GenerateOpenAPI() (string, error) {
 	// the committed file has between the tags block and this one.
 	writeLines(&b, "", "paths:")
 	for _, p := range openAPIPaths {
-		writeLines(&b, p.Lines...)
+		// pathLines is the paths-side twin of c.linesFor above: an entry marked
+		// Catalogue gets its x-promql-catalogue block from the table the handlers
+		// answer from, every other entry is emitted from its Lines verbatim.
+		lines, err := pathLines(p)
+		if err != nil {
+			return "", err
+		}
+		writeLines(&b, lines...)
 	}
 
 	// The manifest is re-emitted verbatim, leading blank line included — that
@@ -163,6 +170,54 @@ func GenerateOpenAPI() (string, error) {
 		writeLines(&b, lines...)
 	}
 	return b.String(), nil
+}
+
+// pathLines returns an entry's Lines, with one substitution for an entry marked
+// Catalogue: the `x-promql-catalogue:` block is generated from
+// Catalogue.For(p.Path) rather than copied by hand (S138).
+//
+// The two R8.3 routes used to carry their name lists as literals in
+// openapi_annotations.go, so a promql_catalogue.go-only edit left
+// api/openapi.yaml byte-identical and `make openapi` reporting ok -- the
+// generator never read the file that changed, and
+// TestCatalogueMatchesOpenAPIDocument was the only thing that spoke. Emitting
+// the block from the same table the handlers answer from removes the copy, so
+// the comparison test becomes the backstop instead of the only instrument.
+//
+// The insertion point is the entry's own `  /path:` key line, which is the line
+// the committed document puts the block under. An entry marked Catalogue with no
+// such line, or with an empty catalogue behind it, is an error rather than a
+// silent no-op: a silent no-op turns a deleted block into a missing section and
+// still writes a document.
+func pathLines(p openAPIPath) ([]string, error) {
+	if !p.Catalogue {
+		return p.Lines, nil
+	}
+	entries := DefaultCatalogue().For(p.Path)
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("openapi_gen: %s is marked Catalogue but DefaultCatalogue().For(%q) returns no entries", p.Path, p.Path)
+	}
+	key := "  " + p.Path + ":"
+	i := -1
+	for n, l := range p.Lines {
+		if l == key {
+			i = n
+			break
+		}
+	}
+	if i < 0 {
+		return nil, fmt.Errorf("openapi_gen: %s is marked Catalogue but its Lines contain no %q key line", p.Path, key)
+	}
+	block := make([]string, 0, len(entries)+1)
+	block = append(block, "    x-promql-catalogue:")
+	for _, e := range entries {
+		block = append(block, "      - "+e.Name)
+	}
+	out := make([]string, 0, len(p.Lines)+len(block))
+	out = append(out, p.Lines[:i+1]...)
+	out = append(out, block...)
+	out = append(out, p.Lines[i+1:]...)
+	return out, nil
 }
 
 // writeLines appends each argument followed by a newline. Every annotation slice
