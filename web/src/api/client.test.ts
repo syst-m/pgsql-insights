@@ -59,6 +59,7 @@ import {
 } from "./envelope";
 import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta, QuerySeries } from "./types";
 import OPENAPI_YAML from "../../../api/openapi.yaml?raw";
+import * as api from "./client";
 
 describe("resolveConfig", () => {
   it("defaults to the fixture", () => {
@@ -1398,6 +1399,11 @@ describe("the fixture payload", () => {
  * vite's `?raw` suffix rather than a parser, so there is no new dependency and
  * no second copy of the list to drift — the file the Go emitter writes is the
  * file this test reads.
+ *
+ * The roster is asserted as well as the rows: `cases` is hand-written because
+ * each row needs a body and params, so without the set comparison an eighth
+ * fetcher landing without a row would pass silently — the same vacuity one
+ * level up, with the list moved from the extractor to the case table.
  */
 describe("every fetcher path is a contract path", () => {
   // Keys are the two-space-indented lines under `paths:`, up to the next
@@ -1491,6 +1497,19 @@ describe("every fetcher path is a contract path", () => {
       call: () => terminateSession(http, { pid: 48213, namespace: "freeidp", cluster: "freeidp-pg", confirm: "true" }),
     },
   ];
+
+  // Everything the module exports that is a function but not a fetcher, named
+  // once. `FIXTURES` is excluded by the typeof check (it is an object); a new
+  // non-fetcher function export has to be added here or this test fails by name,
+  // which is the loud version of a decision that would otherwise be silent.
+  const NON_FETCHER_EXPORTS: string[] = ["ApiError", "resolveConfig"];
+
+  it("cases covers every fetcher the module exports", () => {
+    const exported = Object.entries(api)
+      .filter(([name, value]) => typeof value === "function" && !NON_FETCHER_EXPORTS.includes(name))
+      .map(([name]) => name);
+    expect(new Set(cases.map((c) => c.name))).toEqual(new Set(exported));
+  });
 
   for (const c of cases) {
     it(`${c.name} builds a path the contract publishes`, async () => {
