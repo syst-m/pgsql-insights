@@ -1301,6 +1301,7 @@ carried the repo over. So "the gate stays red" is historical, and the row's own 
 the aggregate is hostage to whichever package is newest — is exactly what happened: it moved 16.2
 points on another owner's tests, and it cleared without the `kubernetes/fake` harness this row says
 the gate is waiting on. `discovery`'s 53.8% is unchanged and is still the open half for Phase 2. |
+| D19 | 5 | R8.4, R3.1 | **`GET /insights/queries` answers with three wire keys where R8.4 specifies two.** R8.4's envelope for every list endpoint is `{data, meta}`; `dto.QueriesResponse` (`internal/api/dto/queries.go:235`) adds a third, `pgStatStatements`, so the R8.4 shape table (`internal/api/dto/queries_test.go:647-649`) cannot admit it -- `jsonKeys` yields `[data, meta, pgStatStatements]` against the table's `want := []string{"data", "meta"}` at `internal/api/dto/queries_test.go:654`. | The third key carries R3.1's pg_stat_statements presence per database, which has no home inside R8.4's shape: `meta` is `{total, truncated, generatedAt, nextCursor}` and an extension-presence report is not pagination metadata. `a83612b` introduced the type and `ae9cc86` moved the route's own fixture test onto it without logging the deviation (filed as A3's S123). The route keeps the three-key shape; the repair is this row plus a `QueriesResponse` case in the R8.4 table with its own expectation. |
 
 ### Spec-level issues from round 1 — all resolved in v0.2.0
 
