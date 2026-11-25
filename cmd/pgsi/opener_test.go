@@ -161,7 +161,7 @@ func TestKubeSecretsReadCA(t *testing.T) {
 //
 // The nil cases matter more than the real one. A process started with
 // --discover=false, or D9's `api` role, has no reason to have built a clientset,
-// and the alternative to returning nil there is a registry of seven SQL collectors
+// and the alternative to returning nil there is a registry of nine collectors
 // that fail every round — which is R8.7's shape (a process that answers 200 and is
 // not working) reproduced one layer down.
 func TestNewSQLOpenerNilWithoutAClientset(t *testing.T) {

@@ -1,10 +1,22 @@
-// Package-level note: this is the package's first non-SQL collector. The seven
-// SQL collectors (activity, database, locks, replication, settings, statements,
-// wal) all reach PostgreSQL through sql.go's SQLOpener and take their clock from
-// SQLConfig.Now. The three remaining non-SQL collectors this file precedes —
-// inventory (S1), instance-metrics (S3) and k8s-events (S4) — have no opener and
-// no SQLConfig, so the shape this file establishes for "a collector whose source
-// is not a Postgres connection" is the shape they inherit.
+// Package-level note: this is the package's first non-SQL collector. The nine
+// SQL collectors (activity, database, io, locks, pooler_clients, replication,
+// settings, statements, wal) all reach PostgreSQL through sql.go's SQLOpener
+// and take their clock from SQLConfig.Now. The three remaining non-SQL
+// collectors this file precedes — inventory (S1), instance-metrics (S3) and
+// k8s-events (S4) — have no opener and no SQLConfig, so the shape this file
+// establishes for "a collector whose source is not a Postgres connection" is
+// the shape they inherit.
+//
+// The list read "seven (activity, database, locks, replication, settings,
+// statements, wal)" until A3's S114, and the two it dropped are the two a
+// reader cannot read off the Descriptor.Source enum: io.go:211 was written but
+// not registered (A3's S112, closed at b82cc28), and pooler_clients.go:280
+// calls Begin with an SQLConfig while its Descriptor.Source says
+// SourcePoolerRuntime (pooler_clients.go:212), so it reads as a pooler
+// collector while being, by this file's own transport rule at :26-27 ("an HTTP
+// GET against the pgbouncer exporter's 9127 versus a psql round-trip against
+// 5432"), the psql half of the S5/S6 pair. The parity matrix scans markdown,
+// not Go comments, which is why nothing caught it.
 package collector
 
 import (

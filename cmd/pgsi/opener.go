@@ -1,5 +1,6 @@
-// The SQL opener for this process: the collector.SQLOpener value the seven SQL
-// collectors take as their first argument.
+// The SQL opener for this process: the collector.SQLOpener value the nine
+// collectors that need one take as their first argument — the eight §3.3 SQL
+// collectors plus pooler-clients, whose SHOW CLIENTS is a psql round-trip.
 //
 // Before this file the argument had no production value anywhere in the
 // repository, and sql.go:34-48 is the record of why. The sentence there is the
@@ -125,11 +126,12 @@ func (s kubeSecrets) ReadCA(ctx context.Context, namespace, name string) (pem st
 // newSQLOpener builds the process's SQL opener, or nil when it cannot have one.
 //
 // The nil return is the shape that keeps the registry honest about the driver.
-// newRegistry takes a collector.SQLOpener and registers the seven SQL collectors
-// only when it is non-nil, so a process with no usable clientset gets a registry
-// holding the pooler alone — which is what it had before the driver existed —
-// rather than seven collectors that fail every round with a nil-pointer error
-// from a client nobody built. The alternative, panicking on a nil clientset,
+// newRegistry takes a collector.SQLOpener and registers the nine collectors that
+// need one — the eight SQL ones plus pooler-clients — only when it is non-nil,
+// so a process with no usable clientset gets a registry holding the pooler alone
+// — which is what it had before the driver existed — rather than nine collectors
+// that fail every round with a nil-pointer error from a client nobody built. The
+// alternative, panicking on a nil clientset,
 // would make `pgsi serve --discover=false` unusable, and D9's `api` role is
 // exactly the role that serves without collecting.
 //

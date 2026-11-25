@@ -508,7 +508,7 @@ func (s *Scheduler) runTarget(ctx context.Context, tgt Target, entries []Entry) 
 	case tr.Shed > 0:
 		// R2.9's "mark the shed cluster stale rather than dropping the sample".
 		// pgsi_up is the one per-instance health signal this codebase has (R9.12),
-		// and a round that ran four of seven collectors is not a round that
+		// and a round that ran four of nine collectors is not a round that
 		// succeeded, so the shed folds into the same Observe call the failure
 		// branch uses rather than getting a second one that the trailing call
 		// would overwrite. The sink needs no marking: a shed publishes nothing, so
