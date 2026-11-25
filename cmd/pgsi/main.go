@@ -209,7 +209,7 @@ type serveFlags struct {
 	// of store.
 	store *string
 
-	// R3.13's two write-side flags (requirements.md:318), which the store has
+	// R3.13's two write-side flags (`requirements.md:319`), which the store has
 	// had since Phase 3 and the CLI has not: internal/store/store.go:149 and
 	// :164 declare RecordClientAddress and ApplicationTagSource on Config, and
 	// openStoreFile is now the caller that fills them from these two pointers
@@ -423,7 +423,7 @@ func newServeFlags(pre prescan) *serveFlags {
 	sf.store = fs.String("store", defaultStoreProfile, "query store (R11.6's two profiles, §3.4:218-219): memory (R13.5's ring buffers) | sqlite (the "+defaultStoreFile+" file) | an explicit SQLite path")
 
 	// --- R3.13 client address and application tags ---------------------------
-	// requirements.md:318 names both flags in one row, and internal/store has
+	// `requirements.md:319` names both flags in one row, and internal/store has
 	// implemented both since Phase 3; this is the CLI half that was missing. The
 	// bool defaults to false because that is what store.go:145-149 documents
 	// ("Off — the default — the store writes no client_address dimension rows"),
@@ -615,7 +615,7 @@ func runServe(args []string) int {
 		// "R11.8's --store= flag, which serveFlags does not have yet" — this
 		// commit closes that gap and fixes two misattributions in the sentence
 		// with it: the requirement that names the flag is R11.6's
-		// (requirements.md:219's `--store=memory` row, whose rationale is the lab
+		// (`requirements.md:220`'s `--store=memory` row, whose rationale is the lab
 		// profile), while R11.8 is the config-*precedence* requirement the flag is
 		// listed under in config.go, and R13.5's named flag is --max-store-bytes,
 		// not --store. The selection is now openSink below rather than a permanent
@@ -780,7 +780,7 @@ func runServe(args []string) int {
 }
 
 // defaultStoreProfile is --store's default value: §3.4:219's memory profile,
-// spelled as requirements.md:219 spells it. It is a constant rather than the
+// spelled as `requirements.md:220` spells it. It is a constant rather than the
 // literal "memory" in the flag declaration because openSink compares against
 // it, and a flag default and a switch case that are the same string in two
 // places is how a binary ends up defaulting to a profile its own switch does

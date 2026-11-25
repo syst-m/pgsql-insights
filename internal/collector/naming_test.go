@@ -90,7 +90,7 @@ func TestMetricNameTable(t *testing.T) {
 		{pgversion.ViewStatSLRU, "flushes", "slru_flushes_total"},
 		{pgversion.ViewFileSettings, "count", "file_settings_count"},
 		// R7.2's bloat families. The two views' 42 rows are ruled names
-		// (requirements.md:366); these five are the two names bloat.go's Extras mint
+		// (`requirements.md:366`); these five are the two names bloat.go's Extras mint
 		// (total_bytes, size), the ratio, the counter R7.2's unused-index detection
 		// reads, and the ratio's numerator.
 		{pgversion.ViewStatUserTables, "n_dead_tup", "table_dead_tuples"},

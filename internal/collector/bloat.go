@@ -13,11 +13,11 @@ import (
 // R2.2 families for this collector's rounds.
 //
 // The row exists because A3's second ruling on R7.2 added it to the end of §3.3's
-// table (requirements.md:208):
+// table (`requirements.md:208`):
 //
 //	| `bloat` | 5 min | S2 `pg_stat_user_tables`, `pg_stat_user_indexes` | R7.2's two pairs; table size via `pg_total_relation_size`, index size via `pg_relation_size` |
 //
-// and the ruling (requirements.md:366) is the answer to the four asks this file's
+// and the ruling (`requirements.md:366`) is the answer to the four asks this file's
 // author put to A3 — name,
 // interval, cost class, family names — with "the name is `bloat`, the interval is 5
 // min, the cost class is `standard`, and the two families are `table_*` and
@@ -37,7 +37,7 @@ import (
 // export set once a collector reads a view — "the export set is therefore the union of
 // R5.2's enumerated families and the numeric columns R2.4's matrix returns for the
 // target major, and R9.4's naming function must enumerate that union"
-// (requirements.md:401) — so naming them is required rather than optional, and no
+// (`requirements.md:401`) — so naming them is required rather than optional, and no
 // amendment is needed for the naming half.
 const CollectorBloat = "bloat"
 
