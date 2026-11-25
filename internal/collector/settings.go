@@ -46,11 +46,14 @@ const settingsViewGroup = "settings"
 // a per-database catalogue — A3's second ruling on R3.1: "a `postgres` connection
 // cannot read `appdb`'s extensions at all" — so probing N databases needs N
 // transactions, and a single group holding them would have N transactions where its
-// pg_settings query has one. statements.go's `statements` group is the existing
-// precedent for a group whose transactions are per-database ("The group is
-// per-database, and that is the one place in the codebase where a collector's view
-// group is not also its whole round"); this is the second, and the reason is the same
-// one A5's file gives — the axis is the database, and a transaction cannot span it.
+// pg_settings query has one. statements.go's `statements` group is the first such
+// group, and its docblock — statements.go:74-76 — now names this one as the second
+// ("this is one of two places where a collector's view group is not also its whole
+// round"). That sentence read "the one place in the codebase" until A5's `202931d`
+// retitled it, which is the change my `6e88618` forced: the quote that used to sit
+// here was that older sentence, and a quote of a sentence its commit deleted is
+// worth keeping the date on. The reason is the same one A5's file gives — the axis
+// is the database, and a transaction cannot span it.
 const extensionsViewGroup = "extensions"
 
 // settingsViews are the views the settings group queries: §3.3's two cluster-wide
