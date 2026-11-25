@@ -691,6 +691,25 @@ func (s *Scheduler) runOne(ctx context.Context, tgt Target, e Entry) roundOutcom
 			}
 		}
 	}
+	// The events half, with the same two guards the probes block above uses and for
+	// the same two reasons: the sink is type-asserted because EventPublisher is not
+	// part of Sink (only *MemSink implements it, exactly as only *MemSink implements
+	// ProbePublisher), and len(res.Events) > 0 because publishing an empty set would
+	// store an empty timeline and flip the stored bucket's ok from false to true —
+	// turning "nobody watched this" into "watched, nothing happened".
+	//
+	// A failure is logged and not folded into out.sinkErr, the same way a
+	// probe-publish failure is not: the samples published, the collector's own data
+	// is served, and a second sinkErr for one round reports one store problem twice.
+	if len(res.Events) > 0 {
+		if ep, ok := s.sink.(EventPublisher); ok {
+			if err := ep.PublishEvents(tgt, name, res.Events); err != nil {
+				s.log.Error("sink rejected event set",
+					"collector", name, "cluster", tgt.Cluster, "namespace", tgt.Namespace,
+					"error", err.Error())
+			}
+		}
+	}
 	s.stats.MarkSuccess(name, tgt.Cluster, tgt.Namespace)
 	return out
 }

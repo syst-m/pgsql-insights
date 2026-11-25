@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 )
 
 // DefaultMaxStoreBytes is the memory ceiling for the in-memory sink when
@@ -36,11 +37,13 @@ const DefaultMaxStoreBytes int64 = 64 << 20
 // half-publish. Either the round's samples replace the previous ones or nothing
 // happens.
 //
-// "Only write method" is scoped to Sink, and one second writer exists outside
-// it: ProbePublisher, which the settings collector's inventory uses and which
-// Publish itself preserves rather than wiping. Read that interface's docblock
-// before adding a third — the reason it is a separate interface rather than a
-// Sink method is the same reason this interface has one method.
+// "Only write method" is scoped to Sink, and two writers exist outside it:
+// ProbePublisher (the settings collector's inventory, which Publish itself
+// preserves rather than wiping) and EventPublisher (R5.9's timeline, which the
+// ruling at `requirements.md:348` rules into being "not a fourth `Sink` method
+// -- which is what A1 proposed, and is ruled yes"). Read either docblock before
+// adding another — the reason each is a separate interface rather than a Sink
+// method is the same reason this interface has one method.
 type Sink interface {
 	// Publish replaces the stored sample set for (tgt, collector) with samples.
 	Publish(tgt Target, collector string, samples []Sample) error
@@ -141,6 +144,120 @@ type ProbePublisher interface {
 	PublishProbes(tgt Target, collectorName string, probes []ProbeResult) error
 }
 
+// EventClass is the closed set of signal classes R5.9 names for the events
+// timeline, in the same shape SourceID is: the spec enumerates the members, so
+// the code lists them rather than inventing a wider vocabulary.
+//
+// The five are the row's own list, in the row's own order — "phase transitions
+// from S1, Kubernetes events, fencing changes (`cnpg.io/fencedInstances`
+// annotation), promotions (`currentPrimaryTimestamp`), and backup outcomes"
+// (`requirements.md:348`) — and each const names the source its class is read
+// from. That mapping lives here rather than in a Source field on Event so it is
+// written once: a per-event Source would be a second copy of a fact the class
+// already fixes, and the only thing a second copy can add is disagreement.
+type EventClass string
+
+const (
+	// EventPhaseTransition is a cluster or instance moving between phases. Read
+	// from S1 (SourceClusterStatus), which is where R5.9 sources "phase
+	// transitions from S1".
+	EventPhaseTransition EventClass = "phase-transition"
+	// EventK8sEvent is one `events` API resource in a cluster's namespace: the
+	// S11 (SourceK8sEvents) payload, and the reason that id exists at all.
+	EventK8sEvent EventClass = "k8s-event"
+	// EventFencing is a change to the cnpg.io/fencedInstances annotation, which
+	// names the instances CNPG has fenced out of a role. The annotation is a
+	// field of the Cluster CR, so this class is read from S1 like any other.
+	EventFencing EventClass = "fencing"
+	// EventPromotion is an instance becoming the primary, detected from S4's
+	// instancesReportedState.currentPrimaryTimestamp — the field the row names.
+	EventPromotion EventClass = "promotion"
+	// EventBackup is a backup's outcome: the Cluster CR's backup status and S4's
+	// lastFailedWAL, which together are what the row means by "backup outcomes".
+	EventBackup EventClass = "backup"
+)
+
+// ValidEventClass reports whether class is one of the five. Same argument as
+// ValidSource's: an unvalidated string in a rendered timeline becomes a category
+// the spec never declared, and R5.9's vocabulary is closed for the same reason
+// R2.1's source list is.
+func ValidEventClass(class EventClass) bool {
+	switch class {
+	case EventPhaseTransition, EventK8sEvent, EventFencing, EventPromotion, EventBackup:
+		return true
+	}
+	return false
+}
+
+// Event is one entry on the R5.9 events timeline.
+//
+// It is not a Sample, and the difference is why R5.9's ruling refuses to express
+// it as one. A Sample is "this metric had this value at this instant", stored per
+// (target, collector) as a set the next round replaces; an Event is "something
+// happened", and the timeline the row asks for is the accumulation of those across
+// rounds. That is also why the class set is an enum rather than a metric-name
+// string: a new metric name is a new data point, while a new event class is a new
+// signal category the spec has to declare — the R2.1/SourceID rule, applied to
+// R5.9's vocabulary.
+//
+// Reason and Detail are the machine name and the human text, and both exist for
+// the reason Sample.Metric and a log message both do: Reason is stable and
+// filterable (a Kubernetes event's `.reason`, a Cluster CR's `phase`,
+// "fenced"/"unfenced"), Detail is free text a UI renders but never matches on
+// (the event's `.message`, a CR's `phaseReason`, a backup's error). Folding the
+// human text into Reason is the bug that makes a filter unwriteable; folding the
+// machine name into Detail is the bug that leaves a UI rendering an empty cell.
+type Event struct {
+	// Class is which of the five R5.9 signal classes this is.
+	Class EventClass
+	// At is when the thing happened, not when it was observed: a Kubernetes
+	// event's eventTime/lastTimestamp, a CR's transition timestamp, a promotion's
+	// currentPrimaryTimestamp. It is the field that makes a set of events a
+	// timeline, and a zero At sorts the entry to the Unix epoch rather than to
+	// "now" — so a collector that cannot read a real time omits the event instead
+	// of stamping it, which is the same not-known rule ProbeResult's ok carries
+	// for the probe inventory.
+	At time.Time
+	// Reason is the machine-readable name, stable enough to filter on.
+	Reason string
+	// Subject is what the event is about: the pod a fencing change fenced, the new
+	// primary on a promotion, the database a backup ran for. Empty means the
+	// cluster itself, which is the right answer for a cluster-level phase
+	// transition and the wrong one for a per-instance event — the field exists so
+	// the two stay distinguishable.
+	Subject string
+	// Detail is the human-readable text, rendered and never matched on.
+	Detail string
+}
+
+// EventPublisher is the write half of the R5.9 timeline, and the third writer
+// Sink's docblock tells a reader to check before adding.
+//
+// It is a separate interface rather than a fourth Sink method — the ruling says
+// so in terms ("`Events []Event` on `Result` plus an `EventPublisher` beside
+// `ProbePublisher`, not a fourth `Sink` method"), and the reason is ProbePublisher's
+// own: adding it to Sink would force every implementation, including the Phase 3
+// SQLite store, to grow a method it has no table to answer from. The store
+// satisfies Sink and R9.5's RenderPerQuery without satisfying this, and a caller
+// type-asserts.
+//
+// PublishEvents replaces, which is the one place it departs from the timeline
+// metaphor and it is worth naming why. Publish and PublishProbes replace because
+// samples and inventories are current-state snapshots. A timeline is not: the
+// full history is the artefact, and a store that replaces can only ever serve one
+// round's worth of it. The alternative — the store appending, with a cap and an
+// identity to dedup on — needs an event id and a retention window that R5.9's row
+// does not name and that the ruling did not rule, so it is Phase 8's decision to
+// make alongside the collector that produces the events. Until then the
+// k8s-events collector owns its own window and reports the whole of it each round,
+// exactly as the settings collector reports the whole inventory it holds, and the
+// store serves the last-good window.
+type EventPublisher interface {
+	// PublishEvents replaces the stored events for (tgt, collectorName), leaving
+	// that bucket's samples and probes intact.
+	PublishEvents(tgt Target, collectorName string, events []Event) error
+}
+
 // sinkKey is the storage key for one (target, collector) pair. The separator is
 // NUL because the fields above it are DNS labels and a collector name, none of
 // which may contain it, so no two distinct triples can produce the same key —
@@ -185,14 +302,16 @@ type MemSink struct {
 // memBucket is one (target, collector) storage slot and the bytes it accounts
 // for.
 //
-// probes is the settings collector's inventory (see ProbeResult). Every other
-// collector's bucket leaves it nil, and bytes accounts for both halves so the one
-// subtraction on eviction removes exactly what was written — a bucket whose
-// probes were unaccounted would drift from the R13.5 ceiling by however much
-// inventory the settings collector carries.
+// probes is the settings collector's inventory (see ProbeResult) and events is
+// the R5.9 timeline (see Event). A collector's bucket leaves the two it does not
+// own nil, and bytes accounts for all three halves so the one subtraction on
+// eviction removes exactly what was written — a bucket whose probes were
+// unaccounted would drift from the R13.5 ceiling by however much inventory the
+// settings collector carries, and the same argument now applies one half wider.
 type memBucket struct {
 	samples []Sample
 	probes  []ProbeResult
+	events  []Event
 	bytes   int64
 }
 
@@ -235,10 +354,12 @@ func (m *MemSink) Publish(tgt Target, collector string, samples []Sample) error 
 	defer m.mu.Unlock()
 
 	var probes []ProbeResult
+	var events []Event
 	if old, ok := m.byKey[key]; ok {
 		probes = old.probes
+		events = old.events
 	}
-	return m.putLocked(key, samples, probes)
+	return m.putLocked(key, samples, probes, events)
 }
 
 // PublishProbes replaces the stored inventory for (tgt, collectorName) and leaves
@@ -256,10 +377,54 @@ func (m *MemSink) PublishProbes(tgt Target, collectorName string, probes []Probe
 	defer m.mu.Unlock()
 
 	var samples []Sample
+	var events []Event
 	if old, ok := m.byKey[key]; ok {
 		samples = old.samples
+		events = old.events
 	}
-	return m.putLocked(key, samples, probes)
+	return m.putLocked(key, samples, probes, events)
+}
+
+// PublishEvents replaces the stored events for (tgt, collectorName) and leaves
+// that bucket's samples and probes intact — the third writer, and the
+// EventPublisher half of the set. See EventPublisher for why it is a separate
+// interface rather than a Sink method, and for the replace-versus-append question
+// this method's signature settles one way.
+func (m *MemSink) PublishEvents(tgt Target, collectorName string, events []Event) error {
+	if m == nil {
+		return nil
+	}
+	key := sinkKey(tgt, collectorName)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var samples []Sample
+	var probes []ProbeResult
+	if old, ok := m.byKey[key]; ok {
+		samples = old.samples
+		probes = old.probes
+	}
+	return m.putLocked(key, samples, probes, events)
+}
+
+// Events returns the stored timeline for (tgt, collectorName) and whether one is
+// stored at all. It is a method on MemSink rather than a named interface because
+// R5.9's ruling names only the publisher; the read interface is Phase 8's to
+// define alongside the route that renders the timeline. The copy is the same rule
+// Samples' and Probes' are: a caller that sorts the result must not reach the
+// stored backing array through the shared slice header.
+func (m *MemSink) Events(tgt Target, collectorName string) ([]Event, bool) {
+	if m == nil {
+		return nil, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	b, ok := m.byKey[sinkKey(tgt, collectorName)]
+	if !ok {
+		return nil, false
+	}
+	return append([]Event(nil), b.events...), true
 }
 
 // putLocked writes one bucket and re-enforces the ceiling. Both write methods
@@ -267,7 +432,7 @@ func (m *MemSink) PublishProbes(tgt Target, collectorName string, probes []Probe
 // the order list is rebuilt rather than spliced — exist in one place and cannot
 // be written differently by the second writer, which is the failure mode a second
 // Publish method normally introduces. The caller holds m.mu.
-func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult) error {
+func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult, events []Event) error {
 	if old, ok := m.byKey[key]; ok {
 		m.used -= old.bytes
 		delete(m.byKey, key)
@@ -275,7 +440,8 @@ func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult) 
 	b := &memBucket{
 		samples: append([]Sample(nil), samples...),
 		probes:  append([]ProbeResult(nil), probes...),
-		bytes:   samplesSize(samples) + probesSize(probes),
+		events:  append([]Event(nil), events...),
+		bytes:   samplesSize(samples) + probesSize(probes) + eventsSize(events),
 	}
 	m.byKey[key] = b
 	m.used += b.bytes
@@ -433,6 +599,24 @@ func probesSize(probes []ProbeResult) int64 {
 		for _, e := range p.Extensions {
 			n += int64(len(e)) + 16
 		}
+	}
+	return n
+}
+
+// eventsSize estimates the bytes an event set occupies, and carries the same
+// estimate-not-measurement caveat samplesSize and probesSize document — the
+// standard sizes of what an Event holds, not a profiler figure.
+//
+// Per element it counts 8 (the slot this element occupies in the outer slice's
+// backing array) + 24 (At, a time.Time) + 16 for each of the four string
+// headers (Class, Reason, Subject, Detail) + the bytes of each. It mirrors
+// probesSize's accounting rather than inventing a third convention: all three
+// count string headers and slice slots rather than asking the Go allocator, and
+// all three exist to keep the R13.5 ceiling honest to within a few percent.
+func eventsSize(events []Event) int64 {
+	var n int64
+	for _, e := range events {
+		n += 8 + 24 + 4*16 + int64(len(e.Class)+len(e.Reason)+len(e.Subject)+len(e.Detail))
 	}
 	return n
 }

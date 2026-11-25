@@ -280,14 +280,20 @@ func TestMemSinkConcurrentPublish(t *testing.T) {
 }
 
 // TestProbeInterfaces is the compile-time half of the split Sink docblock
-// describes: MemSink satisfies Sink *and* the two probe interfaces, while the
-// interfaces stay out of Sink itself so *store.Store can satisfy Sink without
-// being forced to answer a question it has no table for. A rename on either side
-// fails the build here rather than at the scheduler's type assertion, which is
-// the call site that would otherwise silently start taking the ok=false branch.
+// describes: MemSink satisfies Sink, both probe interfaces *and* R5.9's
+// EventPublisher, while none of the three lives inside Sink itself so
+// *store.Store can satisfy Sink without being forced to answer a question it has
+// no table for. A rename on either side fails the build here rather than at the
+// scheduler's type assertion, which is the call site that would otherwise silently
+// start taking the ok=false branch — and that failure mode is why the event
+// publisher is asserted in a test named for the probes: the test pins which
+// interfaces *MemSink satisfies, not what the probes are for, and an
+// EventPublisher the scheduler asserts but nobody declares is exactly the bug
+// this block exists to catch.
 func TestProbeInterfaces(_ *testing.T) {
 	var _ ProbeReader = (*MemSink)(nil)
 	var _ ProbePublisher = (*MemSink)(nil)
+	var _ EventPublisher = (*MemSink)(nil)
 	var _ Sink = (*MemSink)(nil)
 }
 
@@ -329,6 +335,125 @@ func TestMemSinkPublishProbesRoundTrip(t *testing.T) {
 	}
 	if want := samplesSize(samples) + probesSize(inv); m.Used() != want {
 		t.Errorf("Used() = %d, want %d (both halves accounted)", m.Used(), want)
+	}
+}
+
+// TestMemSinkPublishEventsRoundTrip is R5.9's version of the same pair, written as
+// one test instead of two because there are now three halves and one order that
+// exercises every carry-forward at once: Publish, then PublishProbes, then
+// PublishEvents, then read all three back. Each writer's job is to replace its own
+// half and carry the other two, so a PublishEvents that rebuilt the bucket from its
+// own arguments drops the samples and probes the same round published — and the
+// Used() assertion below is the one that catches it, because a rebuilt bucket
+// reports eventsSize alone where the formula says all three.
+func TestMemSinkPublishEventsRoundTrip(t *testing.T) {
+	m := NewMemSink(0)
+	target := Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL}
+	samples := samplesOf(5, 2)
+	if err := m.Publish(target, CollectorSettings, samples); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	inv := []ProbeResult{{Database: "appdb", Extensions: []string{PGStatStatements}}}
+	if err := m.PublishProbes(target, CollectorSettings, inv); err != nil {
+		t.Fatalf("PublishProbes: %v", err)
+	}
+	events := []Event{
+		{Class: EventPhaseTransition, Reason: "ClusterHealthy", Subject: "cluster pg"},
+		{Class: EventPromotion, Reason: "PromoteReplica", Subject: "pg-2", Detail: "new primary"},
+	}
+	if err := m.PublishEvents(target, CollectorSettings, events); err != nil {
+		t.Fatalf("PublishEvents: %v", err)
+	}
+	got, ok := m.Events(target, CollectorSettings)
+	if !ok {
+		t.Fatal("Events() ok = false, want true after PublishEvents")
+	}
+	if len(got) != len(events) {
+		t.Fatalf("Events() = %+v, want %d rows", got, len(events))
+	}
+	for i := range events {
+		if got[i] != events[i] {
+			t.Errorf("Events()[%d] = %+v, want %+v", i, got[i], events[i])
+		}
+	}
+	if s := m.Samples(target, CollectorSettings); len(s) != len(samples) {
+		t.Errorf("Samples() = %d rows after PublishEvents, want %d (the event write must not clear the samples)", len(s), len(samples))
+	}
+	if p, _ := m.Probes(target, CollectorSettings); len(p) != len(inv) {
+		t.Errorf("Probes() = %d rows after PublishEvents, want %d (the event write must not clear the probes)", len(p), len(inv))
+	}
+	want := samplesSize(samples) + probesSize(inv) + eventsSize(events)
+	if m.Used() != want {
+		t.Errorf("Used() = %d, want %d (all three halves accounted)", m.Used(), want)
+	}
+}
+
+// TestMemSinkEventsIsCopy pins the same return-value contract Events() inherits
+// from Probes, and one place where the two differ: Event has no reference-type
+// fields, so append([]Event(nil), events...) is a full copy — mutating the caller's
+// Event after the write cannot reach the stored one, which is stronger than the
+// one-level-deep guarantee Probes documents for ProbeResult's Extensions slice.
+func TestMemSinkEventsIsCopy(t *testing.T) {
+	m := NewMemSink(0)
+	target := Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL}
+	events := []Event{{Class: EventFencing, Reason: "Fenced", Subject: "pg-3"}}
+	if err := m.PublishEvents(target, CollectorSettings, events); err != nil {
+		t.Fatalf("PublishEvents: %v", err)
+	}
+	got, _ := m.Events(target, CollectorSettings)
+	got[0].Reason = "mutated"
+	if again, _ := m.Events(target, CollectorSettings); again[0].Reason != "Fenced" {
+		t.Errorf("stored Reason = %q after mutating the returned slice, want %q", again[0].Reason, "Fenced")
+	}
+	// And the write-side copy, which Probes has no analogue for because a
+	// ProbeResult's inner slice is shared by design: mutate the caller's slice
+	// before reading back and the stored Event still says Fenced.
+	events[0].Reason = "mutated-at-source"
+	if again, _ := m.Events(target, CollectorSettings); again[0].Reason != "Fenced" {
+		t.Errorf("stored Reason = %q after mutating the caller's slice, want %q (the stored value is a copy, not an alias)",
+			again[0].Reason, "Fenced")
+	}
+}
+
+// TestEventClassValid is the R5.9 analogue of TestValidSource's closed-vocabulary
+// rule: the five classes the ruling at requirements.md:348 names are the only ones
+// that validate, and the count is pinned so a sixth added without a matching change
+// to the ruling is caught here. The invalid set is the spellings a typo produces —
+// wrong case, wrong separator, and the two words the neighbouring types use.
+func TestEventClassValid(t *testing.T) {
+	want := []EventClass{
+		EventPhaseTransition, EventK8sEvent, EventFencing, EventPromotion, EventBackup,
+	}
+	if len(want) != 5 {
+		t.Fatalf("EventClass const block has %d entries, want 5", len(want))
+	}
+	for _, class := range want {
+		if !ValidEventClass(class) {
+			t.Errorf("ValidEventClass(%q) = false, want true", class)
+		}
+	}
+	for _, class := range []EventClass{"", "PhaseTransition", "phase_transition", "PHASE-TRANSITION", "sample", "probe"} {
+		if ValidEventClass(class) {
+			t.Errorf("ValidEventClass(%q) = true, want false", class)
+		}
+	}
+}
+
+// TestEventsSize mirrors TestProbesSize: the formula's shape, not its exactness.
+// An empty set costs zero and each Event costs its fixed header plus the bytes of
+// its four strings, so a bucket's bytes field stays recomputable from its contents
+// by one formula across all three halves.
+func TestEventsSize(_ *testing.T) {
+	if got := eventsSize(nil); got != 0 {
+		panic(fmt.Sprintf("eventsSize(nil) = %d, want 0", got))
+	}
+	one := Event{Class: EventBackup, Reason: "BackupSucceeded", Subject: "pg-1", Detail: "ok"}
+	want := int64(8+24+4*16) + int64(len("backup")+len("BackupSucceeded")+len("pg-1")+len("ok"))
+	if got := eventsSize([]Event{one}); got != want {
+		panic(fmt.Sprintf("eventsSize = %d, want %d", got, want))
+	}
+	if got := eventsSize([]Event{one, one}); got != 2*want {
+		panic(fmt.Sprintf("eventsSize of two rows = %d, want %d", got, 2*want))
 	}
 }
 
@@ -429,11 +554,14 @@ func TestProbesSize(_ *testing.T) {
 	}
 }
 
-// TestMemSinkNilReceiver calls all eight exported methods on a typed nil and pins
+// TestMemSinkNilReceiver calls all ten exported methods on a typed nil and pins
 // the documented answer for each — the test half of the rule the type's docblock
 // states, and the same shape as TestNilStats for Stats. It covers every method on
 // purpose rather than only Probes: the failure mode is a guard added to the one
-// method an ok-form assertion makes visible and forgotten on the other seven.
+// method an ok-form assertion makes visible and forgotten on the other nine. The
+// count is ten as of R5.9, which added PublishEvents and Events; the two probe
+// methods and the two event methods are the four an ok-form assertion can reach,
+// which is why all four are here.
 func TestMemSinkNilReceiver(t *testing.T) {
 	var m *MemSink
 	tgt := Target{Namespace: "ns", Cluster: "pg"}
@@ -473,6 +601,16 @@ func TestMemSinkNilReceiver(t *testing.T) {
 	}
 	if err := m.PublishProbes(tgt, CollectorSettings, []ProbeResult{{Database: "d"}}); err != nil {
 		t.Errorf("(*MemSink)(nil).PublishProbes() = %v, want nil", err)
+	}
+	// The event pair, same answer and same reasoning as the probe pair: the guard
+	// precedes the write, so a nil sink reports success without resurrecting a
+	// bucket, and Events answers (nil, false) for "nothing stored" rather than
+	// panicking on a nil map read.
+	if err := m.PublishEvents(tgt, CollectorSettings, []Event{{Class: EventK8sEvent}}); err != nil {
+		t.Errorf("(*MemSink)(nil).PublishEvents() = %v, want nil", err)
+	}
+	if events, ok := m.Events(tgt, CollectorSettings); events != nil || ok {
+		t.Errorf("(*MemSink)(nil).Events() = (%v, %v), want (nil, false)", events, ok)
 	}
 
 	// And the write must not resurrect a bucket through the nil map: a guard that

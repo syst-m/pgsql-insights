@@ -97,22 +97,29 @@ func TestDescriptorValidate(t *testing.T) {
 }
 
 func TestValidSource(t *testing.T) {
-	// The set is §3.2's ten, and the test pins the count so a future edit that
-	// adds an S11 without updating §3.2 is caught here rather than in review.
+	// Eleven constants, and the test pins the count so an edit that adds a
+	// twelfth is caught here rather than in review. The set's provenance is
+	// documented on the type itself — S1-S10 are §3.2's table verbatim, S11 is
+	// R5.9's, ruled at `requirements.md:348` — so this test's job is the count and
+	// the spellings that must never validate, not the spec cross-check. Until the
+	// S11 row lands in §3.2's table, the const block is the only place the spec's
+	// own word for the eleventh source is written down, and that is the state this
+	// row of the test now pins.
 	want := []SourceID{
 		SourceClusterStatus, SourceSQL, SourceInstanceMetrics, SourceInstanceStatus,
 		SourcePoolerMetrics, SourcePoolerRuntime, SourceK8sMetrics,
 		SourceKubectlStatus, SourcePostgresExporter, SourcePodLogs,
+		SourceK8sEvents,
 	}
-	if len(want) != 10 {
-		t.Fatalf("§3.2 defines ten sources, got %d constants", len(want))
+	if len(want) != 11 {
+		t.Fatalf("SourceID const block has %d entries, want 11", len(want))
 	}
 	for _, id := range want {
 		if !ValidSource(id) {
 			t.Errorf("ValidSource(%q) = false, want true", id)
 		}
 	}
-	for _, id := range []SourceID{"", "S0", "S11", "s1", "S2 ", "postgres"} {
+	for _, id := range []SourceID{"", "S0", "S12", "s1", "S2 ", "postgres", "s11"} {
 		if ValidSource(id) {
 			t.Errorf("ValidSource(%q) = true, want false", id)
 		}
@@ -120,13 +127,15 @@ func TestValidSource(t *testing.T) {
 }
 
 // TestClassForEverySource pins the line R2.9 never draws. The requirement names
-// two budgets, --max-concurrent-sql and --max-concurrent-http-scrapes, while §3.2
-// names ten sources, and the requirement text says nothing about which source
-// draws from which pool. SourceID.Class() is where that decision lives, so it is
-// pinned here rather than left to a switch in the scheduler where it would read as
-// an implementation detail: the two Postgres-wire sources are SQL — S6 is
-// pgbouncer's SHOW POOLS/CLIENTS over 5432, so it takes a real connection slot the
-// way S2 does — and the other eight are HTTP. That split is also why the HTTP
+// two budgets, --max-concurrent-sql and --max-concurrent-http-scrapes, while the
+// enum names eleven sources (§3.2's ten plus R5.9's S11), and the requirement text
+// says nothing about which source draws from which pool. SourceID.Class() is where
+// that decision lives, so it is pinned here rather than left to a switch in the
+// scheduler where it would read as an implementation detail: the two Postgres-wire
+// sources are SQL — S6 is pgbouncer's SHOW POOLS/CLIENTS over 5432, so it takes a
+// real connection slot the way S2 does — and the other nine are HTTP. S11 is HTTP
+// because a pod-event watch is an API request to kube-apiserver, not a Postgres
+// connection, so it draws from the pool that is not bounded by max_connections. That split is also why the HTTP
 // default is double the SQL one: a scrape costs a socket, not a max_connections
 // slot, and R2.9's stated constraint ("Postgres instances where max_connections is
 // commonly 100") only applies to the first class.
@@ -145,6 +154,7 @@ func TestClassForEverySource(t *testing.T) {
 		{SourceKubectlStatus, ClassHTTP},
 		{SourcePostgresExporter, ClassHTTP},
 		{SourcePodLogs, ClassHTTP},
+		{SourceK8sEvents, ClassHTTP},
 	} {
 		if got := tc.src.Class(); got != tc.want {
 			t.Errorf("SourceID(%q).Class() = %s, want %s", tc.src, got, tc.want)
@@ -153,7 +163,7 @@ func TestClassForEverySource(t *testing.T) {
 	// The default arm, which is what an unregistered source gets: the class that
 	// cannot exhaust a Postgres connection. An unknown source must not be able to
 	// consume the budget the real Postgres instances depend on.
-	for _, id := range []SourceID{"", "S0", "S11", "s1", "postgres"} {
+	for _, id := range []SourceID{"", "S0", "S12", "s1", "postgres"} {
 		if got := id.Class(); got != ClassHTTP {
 			t.Errorf("SourceID(%q).Class() = %s, want %s (the default arm)", id, got, ClassHTTP)
 		}

@@ -73,12 +73,22 @@ const (
 	DefaultSchedulerQueueDepth      = 512
 )
 
-// SourceID names one of the ten data sources §3.2 ranks by cost and by
-// always-available-ness. R2.1 requires every collector to declare which one it
-// needs, so the set is enumerated here from §3.2's table rather than invented:
-// a collector that says "S3" is saying "GET http://<pod>:9187/metrics", and the
-// constant's value is the same identifier §3.2 prints so a log line, the spec
-// and the code name the source identically.
+// SourceID names a data source. R2.1 requires every collector to declare which
+// one it needs, so the set is enumerated here rather than invented: a collector
+// that says "S3" is saying "GET http://<pod>:9187/metrics", and the constant's
+// value is the same identifier the spec prints so a log line, the spec and the
+// code name the source identically.
+//
+// Eleven values, and they come from two spec places. S1-S10 are §3.2's table
+// verbatim (`requirements.md:168-177`, the ten rows it ranks by cost and by
+// always-available-ness). S11 is not in that table: it is R5.9's source, ruled at
+// `requirements.md:348` from §3.3's `k8s-events` collector row
+// (`requirements.md:207`, whose source column reads "`events` in the cluster's
+// namespace"). The ruling exists because §3.2's ten do not cover a pod-event
+// watch and Validate rejects every value outside this block, so a source-less
+// collector is a compile-time-impossible option rather than a second design
+// choice -- see SourceK8sEvents's own docblock, and the R7.2-rule marking note
+// there.
 type SourceID string
 
 const (
@@ -115,6 +125,29 @@ const (
 	// SourcePodLogs is S10: the pods/log subresource, off by default and only
 	// live when --log-source is enabled (R5.10).
 	SourcePodLogs SourceID = "S10"
+	// SourceK8sEvents is S11: a watch on the `events` API resource in a cluster's
+	// namespace, and the source R5.9's events timeline needs.
+	//
+	// It is the one value here that §3.2's table does not print. The id was ruled
+	// at `requirements.md:348` in answer to A1's question -- "does the k8s-events
+	// collector gain an S11, or does it get no SourceID because it is not a
+	// Postgres source?" -- and the ruling is that "no SourceID" is not
+	// implementable: Source is a required field and Validate rejects every other
+	// value, so the only two options were a new id or a collector that cannot be
+	// declared at all. The "not a Postgres source" objection is answered by the
+	// block itself, which already holds two non-Postgres surfaces (S7 is cAdvisor
+	// and friends, S10 is pods/log), so the block is §3.2's source list rather
+	// than a Postgres list. Folding it into S1 -- which the row also draws on, for
+	// *phase transitions* -- was rejected: S1 is the Cluster CR's status via the
+	// informers, a pod-event watch reads a different API resource, and one id
+	// naming two reads is what R6.1's ruling allowed only where a schedule row
+	// covers both names (S5 + S6).
+	//
+	// R5.9 is a Phase 8 row (requirements.md:760 maps 5.9 -> 8), so this constant
+	// is a Phase 8 artefact landing in Phase 2-era code. The ruling applies
+	// R7.2's rule and forbids any phase table from marking R5.9 before Phase 8
+	// runs, which is why adding it here marks nothing.
+	SourceK8sEvents SourceID = "S11"
 )
 
 // Class names which of R2.9's two global budgets a source draws from.
@@ -174,14 +207,16 @@ func (src SourceID) Class() Class {
 	}
 }
 
-// ValidSource reports whether id is one of §3.2's ten. R2.1's declaration is
-// only checkable if the source vocabulary is closed, so an unknown value is a
-// registration error rather than a string that happens to look wrong.
+// ValidSource reports whether id is one of the SourceID constants (S1–S11).
+// R2.1's declaration is only checkable if the source vocabulary is closed, so an
+// unknown value is a registration error rather than a string that happens to look
+// wrong. See the type's docblock for where each of the eleven comes from.
 func ValidSource(id SourceID) bool {
 	switch id {
 	case SourceClusterStatus, SourceSQL, SourceInstanceMetrics, SourceInstanceStatus,
 		SourcePoolerMetrics, SourcePoolerRuntime, SourceK8sMetrics,
-		SourceKubectlStatus, SourcePostgresExporter, SourcePodLogs:
+		SourceKubectlStatus, SourcePostgresExporter, SourcePodLogs,
+		SourceK8sEvents:
 		return true
 	}
 	return false
@@ -299,7 +334,7 @@ func (d Descriptor) Validate() error {
 		return fmt.Errorf("collector %q: Descriptor.Interval must be > 0 (R2.1 declares an interval per collector; §3.3's table gives one for all thirteen, and DefaultInterval is 60s)", d.Name)
 	}
 	if !ValidSource(d.Source) {
-		return fmt.Errorf("collector %q: unknown source %q (R2.1's required source must be one of §3.2's S1–S10)", d.Name, d.Source)
+		return fmt.Errorf("collector %q: unknown source %q (R2.1's required source must be one of this package's SourceID constants, S1–S11)", d.Name, d.Source)
 	}
 	if !ValidCostClass(d.Cost) {
 		return fmt.Errorf("collector %q: unknown cost class %q (R2.1's cost class must be cheap, standard or expensive)", d.Name, d.Cost)
@@ -453,4 +488,18 @@ type Result struct {
 	// return value would have to be threaded through that decision separately,
 	// which is the half-publish shape Sink's docblock refuses.
 	Probes []ProbeResult
+	// Events carries the R5.9 timeline entries a round observed, and it is the
+	// third field for the same reason Probes is the second: the scheduler's error
+	// path discards a whole Result, so anything the framework keeps has to be
+	// inside the value it discards or keeps. The scheduler publishes it through
+	// EventPublisher when the sink has one and the slice is non-empty -- see
+	// EventPublisher's docblock for why that is a separate interface rather than a
+	// fourth Sink method, which is the same argument ProbePublisher's is.
+	//
+	// Every collector except the k8s-events one leaves it nil. R5.9 asks for "one
+	// timeline per cluster" while Result is per-Target, so a cluster with three
+	// instances gets three Event slices that a consumer merges on
+	// Target.ClusterKey(); Event carries no instance identity of its own for that
+	// reason, exactly as Probes carries none.
+	Events []Event
 }
