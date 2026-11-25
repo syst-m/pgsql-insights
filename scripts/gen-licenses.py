@@ -74,6 +74,29 @@ CSV_REPORT = os.path.join(OUT_DIR, "go-licenses-report.csv")
 # without a matcher, and this value is a decision, not a fact about a dependency.
 MODULE_LICENSE = "Apache-2.0"
 
+# Packages whose license `go-licenses` reports as `Unknown` but whose LICENSE file is
+# unambiguous on disk. The tool resolves a package's license by fetching the module and
+# matching its LICENSE text against the SPDX corpus; when it cannot fetch the file, or
+# the matcher rejects the text, the row comes back `Unknown,Unknown` -- a fact about the
+# tool's resolution, not about the license. Each entry carries its own evidence so the
+# override is auditable without re-deriving it:
+#
+#   modernc.org/mathutil v1.7.1 (go.mod:86, pulled in by modernc.org/sqlite, Phase 2's
+#   store). The module cache copy at
+#   $(go env GOMODCACHE)/modernc.org/mathutil@v1.7.1/LICENSE is 1486 bytes and reads
+#   "Copyright (c) 2014 The mathutil Authors. All rights reserved."; the deciding clause
+#   is `grep -c 'Neither the name' LICENSE` -> 1, the third BSD clause, which makes the
+#   text BSD-3-Clause and not BSD-2-Clause. The URL follows the same
+#   gitlab.com/cznic/<pkg>/blob/<version>/LICENSE form as its sibling modernc rows at
+#   docs/licenses/go-licenses-report.csv:55 (libc), :57 (memory) and :58 (sqlite).
+LICENSE_OVERRIDES: dict[str, tuple[str, str]] = {
+    # package -> (license_url, license)
+    "modernc.org/mathutil": (
+        "https://gitlab.com/cznic/mathutil/blob/v1.7.1/LICENSE",
+        "BSD-3-Clause",
+    ),
+}
+
 
 def parse_go_mod(path: str) -> tuple[str, list[tuple[str, str, str]]]:
     """Return (module path, [(module, version, direct|indirect), ...]).
@@ -211,7 +234,17 @@ def run_go_licenses() -> str | None:
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["package", "license_url", "license"])
     for row in sorted(rows, key=lambda r: r[0]):
-        writer.writerow((row + ["", ""])[:3])
+        row = (row + ["", ""])[:3]
+        # Overrides are applied here, not by editing the committed file: --check
+        # compares this function's output against the CSV wherever go-licenses is on
+        # PATH (.github/workflows/ci.yml:116-117), so a hand-edited CSV would fail CI.
+        # The override applies only where the tool failed to resolve a license, so a
+        # future go-licenses that resolves the package wins, and a disagreement surfaces
+        # as a --check failure instead of being silently overridden.
+        override = LICENSE_OVERRIDES.get(row[0])
+        if override and row[1] in ("", "Unknown"):
+            row[1], row[2] = override
+        writer.writerow(row)
     return buf.getvalue()
 
 
