@@ -1,14 +1,22 @@
-// GET /api/v1/clusters/{namespace}/{name} — R8.2's second core route, the one
-// entry in `x-planned-paths` whose data source exists today.
+// GET /api/v1/clusters/{namespace}/{name} — R8.2's second core route.
 //
 // R8.2's catalogue names twenty routes; `discovery.Inventory` carries
-// Clusters, Failed, Loading and GeneratedAt and nothing else, so of the
-// eighteen still planned, this is the only one that can be served without
-// inventing a response out of an uncollected subsystem. The rest are gated on
-// data sources (the poolers, the query store, the PG-side collectors, the
-// metrics catalogue), not on handler code — a route written against data that
-// does not exist yet answers 200 with an empty body and turns "not collected"
-// into "none", which is the failure R8.7 already rules out for the list route.
+// Clusters, Failed, Loading and GeneratedAt and nothing else, so the routes
+// this package can serve out of it are this file and poolers.go (the two
+// routes whose data the inventory already holds), and the rest of
+// api/x-planned-paths.yaml is gated on data sources (the query store, the
+// PG-side collectors, the metrics catalogue), not on handler code — a route
+// written against data that does not exist yet answers 200 with an empty body
+// and turns "not collected" into "none", which is the failure R8.7 already
+// rules out for the list route.
+//
+// The sentence this replaces counted the manifest ("of the eighteen still
+// planned, this is the only one…") and listed the poolers among the gated
+// routes. Both halves were falsified by poolers.go landing, and a count of
+// another file's lines is a second copy of a contract that file owns: the
+// manifest's own contents are the artifact, so the paragraph now names the two
+// handler files and points at the yaml instead of restating how many entries it
+// has.
 //
 // The response is a bare dto.ClusterView, not an envelope. R8.4's `{data, meta}`
 // contract is stated for *list* endpoints ("Every list endpoint supports

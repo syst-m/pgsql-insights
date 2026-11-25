@@ -1,0 +1,43 @@
+{
+  "data": [
+    {
+      "name": "rev-proxy-pg-pooler",
+      "namespace": "ai-api-gateway",
+      "cluster": "rev-proxy-pg",
+      "type": "rw",
+      "poolMode": "transaction",
+      "instances": 2,
+      "readyInstances": 2,
+      "phase": "active",
+      "image": "ghcr.io/cloudnative-pg/pgbouncer:1.25.1",
+      "service": "rev-proxy-pg-pooler",
+      "parameters": {
+        "default_pool_size": "20",
+        "max_client_conn": "400",
+        "min_pool_size": "4"
+      },
+      "pods": [
+        {
+          "name": "rev-proxy-pg-pooler-86b4bdd84d-n9vlv",
+          "node": "dmaf5-1",
+          "phase": "Running",
+          "ready": true,
+          "ip": "10.42.1.222"
+        },
+        {
+          "name": "rev-proxy-pg-pooler-86b4bdd84d-xg6sg",
+          "node": "k8s-wrk-1",
+          "phase": "Running",
+          "ready": true,
+          "ip": "10.42.4.92"
+        }
+      ],
+      "metricsURL": "http://10.42.1.222:9127"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "truncated": false,
+    "generatedAt": "2026-11-20T09:12:00Z"
+  }
+}
