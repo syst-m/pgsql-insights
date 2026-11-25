@@ -64,7 +64,6 @@ import {
   parseTagView,
   parseTerminateResponse,
   toFleetResponse,
-  toQueriesResponse,
 } from "./envelope";
 import type {
   ActiveQueriesResponse,
@@ -349,14 +348,16 @@ export async function fetchQueries(
     // The one query fixture the contract has, and the params are ignored on this
     // arm exactly as `fetchFleet` ignores them when serving a fleet fixture:
     // R10.12's named states are fleet-side, so there is no named set to choose
-    // between here. The two arms now reach `QueryResponse` (types.ts:992) by
-    // different functions — this one builds with `toQueriesResponse`, the http arm
-    // parses with `parseQueriesResponse` — because the wire body has a third key the
-    // generic envelope does not carry. The fixture's is `[]` until the contract's
-    // `-update` lands, which is what the live route answers today
-    // (`internal/api/queries.go:218`).
+    // between here. The two arms reach `QueryResponse` (types.ts:1002) by
+    // different functions — this one returns the `FIXTURE_QUERIES` constant, which
+    // fixtures.ts builds with `toQueriesResponse(apiQueriesJson,
+    // apiQueriesJson.pgStatStatements)`, and the http arm parses with
+    // `parseQueriesResponse` — because the wire body has a third key the generic
+    // envelope does not carry. Since `ae9cc86` the fixture's presence rows are the
+    // json's four, not the `[]` the builder's default used to hand back; the live
+    // route still answers `[]` (`internal/api/queries.go:218`).
     await delay(cfg);
-    return toQueriesResponse(FIXTURE_QUERIES);
+    return FIXTURE_QUERIES;
   }
   const json = await getJSON(cfg, `/api/v1/insights/queries${search(params)}`, opts);
   return parseQueriesResponse(json);

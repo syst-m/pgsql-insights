@@ -63,7 +63,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { QUERY_NOUN, toQueriesResponse } from "../api/envelope";
+import { QUERY_NOUN } from "../api/envelope";
 import { FIXTURE_QUERIES } from "../api/fixtures";
 import type { QueryResponse, QuerySeries, QuerySeriesEnvelope, QueryView } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
@@ -324,7 +324,7 @@ export function QueriesPage(props: QueriesPageProps) {
   const listParams = useMemo(() => listParamsFrom(state), [state]);
   const { state: data, refresh } = useQueries(props.cfg, listParams);
   const resp: QueryResponse =
-    props.fixtureOverride ?? data.queries ?? toQueriesResponse(FIXTURE_QUERIES);
+    props.fixtureOverride ?? data.queries ?? FIXTURE_QUERIES;
   // The phase the comment above this one insisted on having as a parameter
   // instead of an implicit: with a prop the page is showing a named fixture, so
   // it is `ready` whatever the fetch is doing; without one it is the hook's.

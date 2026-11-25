@@ -54,7 +54,7 @@ import {
 import type { QuerySortKey } from "../components/QueryTable";
 import { ROW_HEIGHT } from "../components/VirtualList";
 
-const rows = FIXTURE_QUERIES.data;
+const rows = FIXTURE_QUERIES.queries;
 const first = rows[0] as QueryView;
 
 const CFG: ClientConfig = { source: "fixture", apiBase: "", fixture: "fleet", delayMs: 0 };
@@ -73,7 +73,7 @@ function renderPage(overrides: Partial<QueriesPageProps> = {}) {
     state: URL_STATE,
     onPatch,
     cfg: CFG,
-    fixtureOverride: toQueriesResponse(FIXTURE_QUERIES),
+    fixtureOverride: FIXTURE_QUERIES,
     ...overrides,
   };
   return { ...render(<QueriesPage {...props} />), onPatch };
@@ -290,7 +290,7 @@ describe("QueriesPage", () => {
   });
 
   it("falls back to the fixture when no payload is passed", () => {
-    // The `fixtureOverride ?? toQueriesResponse(FIXTURE_QUERIES)` line, exercised
+    // The `fixtureOverride ?? data.queries ?? FIXTURE_QUERIES` line, exercised
     // by omitting the prop — which is the shape `routes.ts` mounts it with.
     const { container } = render(
       <QueriesPage state={URL_STATE} onPatch={vi.fn()} cfg={CFG} />,

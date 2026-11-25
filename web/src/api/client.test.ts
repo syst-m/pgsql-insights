@@ -57,14 +57,13 @@ import {
   SESSION_NOUN,
   TAG_NOUN,
   toFleetResponse,
-  toQueriesResponse,
 } from "./envelope";
 import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta, QuerySeries } from "./types";
 import OPENAPI_YAML from "../../../api/openapi.yaml?raw";
-// The fixture's own bytes, imported directly rather than reached through
-// `FIXTURE_QUERIES`: that export is still annotated `Envelope<QueryView>` (the
-// move to `QueryResponse` is the fixture-family commit this one deliberately
-// leaves behind), so the third key `ae9cc86` added is only visible from the json.
+// The fixture's own bytes, imported directly. `FIXTURE_QUERIES` is now the
+// `QueryResponse` built from them, so a parser test that wants the wire body —
+// the two-key body below it, or the three-key one `ae9cc86` produced — has to
+// name the json: the presentation type has already renamed `data` to `queries`.
 import apiQueriesJson from "../../../testdata/api/queries.json";
 import * as api from "./client";
 
@@ -829,11 +828,10 @@ describe("fetchQueries", () => {
     // The http arm parses the whole named body now, so the payload it returns is
     // the fixture's three keys with `data` renamed to the presentation name
     // `queries` — the mapping `QueryResponse` documents, read off the fixture
-    // rather than retyped here. The fixture arm still goes through
-    // `toQueriesResponse`, which defaults the third key to `[]`; the two arms
-    // agree on `meta` and `queries` and differ on the presence rows until
-    // fixtures.ts moves to the named type, which is the transition this commit
-    // leaves open.
+    // rather than retyped here. The fixture arm returns the same three keys now
+    // that fixtures.ts builds `FIXTURE_QUERIES` through `toQueriesResponse` with
+    // the json's own `pgStatStatements`, so the two arms agree on all three and the
+    // transition that commit left open is closed.
     stub(apiQueriesJson);
     const out = await fetchQueries(http);
     expect(out).toEqual({
@@ -849,7 +847,7 @@ describe("fetchQueries", () => {
   });
 
   it("serves the queries fixture on the fixture arm", async () => {
-    await expect(fetchQueries(fixture)).resolves.toEqual(toQueriesResponse(FIXTURE_QUERIES));
+    await expect(fetchQueries(fixture)).resolves.toEqual(FIXTURE_QUERIES);
   });
 });
 

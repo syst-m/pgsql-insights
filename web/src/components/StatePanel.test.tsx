@@ -58,7 +58,7 @@ const NAMED_STATES = Object.keys(FLEET_COPY) as Exclude<PanelState, "ready">[];
 const EMPTY_QUERIES: QueryResponse = toQueriesResponse(
   emptyEnvelope<QueryView>(FIXTURE_GENERATED_AT),
 );
-const POPULATED_QUERIES: QueryResponse = toQueriesResponse(FIXTURE_QUERIES);
+const POPULATED_QUERIES: QueryResponse = FIXTURE_QUERIES;
 const FIRST_ROW = FIXTURE_CLUSTERS[0] as FleetRow;
 
 describe("deriveQueryPanelState", () => {

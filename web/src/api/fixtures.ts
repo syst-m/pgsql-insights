@@ -35,7 +35,7 @@ import apiQueriesJson from "../../../testdata/api/queries.json";
 import apiSessionsTerminateJson from "../../../testdata/api/sessions-terminate.json";
 import apiTagsJson from "../../../testdata/api/tags.json";
 
-import { emptyEnvelope, toFleetResponse, type RowExtras } from "./envelope";
+import { emptyEnvelope, toFleetResponse, toQueriesResponse, type RowExtras } from "./envelope";
 import type {
   ActiveQueriesResponse,
   ClusterMetrics,
@@ -46,8 +46,8 @@ import type {
   FleetRow,
   PlanSampleView,
   QueryDetailView,
+  QueryResponse,
   QuerySeriesEnvelope,
-  QueryView,
   TagView,
   TerminateResponse,
 } from "./types";
@@ -69,7 +69,10 @@ export const FIXTURE_ENVELOPE: Envelope<ClusterView> = apiClustersJson;
  * other three are named after the routes that serve them. */
 
 /** GET /api/v1/insights/queries — the R3.2 table, R9.5's top-N page. */
-export const FIXTURE_QUERIES: Envelope<QueryView> = apiQueriesJson;
+export const FIXTURE_QUERIES: QueryResponse = toQueriesResponse(
+  apiQueriesJson,
+  apiQueriesJson.pgStatStatements,
+);
 
 /** GET /api/v1/insights/queries/{fingerprint} — R10.7's detail payload. Not an
  *  envelope: the detail endpoint returns one object, so this mirrors the dto's

@@ -397,8 +397,8 @@ describe("R10.28 empty-state catalogue", () => {
     // The state is a pair, so the fixture has to supply both sides. The entry's
     // cluster is the PG 16.11 one; the 17 row comes from the same fixture.
     expect(rowFor(entry.clusterId ?? "").pgMajor).toBe(16);
-    const on16 = FIXTURE_QUERIES.data.find((r) => r.pgMajor === 16);
-    const on17 = FIXTURE_QUERIES.data.find((r) => r.pgMajor === 17);
+    const on16 = FIXTURE_QUERIES.queries.find((r) => r.pgMajor === 16);
+    const on17 = FIXTURE_QUERIES.queries.find((r) => r.pgMajor === 17);
     expect(on16).toBeDefined();
     expect(on17).toBeDefined();
 

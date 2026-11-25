@@ -11,7 +11,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
-import { toQueriesResponse } from "./api/envelope";
 import {
   FIXTURE_ACTIVE_QUERIES,
   FIXTURE_FLEET,
@@ -94,7 +93,7 @@ const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknow
   {
     page: "queries",
     location: `/c/${CLUSTER}/queries`,
-    fixture: toQueriesResponse(FIXTURE_QUERIES),
+    fixture: FIXTURE_QUERIES,
     heading: "Queries",
   },
   {

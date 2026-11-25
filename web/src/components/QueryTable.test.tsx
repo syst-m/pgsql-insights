@@ -41,7 +41,7 @@ import { ANALYZE_LATENCY_GAP, LOCK_WAIT_NA } from "./LoadBars";
 import { ROW_HEIGHT } from "./VirtualList";
 import { NULL_VALUE, formatDurationMs, formatNumber, formatPercent } from "../lib/format";
 
-const rows = FIXTURE_QUERIES.data;
+const rows = FIXTURE_QUERIES.queries;
 const pg16 = rows.find((r) => r.pgMajor === 16 && !r.truncated) as QueryView;
 const pg17 = rows.find((r) => r.pgMajor === 17) as QueryView;
 const truncatedRow = rows.find((r) => r.truncated) as QueryView;

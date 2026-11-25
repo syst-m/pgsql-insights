@@ -225,7 +225,7 @@ describe("useQueries refetch behaviour (R10.22)", () => {
     const { result } = renderHook(() => useQueries(fixture, NO_PARAMS, 0));
 
     await waitFor(() => expect(result.current.state.phase).toBe("ready"));
-    expect(result.current.state.queries?.queries.length).toBe(FIXTURE_QUERIES.data.length);
+    expect(result.current.state.queries?.queries.length).toBe(FIXTURE_QUERIES.queries.length);
     expect(calls).toBe(0);
   });
 });
