@@ -30,7 +30,7 @@
  *   IO time               `QuerySeriesPoint.ioTimeSeconds` — R9.4's
  *                         `io_time`, same point, same unit. It arrived late:
  *                         when this file was written the family at
- *                         requirements.md:396 read "execution time, rows,
+ *                         `requirements.md:397` read "execution time, rows,
  *                         shared block hits/reads, **lock time**", and the
  *                         only IO number anywhere was
  *                         `QueryView.loadByIOWaitMs` (types.ts:413,

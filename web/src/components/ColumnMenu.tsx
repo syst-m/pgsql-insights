@@ -1,6 +1,6 @@
 /* R10.20 — the column-visibility menu.
  *
- * requirements.md:430 (R10.20) requires "**Column-visibility menu** on every
+ * `requirements.md:432` (R10.20) requires "**Column-visibility menu** on every
  * wide table, with a documented default column set and a persisted per-view
  * selection." Three nouns, three pieces of this file:
  *
@@ -38,7 +38,7 @@ export interface ColumnDef {
  *
  *  Fleet's set is `ClusterTable.tsx`'s current `COLUMNS` order, so adopting the
  *  menu changes nothing for a table that accepts the default. Queries' set is
- *  the R3.2 column set (requirements.md:306) in R3.2's order and with R3.2's
+ *  the R3.2 column set (`requirements.md:308`) in R3.2's order and with R3.2's
  *  names — all thirteen, including the two R3.2 itself marks as having no
  *  per-query value — plus R10.6's `Load sparkline` last, which R3.2 does not
  *  name and which is on by default for the same reason §9's sentence makes the

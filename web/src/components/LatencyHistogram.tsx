@@ -80,7 +80,7 @@ import { scaleLinear } from "d3-scale";
 import type { HistogramBucket, LatencyView } from "../api/types";
 import { formatDurationMs, formatNumber } from "../lib/format";
 
-/** R3.9's mandated wording, verbatim from requirements.md:313. Exported so the
+/** R3.9's mandated wording, verbatim from `requirements.md:315`. Exported so the
  *  requirement's quoted string has exactly one implementation. */
 export const SAMPLED_LABEL = "sampled, biased toward long queries";
 

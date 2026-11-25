@@ -1,6 +1,6 @@
 /* The Active Queries page (R10.8).
  *
- * R10.8's sentence (requirements.md:419) names four things and this file owns
+ * R10.8's sentence (`requirements.md:420`) names four things and this file owns
  * all four: the **live table** (R4.1), the **15 s auto-refresh indicator**,
  * **row expansion to the blocking chain**, and the **Terminate action behind
  * the R4.5 gate**. The route entry is `routes.ts:212-222` (`page: "active"`,

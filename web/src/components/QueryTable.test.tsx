@@ -3,7 +3,7 @@
  * 1. **The R3.2 column set.** §9's 6b acceptance is a sentence about a list:
  *    "Queries page renders the R3.2 column set exactly (incl. `Load by lock
  *    wait` = `n/a`)". "Exactly" is testable — the header's cells, in order,
- *    against requirements.md:306 — and it is the assertion that catches the
+ *    against `requirements.md:308` — and it is the assertion that catches the
  *    failure mode this table actually had: a nine-column default that looked
  *    right and omitted the two columns R3.2 withholds a value for.
  * 2. **The `useVirtualWindow` adopter.** VirtualList's header says a `<table>`
@@ -104,9 +104,9 @@ function manyRows(n: number): QueryView[] {
 
 describe("the R3.2 column set", () => {
   it("is R3.2's thirteen columns in R3.2's order with R3.2's names, plus R10.6's sparkline last", () => {
-    // requirements.md:306 for the thirteen — the §9 6b "renders the R3.2 column
+    // `requirements.md:308` for the thirteen — the §9 6b "renders the R3.2 column
     // set exactly" assertion, the list and not a rendering of it — and
-    // requirements.md:416 for the fourteenth. The order is the assertion: the
+    // `requirements.md:418` for the fourteenth. The order is the assertion: the
     // thirteen must keep R3.2's order, so R10.6's column is appended after them
     // rather than inserted among them, which is what lets this one test assert
     // both requirements' wordings at once.
