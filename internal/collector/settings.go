@@ -214,6 +214,17 @@ func (c *SettingsCollector) Collect(ctx context.Context, tgt Target) (Result, er
 	// configured one is skipped because the transaction above already ran there:
 	// probing it twice would mint two identical series for one extension in one
 	// round, which is the duplicate-series class R9.2's prefix exists to prevent.
+	// The stored inventory starts with the configured database, whose extensions
+	// came back in the transaction above. Building it from extensions.rows rather
+	// than from a query of its own is what keeps the inventory and the samples in
+	// agreement: they are two views of one projection's rows, both built through
+	// extnameOf, so a database cannot read as installed in one and absent from the
+	// other. The empty-RoundTrip Result above correctly carries no inventory — that
+	// transaction failed, so nothing was probed.
+	probes := []ProbeResult{{
+		Database:   c.cfg.Database,
+		Extensions: extensionNames(extensions.rows[rnd.probe.Query]),
+	}}
 	for _, db := range probedDatabases(extensions.rows[rnd.enumeration.Query]) {
 		if db == c.cfg.Database {
 			continue
@@ -224,15 +235,25 @@ func (c *SettingsCollector) Collect(ctx context.Context, tgt Target) (Result, er
 		next, err := c.runTx(ctx, tgt, cfg, extensionsViewGroup, []viewProjection{rnd.probe.in(db)}, now)
 		extensions.samples = append(extensions.samples, next.samples...)
 		extensions.trips += next.trips
+		// Appended before the error check, mirroring the two lines above it: the
+		// rule in this loop is that a partial round's work is returned intact even
+		// when it fails, and an inventory that listed three databases while the
+		// samples listed four would be a second answer to one question.
+		probes = append(probes, ProbeResult{
+			Database:   db,
+			Extensions: extensionNames(next.rows[rnd.probe.in(db).Query]),
+		})
 		if err != nil {
 			return Result{Samples: joinSamples(settings, extensions),
-				RoundTrips: settings.trips + extensions.trips}, err
+				RoundTrips: settings.trips + extensions.trips,
+				Probes:     probes}, err
 		}
 	}
 
 	return Result{
 		Samples:    joinSamples(settings, extensions),
 		RoundTrips: settings.trips + extensions.trips,
+		Probes:     probes,
 	}, nil
 }
 
@@ -604,8 +625,8 @@ func extensionSamples(pv viewProjection, now time.Time, rows []Row) []Sample {
 	// slack unused rather than costing a regrowth.
 	out := make([]Sample, 0, len(rows))
 	for _, row := range rows {
-		name, ok := row.Get("extname")
-		if !ok || name == "" {
+		name, ok := extnameOf(row)
+		if !ok {
 			continue
 		}
 		out = append(out, Sample{
@@ -618,6 +639,42 @@ func extensionSamples(pv viewProjection, now time.Time, rows []Row) []Sample {
 			SourceTime: sourceTimeOf(row),
 			IngestTime: now,
 		})
+	}
+	return out
+}
+
+// extnameOf is the one place a pg_extension row's extension name is read.
+//
+// extensionSamples mints a family per name and extensionNames builds the stored
+// inventory, and both need the same two-line rule — the column is "extname", and
+// an absent or empty value names no extension. Two inline copies in one file are
+// the drift this package keeps documenting rather than fixing (see the settings.go
+// quote 202931d deleted, which was the same class in prose), so the rule lives here
+// and both callers call it.
+func extnameOf(row Row) (string, bool) {
+	name, ok := row.Get("extname")
+	if !ok || name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+// extensionNames returns every extension installed in the database the rows came
+// from, for the ProbeResult inventory Collect stores.
+//
+// It is the same set extensionSamples turned into families, and that is the point:
+// the inventory and the samples must agree because they are built from one
+// projection's rows by one extraction rule, not because two queries happened to
+// agree. A database with no extensions yields an empty slice, which is the answer
+// Samples cannot express and the reason ProbeResult exists (see sink.go).
+func extensionNames(rows []Row) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		name, ok := extnameOf(row)
+		if !ok {
+			continue
+		}
+		out = append(out, name)
 	}
 	return out
 }

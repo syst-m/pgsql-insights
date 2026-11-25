@@ -278,3 +278,153 @@ func TestMemSinkConcurrentPublish(t *testing.T) {
 		t.Errorf("Keys() = %d, want 160 (8 clusters x 20 pods)", got)
 	}
 }
+
+// TestProbeInterfaces is the compile-time half of the split Sink docblock
+// describes: MemSink satisfies Sink *and* the two probe interfaces, while the
+// interfaces stay out of Sink itself so *store.Store can satisfy Sink without
+// being forced to answer a question it has no table for. A rename on either side
+// fails the build here rather than at the scheduler's type assertion, which is
+// the call site that would otherwise silently start taking the ok=false branch.
+func TestProbeInterfaces(_ *testing.T) {
+	var _ ProbeReader = (*MemSink)(nil)
+	var _ ProbePublisher = (*MemSink)(nil)
+	var _ Sink = (*MemSink)(nil)
+}
+
+// TestMemSinkPublishProbesRoundTrip pins the write/read pair and the half the
+// other write method owns: PublishProbes replaces the inventory and leaves the
+// bucket's samples exactly as they were.
+func TestMemSinkPublishProbesRoundTrip(t *testing.T) {
+	m := NewMemSink(0)
+	target := Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL}
+	samples := samplesOf(7, 3)
+	if err := m.Publish(target, CollectorSettings, samples); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	inv := []ProbeResult{
+		{Database: "appdb", Extensions: []string{PGStatStatements, "postgis"}},
+		{Database: "postgres", Extensions: []string{PGStatStatements}},
+	}
+	if err := m.PublishProbes(target, CollectorSettings, inv); err != nil {
+		t.Fatalf("PublishProbes: %v", err)
+	}
+	got, ok := m.Probes(target, CollectorSettings)
+	if !ok {
+		t.Fatal("Probes() ok = false, want true after PublishProbes")
+	}
+	if len(got) != len(inv) {
+		t.Fatalf("Probes() = %+v, want %d rows", got, len(inv))
+	}
+	for i := range inv {
+		if got[i].Database != inv[i].Database || len(got[i].Extensions) != len(inv[i].Extensions) {
+			t.Errorf("Probes()[%d] = %+v, want %+v", i, got[i], inv[i])
+		}
+	}
+	// The samples half survives the inventory write. This is the assertion that
+	// separates the shared putLocked from a PublishProbes that rebuilt the bucket
+	// from its own arguments — which would store the inventory and silently drop
+	// every setting series the same round had just published.
+	if s := m.Samples(target, CollectorSettings); len(s) != len(samples) {
+		t.Errorf("Samples() = %d rows after PublishProbes, want %d (the inventory write must not clear the samples)", len(s), len(samples))
+	}
+	if want := samplesSize(samples) + probesSize(inv); m.Used() != want {
+		t.Errorf("Used() = %d, want %d (both halves accounted)", m.Used(), want)
+	}
+}
+
+// TestMemSinkPublishPreservesProbes is the other direction of the same rule, and
+// the one the scheduler depends on: nine of the ten collectors publish samples
+// and nothing else, so if Publish rebuilt the bucket from its own arguments every
+// settings round's inventory would be wiped by the next activity round.
+func TestMemSinkPublishPreservesProbes(t *testing.T) {
+	m := NewMemSink(0)
+	target := Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL}
+	inv := []ProbeResult{{Database: "appdb", Extensions: []string{PGStatStatements}}}
+	if err := m.PublishProbes(target, CollectorSettings, inv); err != nil {
+		t.Fatalf("PublishProbes: %v", err)
+	}
+	if err := m.Publish(target, CollectorSettings, samplesOf(1, 2)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	got, ok := m.Probes(target, CollectorSettings)
+	if !ok || len(got) != 1 || got[0].Database != "appdb" {
+		t.Errorf("Probes() = %+v (ok=%v) after a samples republish, want the inventory preserved", got, ok)
+	}
+}
+
+// TestMemSinkProbesOKForm pins the two answers R3.1's tri-state is built on. The
+// bug this exists to prevent is a Probes that returns nil for both cases, which
+// collapses "nobody measured this database" into "measured, nothing installed"
+// and lets R10.27's not-installed screen render on an unmeasured database.
+func TestMemSinkProbesOKForm(t *testing.T) {
+	m := NewMemSink(0)
+	target := Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL}
+
+	if got, ok := m.Probes(target, CollectorSettings); ok {
+		t.Errorf("Probes() ok = true on a bucket that never existed, want false (R3.1's not-known state)")
+	} else if got != nil {
+		t.Errorf("Probes() = %v with ok=false, want nil", got)
+	}
+
+	// A round that ran and found nothing: the bucket exists, the inventory is
+	// empty, and ok must flip. This is the answer Samples cannot express, because
+	// zero extension rows and zero samples look identical in the sample set.
+	if err := m.PublishProbes(target, CollectorSettings, []ProbeResult{}); err != nil {
+		t.Fatalf("PublishProbes(empty): %v", err)
+	}
+	got, ok := m.Probes(target, CollectorSettings)
+	if !ok {
+		t.Fatal("Probes() ok = false after publishing an empty inventory, want true (probed, nothing installed)")
+	}
+	if len(got) != 0 {
+		t.Errorf("Probes() = %v, want empty", got)
+	}
+}
+
+// TestMemSinkProbesIsCopy mirrors TestMemSinkSamplesIsCopy for the new half: the
+// caller must not reach the stored backing array through the returned slice.
+func TestMemSinkProbesIsCopy(t *testing.T) {
+	m := NewMemSink(0)
+	target := Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL}
+	inv := []ProbeResult{{Database: "appdb", Extensions: []string{PGStatStatements}}}
+	if err := m.PublishProbes(target, CollectorSettings, inv); err != nil {
+		t.Fatalf("PublishProbes: %v", err)
+	}
+	got, _ := m.Probes(target, CollectorSettings)
+	got[0].Database = "mutated"
+	if again, _ := m.Probes(target, CollectorSettings); again[0].Database != "appdb" {
+		t.Errorf("stored Database = %q after mutating the returned slice, want %q", again[0].Database, "appdb")
+	}
+	// The copy is one level deep, and saying so is the honest version of "returns a
+	// copy": append([]ProbeResult(nil), inv...) copies the element structs, and
+	// each struct's Extensions header still points at the caller's backing array —
+	// so writing through the caller's inner slice writes through to the stored one.
+	// That is exactly what Samples does for a Sample's Labels map, so the two
+	// halves share one convention rather than inventing a second one; a caller that
+	// wants isolation passes a slice it keeps no other handle on, which is what the
+	// scheduler does with a Result it hands over and never reads again.
+	inv[0].Extensions[0] = "mutated"
+	if again, _ := m.Probes(target, CollectorSettings); again[0].Extensions[0] != "mutated" {
+		t.Errorf("stored Extensions[0] = %q, want %q (the documented one-level copy)",
+			again[0].Extensions[0], "mutated")
+	}
+}
+
+// TestProbesSize pins the accounting formula's shape rather than its exactness
+// (samplesSize's docblock owns that caveat): an empty inventory costs zero, and
+// each row costs its own header plus every name under it, so a bucket's bytes
+// field can be recomputed from its contents by one formula rather than two.
+func TestProbesSize(_ *testing.T) {
+	if got := probesSize(nil); got != 0 {
+		panic(fmt.Sprintf("probesSize(nil) = %d, want 0", got))
+	}
+	one := ProbeResult{Database: "appdb", Extensions: []string{"a", "bb"}}
+	want := int64(16+24+8+len("appdb")) + (16 + 1) + (16 + 2)
+	if got := probesSize([]ProbeResult{one}); got != want {
+		panic(fmt.Sprintf("probesSize = %d, want %d", got, want))
+	}
+	two := []ProbeResult{one, one}
+	if got := probesSize(two); got != 2*want {
+		panic(fmt.Sprintf("probesSize of two rows = %d, want %d", got, 2*want))
+	}
+}

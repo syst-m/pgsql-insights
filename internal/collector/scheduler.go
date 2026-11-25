@@ -665,6 +665,32 @@ func (s *Scheduler) runOne(ctx context.Context, tgt Target, e Entry) roundOutcom
 			"error", perr.Error())
 		return out
 	}
+	// The inventory half, and the reason the sink is type-asserted rather than
+	// called: ProbePublisher is deliberately not part of Sink (see its docblock),
+	// so *store.Store satisfies the interface and has nowhere to put an inventory,
+	// while *MemSink has both halves. The ok-form assertion is what lets one
+	// scheduler serve both without either one lying about what it stores.
+	//
+	// len(res.Probes) > 0 is the second half of the guard. A collector that
+	// produces no inventory must not call PublishProbes with nil, because that
+	// would store an empty inventory and flip Probes's ok from false to true —
+	// turning "nobody measured this" into "measured, nothing installed", which is
+	// the exact misreading R3.1's tri-state exists to prevent. A successful
+	// settings round always has at least the configured database in the list, so
+	// this never suppresses a real answer.
+	//
+	// A probe-publish failure is logged and not folded into out.sinkErr: the
+	// samples published fine, the collector's own data is served, and charging a
+	// second sinkErr for the same round would report one store problem twice.
+	if len(res.Probes) > 0 {
+		if pp, ok := s.sink.(ProbePublisher); ok {
+			if err := pp.PublishProbes(tgt, name, res.Probes); err != nil {
+				s.log.Error("sink rejected probe inventory",
+					"collector", name, "cluster", tgt.Cluster, "namespace", tgt.Namespace,
+					"error", err.Error())
+			}
+		}
+	}
 	s.stats.MarkSuccess(name, tgt.Cluster, tgt.Namespace)
 	return out
 }

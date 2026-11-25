@@ -598,6 +598,36 @@ func TestSettingsExtensionProbeFansOut(t *testing.T) {
 			t.Errorf("sample %s has datname=template0, want it never probed (datallowconn = false)", s.Metric)
 		}
 	}
+
+	// The stored inventory, which is the half the samples cannot carry. The two
+	// lists have to agree because they are built from one projection's rows: two
+	// rows here, one per connectable database, and template0 absent from this one
+	// for the same reason it is absent from the samples. A Probes that listed
+	// template0 would tell the API the database was probed and found empty, which
+	// is the not-installed screen rendered on a database that was never opened.
+	wantProbes := []ProbeResult{
+		{Database: "postgres", Extensions: []string{"pg_stat_statements", "postgis"}},
+		{Database: "appdb", Extensions: []string{"pg_stat_statements", "postgis"}},
+	}
+	if len(res.Probes) != len(wantProbes) {
+		t.Fatalf("len(res.Probes) = %d, want %d:\n%+v", len(res.Probes), len(wantProbes), res.Probes)
+	}
+	for i, want := range wantProbes {
+		got := res.Probes[i]
+		if got.Database != want.Database {
+			t.Errorf("Probes[%d].Database = %q, want %q", i, got.Database, want.Database)
+			continue
+		}
+		if len(got.Extensions) != len(want.Extensions) {
+			t.Errorf("Probes[%d].Extensions = %v, want %v", i, got.Extensions, want.Extensions)
+			continue
+		}
+		for j, e := range want.Extensions {
+			if got.Extensions[j] != e {
+				t.Errorf("Probes[%d].Extensions[%d] = %q, want %q", i, j, got.Extensions[j], e)
+			}
+		}
+	}
 }
 
 // TestRunTxRejectsProjectionFromAnotherDatabase is the pairing invariant runTx

@@ -439,4 +439,18 @@ type Result struct {
 	// distinguishes "0 because it issues no SQL" from "0 because it is broken"
 	// via Descriptor.Source rather than by guessing.
 	RoundTrips int
+	// Probes carries the extension-probe inventory for rounds that produced one:
+	// the settings collector's answer for every database it connected to,
+	// including the ones with no extensions installed. Every other collector
+	// leaves it nil, and the scheduler publishes it through the sink's
+	// ProbePublisher half when the sink has one — see ProbeResult, whose whole
+	// reason to exist is that Samples cannot express R3.1's not-known state.
+	//
+	// It is a field on Result rather than a second Collect return because the
+	// scheduler's error path is the one that decides what gets stored: a failed
+	// round's Result is discarded entirely, so anything the framework is meant to
+	// keep has to be inside the value it discards or keeps as a unit. A second
+	// return value would have to be threaded through that decision separately,
+	// which is the half-publish shape Sink's docblock refuses.
+	Probes []ProbeResult
 }
