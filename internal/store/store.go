@@ -44,7 +44,7 @@
 // ":memory:" opens the §3.4:219 one, both through this package.
 //
 // That is not only a wiring convenience — it changes what the store is allowed to
-// claim. R3.14 (requirements.md:318) requires the store to "answer
+// claim. R3.14 (requirements.md:319) requires the store to "answer
 // week-over-week 'is this query slower than last week' from it", and a 24 h
 // window cannot answer a 7 d question. The answer must then be
 // *not-available*, not zero: a zero says "it was fast last week", which is a
@@ -86,7 +86,7 @@ import (
 // a config layer (R11.8) has to be able to name the default it is overriding.
 const (
 	// DefaultStatementRetention is `retention.statementSnapshots: 7d`. R3.14
-	// (requirements.md:318) is the requirement it serves, and requirements.md:568
+	// (requirements.md:319) is the requirement it serves, and requirements.md:568
 	// is why 7 d and not 30 d is the default: "7 d is Enterprise's number and
 	// fits a 1 Gi PVC; 30 d is one config change".
 	DefaultStatementRetention = 7 * 24 * time.Hour
@@ -143,10 +143,25 @@ type Config struct {
 	MaxBytes int64
 
 	// RecordClientAddress is R3.13's `--record-client-address`
-	// (requirements.md:317). Off — the default — the store writes no
+	// (requirements.md:318). Off — the default — the store writes no
 	// client_address dimension rows, because R3.13 makes recording the client
 	// address opt-in rather than on-by-default.
 	RecordClientAddress bool
+
+	// ApplicationTagSource is R3.13's `--application-tag-source`
+	// (requirements.md:318) -- the `recordApplicationTags` half of the row whose
+	// §3.7 cell records the value as "documented and absent". It is an enum where
+	// its sibling above is a bool, because R3.12 gives the application dimension
+	// two sources and the requirement has to name which one is recorded:
+	// `application_name` (the default) is R3.12's (a), Postgres's own
+	// application_name; `query_comment` is R3.12's (b), the `/* pgsi: */`
+	// grammar; `off` records no application dimension at all, which is Cloud SQL's
+	// `recordApplicationTags=false`.
+	//
+	// Empty means the default. The value is validated in Open, so a store opened
+	// with `--application-tag-source=application` fails there rather than writing
+	// rows under a source no flag can spell -- the check a bool never needs.
+	ApplicationTagSource string
 
 	// Normalizer is R3.5/R3.6's normalization configuration, carried here so the
 	// store is the one place a statement is normalized. R3.6's
@@ -162,6 +177,85 @@ type Config struct {
 	// internal/api's parseSeriesQuery's is: retention and bucket math has to be
 	// testable to the second without sleeping.
 	Now func() time.Time
+}
+
+// R3.13's --application-tag-source values (requirements.md:318), the
+// `recordApplicationTags` equivalent. R3.12's two tag sources make this a
+// three-valued flag where Cloud SQL's is a bool, and the set is exhaustive:
+// ValidApplicationTagSource is the gate on it, in the same shape as rollups.go's
+// validKind -- a value outside the set is one the flag cannot spell, and
+// accepting it would store rows under a source nobody can name.
+const (
+	ApplicationTagFromApplicationName = "application_name"
+	ApplicationTagFromQueryComment    = "query_comment"
+	ApplicationTagOff                 = "off"
+)
+
+// DefaultApplicationTagSource is the flag's default: R3.12's (a), the dimension
+// every statement has. Cloud SQL's recordApplicationTags defaults to recording,
+// so the default here records too -- and records from the source that exists on
+// every row rather than the opt-in one.
+const DefaultApplicationTagSource = ApplicationTagFromApplicationName
+
+// ValidApplicationTagSource is the gate on the flag's value, and the only place
+// the three spellings are enumerated besides the const block above.
+func ValidApplicationTagSource(s string) bool {
+	switch s {
+	case ApplicationTagFromApplicationName, ApplicationTagFromQueryComment, ApplicationTagOff:
+		return true
+	}
+	return false
+}
+
+// filterRows applies R3.13's two write gates to a batch and returns the rows
+// the Config is allowed to write. It lives on Config rather than on Store so
+// the question can be asked without opening a database, and so every write path
+// that carries dimension rows consults one function instead of re-deriving the
+// rule at each call site.
+//
+// It filters instead of erroring: a sweep that mixes a client-address row with
+// a database row is not a caller error when addresses are off, it is the normal
+// shape of that setting. Returning a shorter slice is the whole mechanism, and
+// an empty result means the caller writes nothing.
+func (cfg Config) filterRows(rows []DimensionRollup) []DimensionRollup {
+	kept := make([]DimensionRollup, 0, len(rows))
+	for _, r := range rows {
+		if cfg.allowsKind(r.Kind) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
+
+// allowsKind is the kind half of R3.13's gates: which dimension kinds a Config
+// writes. The switch is exhaustive over the five kinds rollups.go's validKind
+// accepts, so a sixth kind added there without a row here is rejected rather
+// than silently written by a config that never heard of it.
+func (cfg Config) allowsKind(kind string) bool {
+	switch kind {
+	case KindClientAddress:
+		// --record-client-address. The bool's zero value is false, which is
+		// also Cloud SQL's default: the requirement's use case is a team that
+		// turns addresses off and keeps the rest, and this row is the one
+		// they lose. Before this function the field was stored and never
+		// read, so the row's "gates kind='client_address' rows" described an
+		// intent rather than a gate; this is the gate.
+		return cfg.RecordClientAddress
+	case KindApplication:
+		// --application-tag-source. The two non-off values differ in where the
+		// application value comes from (see the field's docblock), which is a
+		// question about the value, not about whether the row is written; only
+		// `off` changes the write set.
+		return cfg.ApplicationTagSource != ApplicationTagOff
+	case KindDatabase, KindUser, KindTag:
+		// Neither flag names these three. R3.13's pair covers addresses and
+		// application tags; the database and user dimensions have no Cloud SQL
+		// switch to turn them off, and the tag dimension's source is R3.12's
+		// comment grammar, which is parsed whenever it is present no matter
+		// where the application tag itself comes from.
+		return true
+	}
+	return false
 }
 
 // Store is an open query store.
@@ -186,6 +280,17 @@ type Store struct {
 // Open opens (creating if needed) the store Config describes.
 func Open(cfg Config) (*Store, error) {
 	cfg = cfg.withDefaults()
+	// R3.13's --application-tag-source is checked here, not in withDefaults:
+	// that function has no error channel, so an unspellable value would have to
+	// be silently rewritten to the default. withDefaults fills the empty value
+	// and this rejects everything outside the three const spellings, so a store
+	// opened with `--application-tag-source=application` fails at Open instead
+	// of writing rows under a source no flag can spell.
+	if !ValidApplicationTagSource(cfg.ApplicationTagSource) {
+		return nil, fmt.Errorf("store: unknown application_tag_source %q (want %q, %q or %q)",
+			cfg.ApplicationTagSource,
+			ApplicationTagFromApplicationName, ApplicationTagFromQueryComment, ApplicationTagOff)
+	}
 
 	db, err := sql.Open("sqlite", cfg.dsn())
 	if err != nil {
@@ -278,6 +383,9 @@ func (cfg Config) withDefaults() Config {
 	// connection that wrote to it and is empty for every other one.
 	if cfg.isMemory() {
 		cfg.Path = memoryPath
+	}
+	if cfg.ApplicationTagSource == "" {
+		cfg.ApplicationTagSource = DefaultApplicationTagSource
 	}
 	if cfg.Normalizer.Length == 0 {
 		cfg.Normalizer = query.Options{Length: query.DefaultQueryStringLength}

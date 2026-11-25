@@ -102,7 +102,7 @@ func TestOpenFile(t *testing.T) {
 	}
 	// A file store keeps a pool: §3.4:223's "many-reader" half needs more than
 	// one connection, unlike the memory profile.
-	// The literal, not DefaultFileConns: store.go:204 sets the pool *from* that
+	// The literal, not DefaultFileConns: store.go:309 sets the pool *from* that
 	// constant, so the constant ends up on both sides of the comparison and
 	// 4 -> 5 passes (measured: DefaultFileConns = 5 left the package green).
 	if got := s.DB().Stats().MaxOpenConnections; got != 4 {
@@ -113,7 +113,7 @@ func TestOpenFile(t *testing.T) {
 	if got := s.cfg.PlanRetention; got != 7*24*time.Hour {
 		t.Errorf("PlanRetention = %v, want %v", got, 7*24*time.Hour)
 	}
-	// 1<<30, not DefaultMaxFileBytes: store.go:298 assigns that constant to
+	// 1<<30, not DefaultMaxFileBytes: store.go:406 assigns that constant to
 	// cfg.MaxBytes when the config leaves it zero, so the constant is on both
 	// sides here too (measured: 1<<29 left the package green). The literal is
 	// the §3.4:222 value the message cites.
@@ -305,4 +305,44 @@ func TestNormalizerDefault(t *testing.T) {
 	if explicit.Normalizer.Length != 64 {
 		t.Errorf("an explicit Normalizer.Length was overwritten: %d", explicit.Normalizer.Length)
 	}
+}
+
+// TestApplicationTagSourceGate covers R3.13's flag value: the three spellings are
+// accepted, the empty value becomes the default through withDefaults (the way every
+// other field's default is applied), and anything else fails at Open rather than
+// being silently rewritten — the check the bool sibling above it never needs, and
+// the reason the value is validated in Open, which has an error channel, rather
+// than in withDefaults, which does not.
+func TestApplicationTagSourceGate(t *testing.T) {
+	for _, good := range []string{
+		ApplicationTagFromApplicationName, ApplicationTagFromQueryComment, ApplicationTagOff,
+	} {
+		if !ValidApplicationTagSource(good) {
+			t.Errorf("ValidApplicationTagSource(%q) = false, want true", good)
+		}
+		if got := (Config{ApplicationTagSource: good}).withDefaults().ApplicationTagSource; got != good {
+			t.Errorf("withDefaults rewrote %q to %q", good, got)
+		}
+	}
+	if got := (Config{}).withDefaults().ApplicationTagSource; got != DefaultApplicationTagSource {
+		t.Errorf("empty ApplicationTagSource defaulted to %q, want %q", got, DefaultApplicationTagSource)
+	}
+	// The set is closed: these are the near-misses a flag value actually gets
+	// typed as, and none of them is one of the three spellings.
+	for _, bad := range []string{"application", "ApplicationName", "QUERY_COMMENT", "off ", "false", "true", "none"} {
+		if ValidApplicationTagSource(bad) {
+			t.Errorf("ValidApplicationTagSource(%q) = true, want false", bad)
+		}
+	}
+	// The predicate is wired into Open, not just defined next to the field: an
+	// unspellable source fails the open instead of storing rows under a source
+	// no flag can spell.
+	if _, err := Open(Config{ApplicationTagSource: "application"}); err == nil {
+		t.Error(`Open(Config{ApplicationTagSource: "application"}) = nil error, want a rejection`)
+	}
+	s, err := Open(Config{ApplicationTagSource: ApplicationTagFromQueryComment})
+	if err != nil {
+		t.Fatalf("Open with query_comment: %v", err)
+	}
+	_ = s.Close()
 }

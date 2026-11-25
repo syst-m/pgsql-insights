@@ -661,3 +661,122 @@ func TestTags(t *testing.T) {
 		}
 	})
 }
+
+// TestR313WriteGate covers the two write gates R3.13 names — --record-client-address
+// and --application-tag-source — through the write path rather than by calling
+// Config.filterRows directly, so the test covers the wiring in
+// PutDimensionRollups (store.go:220 is the predicate) and not only the predicate.
+//
+// Each case writes one row of every kind and counts what the table kept, which
+// makes the row count a statement about kinds: five kinds in, N kinds out.
+func TestR313WriteGate(t *testing.T) {
+	ctx := context.Background()
+	b0 := minuteBucket(seriesNow.Add(-time.Hour))
+
+	// One row of each of the five kinds rollups.go's validKind accepts.
+	all := []Dimensions{
+		{Kind: KindDatabase, Datname: tagDB},
+		{Kind: KindUser, Usename: tagUser},
+		{Kind: KindApplication, Application: tagApp},
+		{Kind: KindClientAddress, ClientAddress: tagAddress},
+		{Kind: KindTag, Route: tagRoute},
+	}
+
+	open := func(t *testing.T, cfg Config) *Store {
+		t.Helper()
+		cfg.Now = func() time.Time { return seriesNow }
+		s, err := Open(cfg)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	}
+
+	// kinds returns the distinct kinds the table holds, sorted by the query.
+	kinds := func(t *testing.T, s *Store) []string {
+		t.Helper()
+		rows, err := s.db.QueryContext(ctx, `SELECT kind FROM dimension_rollup ORDER BY kind`)
+		if err != nil {
+			t.Fatalf("select kinds: %v", err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var k string
+			if err := rows.Scan(&k); err != nil {
+				t.Fatalf("scan kind: %v", err)
+			}
+			out = append(out, k)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterate kinds: %v", err)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name string
+		cfg  Config
+		want []string
+	}{
+		{
+			// The default posture, which is Cloud SQL's: addresses off, application
+			// recorded. The row a team with an IP-privacy requirement loses is the
+			// address row, and it is the only one missing here.
+			name: "defaults drop the address row only",
+			want: []string{"application", "database", "tag", "user"},
+		},
+		{
+			name: "--record-client-address=true writes the address row",
+			cfg:  Config{RecordClientAddress: true},
+			want: []string{"application", "client_address", "database", "tag", "user"},
+		},
+		{
+			name: "--application-tag-source=off drops the application row",
+			cfg:  Config{ApplicationTagSource: ApplicationTagOff},
+			want: []string{"database", "tag", "user"},
+		},
+		{
+			// The two non-off values differ in where the application value comes
+			// from, not in whether the row is written; only `off` changes the set.
+			name: "--application-tag-source=query_comment still writes it",
+			cfg:  Config{ApplicationTagSource: ApplicationTagFromQueryComment},
+			want: []string{"application", "database", "tag", "user"},
+		},
+		{
+			name: "both halves on writes all five kinds",
+			cfg: Config{RecordClientAddress: true,
+				ApplicationTagSource: ApplicationTagFromApplicationName},
+			want: []string{"application", "client_address", "database", "tag", "user"},
+		},
+		{
+			name: "address on, application off writes four",
+			cfg: Config{RecordClientAddress: true,
+				ApplicationTagSource: ApplicationTagOff},
+			want: []string{"client_address", "database", "tag", "user"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := open(t, tt.cfg)
+			rows := make([]DimensionRollup, 0, len(all))
+			for _, d := range all {
+				rows = append(rows, DimensionRollup{
+					Dimensions: d,
+					Namespace:  "prod",
+					Cluster:    "pg",
+					Bucket:     timeFromUnix(b0),
+					Load:       DimensionLoad{Calls: 1, TotalExecMs: 1},
+				})
+			}
+			if err := s.PutDimensionRollups(ctx, rows); err != nil {
+				t.Fatalf("PutDimensionRollups: %v", err)
+			}
+			got := kinds(t, s)
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("kinds written = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

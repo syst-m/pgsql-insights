@@ -401,7 +401,7 @@ func newServeFlags(pre prescan) *serveFlags {
 	// chart spells the same key's value set as `sqlite | memory`
 	// (chart/values.yaml:64, still a commented Phase 2+ key under config.extra).
 	// Both spellings are accepted here, plus a bare path, because
-	// internal/store/store.go:314's isMemory already recognises ":memory:",
+	// internal/store/store.go:422's isMemory already recognises ":memory:",
 	// "memory", "mem" and "" as one profile and treats any other string as a
 	// filename; a flag that rejected a value its own store accepts would be a
 	// second answer to "what did we configure". The default is memory, which is
@@ -821,7 +821,7 @@ type sinkBundle struct {
 //     verbatim, and this arm is what honours that. One consequence is worth
 //     naming: --store=:memory: lands here rather than in the MemSink arm, so it
 //     opens a SQLite database in RAM instead of the ring buffers — which is what
-//     internal/store/store.go:314's isMemory does with that string, and the
+//     internal/store/store.go:422's isMemory does with that string, and the
 //     reason this switch recognises the profile *name* and lets the store
 //     interpret every other spelling of it.
 //

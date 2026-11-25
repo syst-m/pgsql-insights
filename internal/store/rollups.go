@@ -369,7 +369,7 @@ func (r DimensionRollup) args() []any {
 // property PutSnapshot's doc argues for and the reason the tx is opened after the
 // loop rather than around it.
 func (s *Store) PutDimensionRollups(ctx context.Context, rows []DimensionRollup) error {
-	if len(rows) == 0 {
+	if rows = s.cfg.filterRows(rows); len(rows) == 0 { // R3.13's gate, store.go:220
 		return nil
 	}
 	for _, r := range rows {
