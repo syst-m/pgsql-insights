@@ -34,6 +34,7 @@ package pgxopener
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -86,13 +87,14 @@ const (
 // lands, the fallback has one place to change.
 const DefaultDatabase = "postgres"
 
-// Secrets reads Kubernetes Secrets, the two halves conn.go's credential rules need.
+// Secrets reads Kubernetes Secrets: the existence probe conn.go's credential rules
+// need, the credential that probe resolves to, and the CA R12.5 verifies with.
 //
 // conn.go declares SecretExists (conn.go:85) as a bare func type — "a function
 // type rather than a clientset so the rules in this file are testable with a set
 // literal" — and pooler.go:62 does the same for MetricsFetch. This is the same
-// pattern with two methods instead of one, because the opener needs both halves
-// and CredentialsFor needs only the first:
+// pattern with three methods instead of one, because the opener needs all three and
+// CredentialsFor needs only the first:
 //
 //   - Exists is what CredentialsFor probes with. It cannot be derived from Read
 //     without turning every precedence probe into a network round-trip: the probe
@@ -103,8 +105,14 @@ const DefaultDatabase = "postgres"
 //     Password empty for a secret-sourced credential — "a secret-sourced one
 //     leaves it empty for the opener to read", conn.go:124 — because its own probe
 //     is an existence check and not a reader. The opener is the thing that reads.
+//   - ReadCA is what fills the trust anchors for Credentials.CASecret. Same
+//     division: CredentialsFor names the CA secret (conn.go:130-132) but returns a
+//     reference, not the certificate, so the read belongs here. Before this method
+//     existed the reference was resolved by nobody — DSN emitted sslmode=verify-ca
+//     and pgx was handed no root certificate, which is the defect this method
+//     exists to fix; see openDefault and rootCertFor.
 //
-// The production implementation is a two-method type in cmd/pgsi over
+// The production implementation is a three-method type in cmd/pgsi over
 // kube.Client's exported Clientset; a test supplies a struct of values. The
 // alternative — importing internal/kube here — is what pooler.go rejected for the
 // same reason: it would make a collector package depend on a client.
@@ -113,9 +121,22 @@ type Secrets interface {
 	Exists(namespace, name string) bool
 	// Read returns the Secret's username and password keys.
 	Read(ctx context.Context, namespace, name string) (username, password string, err error)
+	// ReadCA returns the Secret's PEM certificate, which is the content of
+	// R12.5's <cluster>-ca.
+	//
+	// It is a third method rather than a fourth return value on Read because the
+	// two secrets are different objects: Read is called on the *credential* secret
+	// (<cluster>-app, or the --credential-secret one) and ReadCA on the *cluster CA*
+	// secret, and CredentialsFor's CASecret is populated for verify-ca and
+	// verify-full only (conn.go:274-287) — so a verify-ca connection to a cluster
+	// with no -app secret calls Read for a secret named by --credential-secret and
+	// ReadCA for one named by <cluster>-ca. Folding the certificate into Read would
+	// force every credential read to also name a certificate the mode may not need.
+	ReadCA(ctx context.Context, namespace, name string) (pem string, err error)
 }
 
-// OpenFunc opens a connection pool for a DSN without running a query.
+// OpenFunc opens a connection pool for a DSN and its root certificates, without
+// running a query.
 //
 // It is a field rather than a call because the pool is the one half of Begin that
 // cannot be exercised without something on the other end of the TCP connection.
@@ -124,7 +145,16 @@ type Secrets interface {
 // real error for a malformed DSN with no Postgres anywhere; a test that wants a
 // working transaction supplies a func returning a fake collector.Tx and asserts
 // the DSN it was handed.
-type OpenFunc func(dsn string) (*sql.DB, error)
+//
+// rootCert is the second parameter because the certificate is not a field of the
+// DSN that pgx can parse: pgx reads sslrootcert as a *file path* (pgconn's
+// ParseConfig does os.ReadFile on it) and ConnConfig has no RootCert field in v5
+// — trust is expressed only as *tls.Config — while our CA lives in a Secret, not on
+// a filesystem. So the caller hands the bytes to the same seam that hands it the
+// string, and openDefault installs them on the parsed config's TLSConfig. A test
+// that wants to assert the CA arrived can capture both arguments; a test that does
+// not care passes a func ignoring the second.
+type OpenFunc func(dsn string, rootCert []byte) (*sql.DB, error)
 
 // Opener is the pgx-backed collector.SQLOpener.
 //
@@ -188,15 +218,64 @@ func NewWithOpen(connCfg collector.ConnConfig, secrets Secrets, open OpenFunc) (
 // can assert the parse for every DSN the builder produces without a Postgres
 // listening. stdlib.OpenDB then wraps the parsed config in a connector, and the
 // pool bounds above are applied to the *sql.DB it returns.
-func openDefault(dsn string) (*sql.DB, error) {
+//
+// Installing rootCert here is the second half of R12.5, and the half that was
+// missing. DSN renders sslmode=verify-ca whenever conn.go derives it (a
+// <cluster>-ca secret exists), and pgx's verify-ca branch does two things: sets
+// InsecureSkipVerify = true — the *tls.Config's own hostname check is off, which is
+// what separates verify-ca from verify-full — and installs a VerifyPeerCertificate
+// closure that builds x509.VerifyOptions{Roots: tlsConfig.RootCAs} and calls
+// certs[0].Verify(opts). Roots is read from the captured *tls.Config at handshake
+// time, not captured at parse time, which is why assigning RootCAs here, after
+// ParseConfig returned, is honoured.
+//
+// With no CA that field is nil, x509 falls back to the operating system's root pool,
+// and CNPG's self-signed cluster certificate is rejected as an unknown authority —
+// the same answer `openssl verify srv.pem` gives without its -CAfile. That is why
+// every SQL collector errored on every round against the reference instance: not
+// nine defects, one missing field, reached once per collector.
+func openDefault(dsn string, rootCert []byte) (*sql.DB, error) {
 	cc, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgxopener: pgx rejected the connection string: %w", err)
+	}
+	if err := installRootCAs(cc, rootCert); err != nil {
+		return nil, err
 	}
 	db := stdlib.OpenDB(*cc)
 	db.SetMaxOpenConns(maxConnsPerTarget)
 	db.SetMaxIdleConns(maxIdlePerTarget)
 	return db, nil
+}
+
+// installRootCAs puts rootCert on an already-parsed config, split out of
+// openDefault so the assignment is assertable.
+//
+// openDefault returns a *sql.DB, which exposes no way to read back the TLSConfig it
+// was built from — so an inline install could only be tested by the weak assertion
+// "it did not error", which is true whether or not the certificate went anywhere.
+// The function under test is therefore the assignment itself: the test hands it a
+// parsed config and a PEM, then reads cc.TLSConfig.RootCAs.
+func installRootCAs(cc *pgx.ConnConfig, rootCert []byte) error {
+	if len(rootCert) == 0 {
+		return nil
+	}
+	// pgx's sslmode switch expresses TLS by populating TLSConfig: nil for `disable`,
+	// a *tls.Config for every other mode. A nil here therefore means the DSN asked
+	// for no TLS, and a certificate for a connection that will not make one is a
+	// wiring bug rather than a default to pick. CredentialsFor cannot produce the
+	// pairing — conn.go's modeNeedsCA keeps CASecret empty for exactly the modes that
+	// yield a nil TLSConfig — so this is reachable only from a caller that built the
+	// DSN by hand, and an error is what tells it so.
+	if cc.TLSConfig == nil {
+		return errors.New("pgxopener: a root certificate was supplied for a connection string that uses no TLS (sslmode=disable)")
+	}
+	anchors := x509.NewCertPool()
+	if !anchors.AppendCertsFromPEM(rootCert) {
+		return errors.New("pgxopener: the resolved CA is not a PEM certificate (R12.5: a client verifies the server with <cluster>-ca)")
+	}
+	cc.TLSConfig.RootCAs = anchors
+	return nil
 }
 
 // DSN renders the connection string for one target.
@@ -321,7 +400,14 @@ func (o *Opener) Begin(ctx context.Context, tgt collector.Target, cfg collector.
 	if err != nil {
 		return nil, err
 	}
-	db, err := o.pool(dsn)
+	// R12.5's other half: the certificate the DSN's sslmode asks for. CredentialsFor
+	// names it in creds.CASecret and DSN writes the mode, but neither can read the
+	// secret's contents, so the read happens here and the bytes go to the pool.
+	rootCert, err := o.rootCertFor(ctx, tgt, creds)
+	if err != nil {
+		return nil, err
+	}
+	db, err := o.pool(dsn, rootCert)
 	if err != nil {
 		return nil, err
 	}
@@ -398,14 +484,51 @@ func splitSecretRef(targetNS, ref string) (ns, name string) {
 	return targetNS, ref
 }
 
+// rootCertFor reads the PEM behind creds.CASecret, the secret R12.5 names as the
+// client's trust anchor for this target.
+//
+// It returns (nil, nil) when there is no CA to read — every mode that does not
+// verify (disable, allow, prefer, require) leaves CASecret empty per
+// conn.go:281/287 — so the caller does not need to re-derive the mode to know
+// whether a certificate is expected. An empty CASecret is not an error: R12.5's
+// `prefer` fallback is a mode with no CA, and the opener must connect there too.
+func (o *Opener) rootCertFor(ctx context.Context, tgt collector.Target, creds collector.Credentials) ([]byte, error) {
+	if creds.CASecret == "" {
+		return nil, nil
+	}
+	ns, name := splitSecretRef(tgt.Namespace, creds.CASecret)
+	pem, err := o.secrets.ReadCA(ctx, ns, name)
+	if err != nil {
+		return nil, fmt.Errorf("pgxopener: read CA secret %s/%s for %s: %w", ns, name, tgt.Key(), err)
+	}
+	if pem == "" {
+		// The secret exists (CredentialsFor only names it when the existence probe
+		// said so) but carries no certificate. Erroring is the only honest option:
+		// the alternative is a DSN that says verify-ca and a connection that
+		// silently verifies nothing, which is the downgrade R12.5 exists to prevent.
+		return nil, fmt.Errorf("pgxopener: CA secret %s/%s for %s has no certificate (R12.5: a client verifies the server with <cluster>-ca)", ns, name, tgt.Key())
+	}
+	return []byte(pem), nil
+}
+
 // pool returns the cached pool for a DSN, opening it on first use.
-func (o *Opener) pool(dsn string) (*sql.DB, error) {
+//
+// The key is the DSN alone and not the DSN plus rootCert, because the two are not
+// independent inputs: rootCert is read from creds.CASecret and the DSN is rendered
+// from the same creds, so two targets that agree on the string agree on the mode
+// that named the CA. The consequence worth naming is a rotated CA — the password
+// rotation invalidates its own pool because the password is in the DSN, while a CA
+// rotation changes a value the DSN does not carry, so the cached pool keeps the old
+// anchors until it is evicted. That is a property of caching pools by connection
+// string (R13.2's cost rule) and not of this change; the fix, when it comes, is
+// eviction on a dial failure, not a wider cache key.
+func (o *Opener) pool(dsn string, rootCert []byte) (*sql.DB, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if db, ok := o.pools[dsn]; ok {
 		return db, nil
 	}
-	db, err := o.open(dsn)
+	db, err := o.open(dsn, rootCert)
 	if err != nil {
 		return nil, fmt.Errorf("pgxopener: open pool for %s: %w", dsn, err)
 	}

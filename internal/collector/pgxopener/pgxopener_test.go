@@ -2,9 +2,16 @@ package pgxopener
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"database/sql"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -41,15 +48,35 @@ func (f fakeSecrets) Read(_ context.Context, namespace, name string) (string, st
 	return "app", v, nil
 }
 
+// ReadCA returns the same map value Read uses for the password.
+//
+// One map answering two readers is not the fake confusing the two keys — it is the
+// minimum that satisfies the interface while keeping a test's fixture a literal.
+// The map's value is "the secret's content", which is a password for a credential
+// secret and a PEM for a -ca secret; a test that needs a real certificate puts one
+// under the -ca name (TestBeginThreadsResolvedCA does), and a test that needs
+// neither gets a password back from a ReadCA nobody asked it to distinguish.
+func (f fakeSecrets) ReadCA(_ context.Context, namespace, name string) (string, error) {
+	v, ok := f[namespace+"/"+name]
+	if !ok {
+		return "", errors.New("pgxopener_test: no such secret " + namespace + "/" + name)
+	}
+	return v, nil
+}
+
 // keyedSecrets carries both halves, for the tests that assert on the username.
 type keyedSecrets struct {
 	user, pass string
+	// ca is the PEM ReadCA hands back, for a test that needs a specific certificate
+	// rather than the map value fakeSecrets returns.
+	ca string
 }
 
 func (k keyedSecrets) Exists(string, string) bool { return true }
 func (k keyedSecrets) Read(context.Context, string, string) (string, string, error) {
 	return k.user, k.pass, nil
 }
+func (k keyedSecrets) ReadCA(context.Context, string, string) (string, error) { return k.ca, nil }
 
 // baseTarget is the smallest valid S2 target the tests build on. Every test that
 // varies one field starts from this so the fields it does not vary are pinned by
@@ -391,7 +418,10 @@ func TestBeginFailsBeforeDialOnCredentialErrors(t *testing.T) {
 // the test would be asserting on a connection error rather than on the cache.
 func TestBeginCachesOnePoolPerDSN(t *testing.T) {
 	var opens []string
-	open := func(dsn string) (*sql.DB, error) {
+	// The second argument is discarded here and asserted by
+	// TestBeginThreadsResolvedCA: this test's subject is the pool cache, which is
+	// keyed by the DSN alone, so the certificate is not what it is measuring.
+	open := func(dsn string, _ []byte) (*sql.DB, error) {
 		opens = append(opens, dsn)
 		// A real, lazy *sql.DB from the registered driver: no dial, so BeginTx
 		// fails afterwards, which is fine — the assertion is on `opens`.
@@ -494,3 +524,187 @@ func TestDefaultDatabaseIsPostgres(t *testing.T) {
 // signature can drift by one type and the collectors keep compiling against the
 // interface while nothing constructs them from here.
 var _ collector.SQLOpener = (*Opener)(nil)
+
+// testCAPEM mints a self-signed ECDSA certificate — the content shape of CNPG's
+// <cluster>-ca secret.
+//
+// Generated rather than embedded as a PEM literal because an embedded certificate
+// expires, and the day it does, every test that uses it fails for a reason that has
+// nothing to do with the code under test. ECDSA P-256 keeps the cost at
+// milliseconds; the validity window is a day back and ten years forward, which is
+// the shortest window that cannot rot inside the test's own lifetime.
+func testCAPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("testCAPEM: generate key: %v", err)
+	}
+	tmpl := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "pg-ca", Organization: []string{"pgsi-test"}},
+		NotBefore:             time.Now().Add(-24 * time.Hour),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("testCAPEM: create certificate: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+// TestInstallRootCAs is the test for the fix itself.
+//
+// The defect this closes is not in DSN — DSN was always correct that the mode is
+// verify-ca — it is that nothing handed pgx the certificate that mode verifies
+// against, so every SQL collector's connection was rejected as an unknown
+// authority. The assertion here is the one that distinguishes the two: not that
+// openDefault returned no error, but that the parsed config's TLSConfig.RootCAs
+// holds the PEM the caller supplied. Deleting the assignment makes it fail.
+func TestInstallRootCAs(t *testing.T) {
+	pemStr := testCAPEM(t)
+
+	cases := []struct {
+		name     string
+		dsn      string
+		rootCert string
+		wantErr  string
+		wantSet  bool
+	}{
+		{
+			name:     "verify-ca with the CA installed",
+			dsn:      "postgres://app:pw@127.0.0.1:1/postgres?sslmode=verify-ca",
+			rootCert: pemStr,
+			wantSet:  true,
+		},
+		{
+			name: "no certificate, nothing to install",
+			// The prefer case: conn.go's CASecret is empty for a mode that verifies
+			// nothing, so rootCert is empty and the config must be left alone.
+			dsn:     "postgres://app:pw@127.0.0.1:1/postgres?sslmode=prefer",
+			wantSet: false,
+		},
+		{
+			name:     "certificate for a connection that will not make TLS",
+			dsn:      "postgres://app:pw@127.0.0.1:1/postgres?sslmode=disable",
+			rootCert: pemStr,
+			wantErr:  "uses no TLS",
+		},
+		{
+			name:     "certificate that is not PEM",
+			dsn:      "postgres://app:pw@127.0.0.1:1/postgres?sslmode=verify-ca",
+			rootCert: "not a certificate",
+			wantErr:  "not a PEM certificate",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cc, err := pgx.ParseConfig(tc.dsn)
+			if err != nil {
+				t.Fatalf("ParseConfig(%q): %v", tc.dsn, err)
+			}
+			err = installRootCAs(cc, []byte(tc.rootCert))
+			switch {
+			case tc.wantErr != "":
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("installRootCAs err = %v, want one containing %q", err, tc.wantErr)
+				}
+				return
+			case err != nil:
+				t.Fatalf("installRootCAs: %v", err)
+			}
+			got := cc.TLSConfig != nil && cc.TLSConfig.RootCAs != nil
+			if got != tc.wantSet {
+				t.Errorf("TLSConfig.RootCAs installed = %v, want %v (dsn %q, cert %d bytes)",
+					got, tc.wantSet, tc.dsn, len(tc.rootCert))
+			}
+		})
+	}
+}
+
+// TestBeginThreadsResolvedCA closes the gap between the two halves of R12.5.
+//
+// CredentialsFor names the CA in creds.CASecret and DSN writes sslmode=verify-ca;
+// before rootCertFor, nothing read the secret, so the mode named a certificate the
+// connection never had. This asserts the bytes that reach the pool are the bytes in
+// the secret — for the cluster that has a -ca secret — and that no certificate is
+// handed over for one that does not.
+func TestBeginThreadsResolvedCA(t *testing.T) {
+	pemStr := testCAPEM(t)
+
+	t.Run("cluster with a -ca secret", func(t *testing.T) {
+		// db/pg-app is the credential (R1.8 level 2) and db/pg-ca the anchor
+		// (R12.5's default), so this target resolves to verify-ca and must present
+		// the certificate.
+		secrets := fakeSecrets{"db/pg-app": "pw", "db/pg-ca": pemStr}
+		var gotCert []byte
+		op, err := NewWithOpen(collector.ConnConfig{}, secrets, func(dsn string, rootCert []byte) (*sql.DB, error) {
+			gotCert = rootCert
+			return sql.Open("pgx", dsn)
+		})
+		if err != nil {
+			t.Fatalf("NewWithOpen: %v", err)
+		}
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		// Begin fails at BeginTx (nothing listens on 127.0.0.1:1); the assertion is
+		// on what the pool was handed, which happens before that failure.
+		_, _ = op.Begin(cctx, baseTarget(), collector.SQLConfig{})
+
+		if string(gotCert) != pemStr {
+			t.Errorf("rootCert passed to open = %d bytes, want the %d-byte CA from db/pg-ca", len(gotCert), len(pemStr))
+		}
+	})
+
+	t.Run("cluster with no -ca secret", func(t *testing.T) {
+		// conn.go:287's prefer fallback: no CA exists, so the mode needs none and the
+		// opener must hand the pool nothing rather than an empty byte slice it has to
+		// interpret.
+		secrets := fakeSecrets{"db/pg-app": "pw"}
+		var called bool
+		var gotCert []byte
+		op, err := NewWithOpen(collector.ConnConfig{}, secrets, func(dsn string, rootCert []byte) (*sql.DB, error) {
+			called, gotCert = true, rootCert
+			return sql.Open("pgx", dsn)
+		})
+		if err != nil {
+			t.Fatalf("NewWithOpen: %v", err)
+		}
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = op.Begin(cctx, baseTarget(), collector.SQLConfig{})
+
+		if !called {
+			t.Fatal("open was not called; Begin returned before the pool")
+		}
+		if len(gotCert) != 0 {
+			t.Errorf("rootCert = %d bytes, want none for an sslmode that verifies nothing", len(gotCert))
+		}
+	})
+
+	t.Run("CA secret exists but holds no certificate", func(t *testing.T) {
+		// The error path R12.5 needs: a -ca secret that exists and is empty must not
+		// become a verify-ca connection that verifies nothing.
+		secrets := fakeSecrets{"db/pg-app": "pw", "db/pg-ca": ""}
+		var called bool
+		op, err := NewWithOpen(collector.ConnConfig{}, secrets, func(dsn string, _ []byte) (*sql.DB, error) {
+			called = true
+			return sql.Open("pgx", dsn)
+		})
+		if err != nil {
+			t.Fatalf("NewWithOpen: %v", err)
+		}
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err = op.Begin(cctx, baseTarget(), collector.SQLConfig{})
+		if called {
+			t.Error("open was called despite an empty CA secret; Begin must fail before the pool")
+		}
+		if err == nil || !strings.Contains(err.Error(), "has no certificate") {
+			t.Errorf("Begin err = %v, want one containing \"has no certificate\"", err)
+		}
+	})
+}

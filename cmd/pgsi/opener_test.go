@@ -107,6 +107,54 @@ func TestKubeSecretsSecretWithoutUsername(t *testing.T) {
 	}
 }
 
+// TestKubeSecretsReadCA pins the two key names the CA reader accepts and the order
+// it tries them in.
+//
+// The keys are CNPG's, not conn.go's: R12.5 names the secret and conn.go:130-132
+// names the reference, but the key inside it is only answerable by looking at a
+// real cluster, where <cluster>-ca carries the PEM under `ca.crt`. `tls.crt` is the
+// kubernetes.io/tls convention, accepted second so a CA secret from a
+// cert-manager-style issuer works too. A secret with neither returns an empty
+// string and no error — the judgement about what an empty CA means belongs to
+// pgxopener.rootCertFor, which is the side that knows the sslmode.
+func TestKubeSecretsReadCA(t *testing.T) {
+	cases := []struct {
+		name string
+		data map[string][]byte
+		want string
+	}{
+		{"ca.crt (CNPG)", map[string][]byte{"ca.crt": []byte("PEM-A")}, "PEM-A"},
+		{"tls.crt (kubernetes.io/tls)", map[string][]byte{"tls.crt": []byte("PEM-B")}, "PEM-B"},
+		// Both keys: ca.crt wins, because it is CNPG's and the cluster's own CA is
+		// the one R12.5 names.
+		{"both keys, ca.crt wins", map[string][]byte{"ca.crt": []byte("PEM-A"), "tls.crt": []byte("PEM-B")}, "PEM-A"},
+		// Neither key: empty, not an error.
+		{"no certificate key", map[string][]byte{"username": []byte("u")}, ""},
+		// Present but empty: also empty. len(v) > 0 is what makes the two agree
+		// rather than returning "" from a key that exists and "" from one that does
+		// not, which is the same answer for the caller either way.
+		{"ca.crt present but empty", map[string][]byte{"ca.crt": {}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := fake.NewSimpleClientset(&corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "db", Name: "pg-ca"},
+				Data:       tc.data,
+			})
+			got, err := (kubeSecrets{cs: cs}).ReadCA(context.Background(), "db", "pg-ca")
+			if err != nil {
+				t.Fatalf("ReadCA: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("ReadCA = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if _, err := (kubeSecrets{}).ReadCA(context.Background(), "db", "pg-ca"); err == nil {
+		t.Error("ReadCA on a nil clientset: err = nil, want an error")
+	}
+}
+
 // TestNewSQLOpenerNilWithoutAClientset pins the decision newRegistry branches on.
 // Three inputs, two answers: no client at all and a client with no clientset both
 // produce nil, and only a client with a clientset produces an opener.

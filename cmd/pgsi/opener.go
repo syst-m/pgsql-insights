@@ -15,7 +15,7 @@
 // internal/kube.
 //
 // Why the glue lives here and not in pgxopener. pgxopener.Secrets is an interface
-// with two methods, and pooler.go:56-61 states the reason for that shape for the
+// with three methods, and pooler.go:56-61 states the reason for that shape for the
 // HTTP half: "A collector taking a func keeps the dependency a comment, which is
 // what lets every rule in this file be tested without a cluster." The same
 // argument applies to the secret reader — importing internal/kube into pgxopener
@@ -37,8 +37,8 @@ import (
 	"github.com/frankellis/pgsql-insights/internal/kube"
 )
 
-// kubeSecrets reads Postgres credentials out of the cluster's Secrets,
-// implementing pgxopener.Secrets over a clientset.
+// kubeSecrets reads Postgres credentials and cluster CAs out of the cluster's
+// Secrets, implementing pgxopener.Secrets over a clientset.
 //
 // It takes kubernetes.Interface rather than *kube.Client for the reason
 // pgxopener's docblock gives for every seam in that package: the interface is
@@ -86,6 +86,40 @@ func (s kubeSecrets) Read(ctx context.Context, namespace, name string) (username
 		return "", "", err
 	}
 	return string(sec.Data["username"]), string(sec.Data["password"]), nil
+}
+
+// ReadCA returns the Secret's PEM certificate, the third method
+// pgxopener.Secrets needs and the one that carries R12.5's whole TLS half.
+//
+// The key names are CNPG's, not conn.go's. R12.5 names the secret (<cluster>-ca)
+// and conn.go:130-132 names the reference, but neither names the key, and the
+// answer is on the wire: CNPG 1.30.2's cluster CA secret carries the PEM under
+// `ca.crt` — verified against the reference instance's four namespaces, every one
+// of which has a <cluster>-ca whose only key is that one. `tls.crt` is the
+// kubernetes.io/tls convention and the fallback for a cluster whose CA secret came
+// from a cert-manager-style issuer rather than from CNPG itself; the two are tried
+// in that order rather than probed for existence, because a Secret's key set is not
+// something the informer can answer more cheaply than the read itself.
+//
+// An empty result is not an error here. pgxopener's rootCertFor decides what an
+// empty certificate means for the mode in use — it errors for verify-ca, because a
+// mode that verifies with nothing is the downgrade R12.5 exists to prevent — and a
+// reader that turned "the key is absent" into an error would take that judgement
+// away from the one place that has the mode to judge with.
+func (s kubeSecrets) ReadCA(ctx context.Context, namespace, name string) (pem string, err error) {
+	if s.cs == nil {
+		return "", fmt.Errorf("cmd/pgsi: no clientset to read CA secret %s/%s from", namespace, name)
+	}
+	sec, err := s.cs.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	for _, key := range []string{"ca.crt", "tls.crt"} {
+		if v, ok := sec.Data[key]; ok && len(v) > 0 {
+			return string(v), nil
+		}
+	}
+	return "", nil
 }
 
 // newSQLOpener builds the process's SQL opener, or nil when it cannot have one.
