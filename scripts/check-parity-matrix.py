@@ -228,6 +228,11 @@ if not def4:
 # tracked docs and config must be an id §4 defines, or a bare group id that §4 implies.
 CITE_EXTS = {".md", ".yml", ".yaml", ".go"}
 CITE_NAMES = {"Makefile", "makefile"}
+# A6's ask, ruled report-only: path citations are parsed from more than .md. Kept separate
+# from CITE_EXTS above (which gates the R-id scan) and from FINDING_EXTS below (the ledger
+# scan) because the three scans have different scopes on purpose; .py is here so this file's
+# own docstring cites get checked -- the gap A3's S118 names.
+PATH_CITE_EXTS = CITE_EXTS | {".tsx", ".ts", ".py", ".json", ".sh"}
 # Ids that are not §4 ids but are not inventions either, each with the reason it is exempt.
 EXEMPT = {
     "R17": "§11 rule 4's ceiling — 'R17+' is the ban on minting past R16, not an id",
@@ -312,7 +317,7 @@ dump(id_orphans, lambda k: f"  orphan exemption: {k} — {EXEMPT[k]}")
 # not separable without a human. An ambiguous one (2+ matches) fails: len(r) >= 2 proves the
 # name exists in the tree, so it cannot be external, and the defect is the cite itself. That is
 # the same rule the orphan-exemption check states at :410-413, applied to the case it left out
-# -- A3's S117, filed against e2c042b's `statements.go:487`. docs/research/ is excluded from this half
+# -- A3's S117, filed against e2c042b's statements.go:487 (no backticks: the cite is an exhibit, and unqualified `statements.go` is ambiguous between internal/collector and internal/store). docs/research/ is excluded from this half
 # entirely: those notes cite the upstream projects' own files (postgres_exporter's
 # README.md:310-321), which this repo's file list cannot resolve.
 PATH_SKIP_DIRS = ("docs/research/",)
@@ -370,7 +375,7 @@ def path_citations(root, tracked):
     """(file, lineno, kind, cited_path, start, end, heading) for every citation in scope."""
     out = []
     for rel in tracked:
-        if not rel.endswith(".md") or rel.startswith(PATH_SKIP_DIRS): continue
+        if pathlib.PurePosixPath(rel).suffix not in PATH_CITE_EXTS or rel.startswith(PATH_SKIP_DIRS): continue
         for n, line in enumerate(lines_of(root, rel), 1):
             anchored = [(m.start(), "B", m.group(1), int(m.group(3)),
                          int(m.group(4) or m.group(3)), m.group(2))
@@ -388,7 +393,7 @@ def path_citations(root, tracked):
     return out
 
 def check_paths(root, tracked):
-    checked, bad, unresolved, ambiguous, exempt = 0, [], [], [], 0
+    checked, code_checked, bad, unresolved, ambiguous, exempt = 0, 0, [], [], [], 0
     pairs = set()                                  # every (citing file, cited path) it found
     tset = set(tracked)
     for rel, n, kind, path, s, e, head in path_citations(root, tracked):
@@ -400,7 +405,7 @@ def check_paths(root, tracked):
             unresolved.append((rel, n, kind, path, 0)); continue
         if len(r) > 1:                       # the cite under-specified a path the repo has 2+ of
             ambiguous.append((rel, n, kind, path, len(r))); continue
-        checked += 1
+        checked += rel.endswith(".md"); code_checked += not rel.endswith(".md")
         L = lines_of(root, r[0])
         if e > len(L):
             bad.append((rel, n, kind, f"{path}:{s}-{e} — {r[0]} has {len(L)} lines")); continue
@@ -412,7 +417,7 @@ def check_paths(root, tracked):
                 bad.append((rel, n, kind, f"{path}:{s} is not a heading ({actual[:48]!r})"))
             elif actual != head.strip():
                 bad.append((rel, n, kind, f"quotes {head!r}, {path}:{s} reads {actual!r}"))
-    return checked, bad, unresolved, ambiguous, exempt, pairs
+    return checked, code_checked, bad, unresolved, ambiguous, exempt, pairs
 
 # A4's L1, applied to this half too: gate on the file set, not on the per-half count. A repo
 # with markdown but zero path citations is legal, and "file discovery broke" is false when
@@ -422,7 +427,19 @@ scanned_md = sum(1 for rel in files_all
 if not scanned_md:
     print("GUARD: no scannable markdown — file discovery broke, not a pass")
     sys.exit(2)
-checked_path, path_bad, unresolved, ambiguous, exempt_path, cited_pairs = check_paths(root, files_all)
+_c, _cc, _bad, _unres, _amb, _ex, cited_pairs = check_paths(root, files_all)
+# A6's ask, ruled report-only first: .md cites gate the build exactly as before; .go/.ts/
+# .tsx/.py/.yaml/.json cites are parsed, counted and printed but kept out of the exit tuple
+# -- the shape `unresolved` had before `ambiguous` was promoted (S117's fix), which is how a
+# check gets proven against real data before it gets to fail a build.
+_md = lambda xs: [x for x in xs if x[0].endswith(".md")]
+_code = lambda xs: [x for x in xs if not x[0].endswith(".md")]
+checked_path, code_checked = _c, _cc
+path_bad, code_bad = _md(_bad), _code(_bad)
+unresolved, code_unres = _unres, _code(_unres)
+ambiguous, code_amb = _md(_amb), _code(_amb)
+exempt_path = _ex
+
 # A PATH_EXEMPT key that matches no citation is a dead exemption — the table is read at one
 # site, so an orphan key is invisible and the check it performs has quietly stopped running.
 # Unlike an external path (reported, not failed: external/deleted/typo aren't separable), an
@@ -433,6 +450,9 @@ print(f"path citations: {checked_path} resolved · {len(path_bad)} wrong · "
       f"{len(ambiguous)} ambiguous (failed) · {exempt_path} exempt · "
       f"{len(path_orphans)} orphan exemptions")
 dump(path_bad, lambda f, n, kind, msg: f"  {f}:{n} [{kind}] {msg}")
+print(f"  non-md path citations (report-only): {code_checked} checked · "
+      f"{len(code_bad)} wrong · {len(code_amb)} ambiguous")
+dump(code_bad, lambda f, n, kind, msg: f"  {f}:{n} [{kind}] {msg}", cap=10)
 dump(unresolved, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
 dump(ambiguous, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
 dump(path_orphans, lambda k: f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
