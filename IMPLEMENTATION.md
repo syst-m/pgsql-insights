@@ -121,7 +121,7 @@ owners and share one validation entry.
 | **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A6 | 🔄 | §3.14 |
 | **7** | System Insights: OS + DB families, summary cards, compare-5, PNG/CSV export + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | ⬜ | — |
 | **8** | Pooler insights + bloat/autovacuum/TXID recommenders + events timeline | R6.1–R6.5, R7.2, R7.4, R7.5, R7.6, R5.9, R10.11 | A1 | ⬜ | — |
-| **9** | Docs site, runbooks, README, screenshots, lab profile, v0.1.0 release | R11.6, R11.9, R13.6, R14.3–R14.7, R15.2, R15.3 | A4 | 🔄 | — **started at `0b440df`**: R14.3's README refreshed (its status line now carries all ten phases from this table, and its API table lists every route registered at HEAD — R14.7's route half) and R14.5's dev-loop half brought in line with the Makefile's four lint deps plus the `make openapi` target that `9794560` added; `b097882` closed the `.gitignore` gap that build exposed. R14.4's `docs/` index closed at `2a645e8` (corrected at `76fe953`) — it shipped before this row was written and this row still read it as open; R15.3's go-licenses audit closed at `a8da067` (the audit plus the `make licenses-check` wiring at `.github/workflows/ci.yml:116-117`), extended by `9018c41` and `99bf269` — the same filing-time gap as the R14.4 clause above it: three commits landed the audit and this row kept reading it as open; open: R15.2's release automation (`.github/workflows/` holds `ci.yml`, `dependabot.yml` and `renovate.json` — no release workflow, so R15.2's "a GitHub Release per tag with the SBOM attached" has no artifact yet), R13.6's kind/minikube validation (no kind config is tracked), and the release itself |
+| **9** | Docs site, runbooks, README, screenshots, lab profile, v0.1.0 release | R11.6, R11.9, R13.6, R14.3–R14.7, R15.2, R15.3 | A4 | 🔄 | — **started at `0b440df`**: R14.3's README refreshed (its status line now carries all ten phases from this table, and its API table lists every route registered at HEAD — R14.7's route half) and R14.5's dev-loop half brought in line with the Makefile's four lint deps plus the `make openapi` target that `9794560` added; `b097882` closed the `.gitignore` gap that build exposed. R14.4's `docs/` index closed at `2a645e8` (corrected at `76fe953`) — it shipped before this row was written and this row still read it as open; R15.3's go-licenses audit closed at `a8da067` (the audit plus the `make licenses-check` wiring at `.github/workflows/ci.yml:116-117`), extended by `9018c41` and `99bf269` — the same filing-time gap as the R14.4 clause above it: three commits landed the audit and this row kept reading it as open. `8c07252` extends it twice more: it overrides the audit's one `Unknown` row (`modernc.org/mathutil` → BSD-3-Clause, the evidence — 1486-byte module-cache LICENSE, the third BSD clause — recorded in the generator's `LICENSE_OVERRIDES` at `scripts/gen-licenses.py:77-98` rather than hand-typed into the CSV, because `--check` regenerates the CSV from the tool's output and compares it to the committed file), and it regenerates `go-dependencies.txt` and `web-dependencies.txt`, which had fallen 5 modules behind `go.mod` when `9e6572a` added pgx/v5 and moved x/text to v0.41.0 — that drift's content is A1's commit, the artifact is mine, so a reader diffing `docs/licenses/go-dependencies.txt` at `8c07252` against `go.mod` at `7b29534` finds rows `8c07252` did not add; open: R15.2's release automation (`.github/workflows/` holds `ci.yml`, `dependabot.yml` and `renovate.json` — no release workflow, so R15.2's "a GitHub Release per tag with the SBOM attached" has no artifact yet), R13.6's kind/minikube validation (no kind config is tracked), and the release itself |
 
 **Post-0.1** (defined in spec §4, deliberately unscheduled in v1): **R7.1** index advisor and
 **R7.3** rightsizing. Both moved out of Phase 8 in v0.2.0 — R7.1 needs R3.15 executed on a real
@@ -1313,29 +1313,32 @@ touches no R-number: R3.1's own sentence is what was ambiguous, and spec §11 ru
 
 ### 3.16 Phase 4 validation entry (R14.2)
 
-**Scope, stated as a file list rather than as "Phase 4 reviewed."** The phase's thirteen tracked files are the ones its nine requirement rows name: A4's chart half -- `chart/README.md`, `chart/templates/servicemonitor.yaml`, `chart/templates/podmonitor.yaml`, `chart/values.yaml`, `chart/templates/prometheusrule.yaml`, `README.md` -- and A2's half -- `Makefile`, `scripts/cardinality-check.py`, `.github/workflows/ci.yml` -- plus the three `deploy/plain-yaml/` goldens and `internal/metrics/metrics.go`, which R9.8's row names but Phase 2 produced. R9.6 and R13.3 name no file at all: both are blocked.
+**Scope, stated as a file list rather than as "Phase 4 reviewed."** The phase's sixteen tracked files are the ones its nine requirement rows name: A4's chart half -- `chart/README.md`, `chart/templates/servicemonitor.yaml`, `chart/templates/podmonitor.yaml`, `chart/values.yaml`, `chart/values-default.yaml`, `chart/values-lab.yaml`, `chart/values-production.yaml`, `chart/templates/prometheusrule.yaml`, `README.md` -- and A2's half -- `Makefile`, `scripts/cardinality-check.py`, `.github/workflows/ci.yml` -- plus the three `deploy/plain-yaml/` goldens and `internal/metrics/metrics.go`, which R9.8's row names but Phase 2 produced. R9.6 and R13.3 name no file at all: both are blocked. The three `chart/values-*` profiles are R16.4's: `requirements.md:522` names them as one brace token and excludes `values.yaml`, which is the base rather than a profile. The first draft of this entry took its list from §3.9's R16.4 cell, which named only `values.yaml`; A3's `2eebbb0` added the three paths to that cell, and this entry adds the matching rows so the row and the entry stop disagreeing (R14.9). `chart/values-default.yaml` is a symlink to `chart/values.yaml`, mode `120000` where lab and production are `100644`, and its row says so rather than reading it as a second set of values.
 
 **The composition, from §3.9's table.** Of the nine ids the WBS row claims, five are implemented (four by A4 -- R9.1, R9.9, R9.10, R16.4 -- and one by A2: R13.4's assertion half, the live-scrape half being Phase 2's), one is implemented by another phase and tabled there (R9.11, Phase 5, `f9aae41`, §3.7), and three are blocked (R9.6 on R3.12/Phase 6b, R9.8 on Phase 2's two remaining self-metrics, R13.3 on a latency artifact that does not exist). The row is 🔄 rather than ⚠️ for that reason: nothing here is done-with-deviations, it is done-but-not-closed.
 
 **The R9.11 transfer, moved out of the WBS row's Validation entry cell.** R9.11 was taken in Phase 5, not here: `chart/templates/prometheusrule.yaml` and the `make rules-check` target shipped in `f9aae41` and are tabled in §3.7's R9.11 row, because A4 held the ServiceMonitor/PodMonitor half of this phase and the rule set rode out with it. R14.9's per-owner rule needs this row to acknowledge the transfer rather than keep claiming a file another phase committed -- an unmarked ⬜ next to a requirement that is implemented is how a requirement gets implemented twice.
 
-| File | Findings filed | Last commit touching it |
-|---|---|---|
-| `chart/README.md` | — | `6573ed1` |
-| `README.md` | — | `0b440df` |
-| `chart/templates/servicemonitor.yaml` | — | `434134d` |
-| `chart/templates/podmonitor.yaml` | — | `434134d` |
-| `chart/values.yaml` | — | `5506d78` |
-| `chart/templates/prometheusrule.yaml` | — | `ca9ef4e` |
-| `Makefile` | — | `7a6a13b` |
-| `deploy/plain-yaml/all.yaml` | — | `92ebabf` |
-| `deploy/plain-yaml/all-lab.yaml` | — | `92ebabf` |
-| `deploy/plain-yaml/all-production.yaml` | — | `92ebabf` |
-| `scripts/cardinality-check.py` | — | `1be97e2` |
-| `.github/workflows/ci.yml` | — | `0de8112` |
-| `internal/metrics/metrics.go` | — | `04169bf` |
+| File | Round that read it | Findings filed | Last commit touching it |
+|---|---|---|---|
+| `chart/README.md` | — | — | `6573ed1` |
+| `README.md` | — | — | `0b440df` |
+| `chart/templates/servicemonitor.yaml` | — | — | `434134d` |
+| `chart/templates/podmonitor.yaml` | — | — | `434134d` |
+| `chart/values.yaml` | — | — | `5506d78` |
+| `chart/values-default.yaml` (symlink to `chart/values.yaml`, mode `120000`) | — | — | `db4f237` |
+| `chart/values-lab.yaml` | this review | S107 | `92ebabf` |
+| `chart/values-production.yaml` | `f08b6ac`, IMPLEMENTATION.md §5 D18 | S3 | `434134d` |
+| `chart/templates/prometheusrule.yaml` | — | — | `ca9ef4e` |
+| `Makefile` | — | — | `7a6a13b` |
+| `deploy/plain-yaml/all.yaml` | — | — | `92ebabf` |
+| `deploy/plain-yaml/all-lab.yaml` | — | — | `92ebabf` |
+| `deploy/plain-yaml/all-production.yaml` | — | — | `92ebabf` |
+| `scripts/cardinality-check.py` | — | — | `1be97e2` |
+| `.github/workflows/ci.yml` | — | — | `0de8112` |
+| `internal/metrics/metrics.go` | — | — | `04169bf` |
 
-**Findings column.** Generated from the finding index's `against` cell, not from a substring match on the line: over these thirteen files the set is empty, so every row reads `—`. S73 mentions `scripts/cardinality-check.py` in its finding text but its `against` cell is `requirements.md:552`; S104's is `docs/agents.md:58` and `.claude/agents/a2-api-metrics.md:13`; S108's is `IMPLEMENTATION.md:1221`. The `Round that read it` column of the house format is omitted here because the review record for these files is A3's, not this slot's.
+**Findings column.** Generated from the finding index's `against` cell, not from a substring match on the line. Over these sixteen files the set is two rows: S107 (`against` `chart/values-lab.yaml:64`, filed in this review, fixed by `f8cb141`) and S3 (`against` `chart/values-production.yaml` and `cmd/pgsi/main.go`, filed in `f08b6ac` and §5 D18, status `open — forwarded` with its code half assigned to "A2's Phase 5"). Three findings name a file in this table inside their finding *text* without their `against` cell naming it, and they are listed so the rule is checkable rather than asserted: S73 mentions `scripts/cardinality-check.py` but its `against` cell is `requirements.md:552`; S104's is `docs/agents.md:58` and `.claude/agents/a2-api-metrics.md:13`; S108's is `IMPLEMENTATION.md:1221`. The `Round that read it` column is the `filed in` value of those same rows and `—` for the fourteen files with no findings row; the column was absent from this table's first draft (the 3-column form at `63e05bc`), and §3.15's scope paragraph at `:1232` records the conversion as A2's commit immediately after `2eebbb0` -- which is this one.
 
 ## 4. Decisions log
 
