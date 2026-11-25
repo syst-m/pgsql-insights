@@ -800,15 +800,14 @@ func openStoreFile(path string) (sinkBundle, error) {
 // newRegistry builds this process's collector set: the []Collector argument
 // R2.1's registry takes, with R2.3's overrides applied over each Descriptor.
 //
-// It holds nine collectors when the opener is non-nil and one when it is nil,
+// It holds ten collectors when the opener is non-nil and one when it is nil,
 // and the two shapes exist because the two halves of §3.3 have different
 // dependencies.
 //
 // The eight SQL collectors — activity, database, io, locks, replication,
 // settings, statements and wal — all take an `opener SQLOpener` as their first
-// argument,
-// and for most of this repository's life there was no value to pass them: the
-// paragraph documenting the SQL seam (sql.go:34-48, inside
+// argument, and for most of this repository's life there was no value to pass
+// them: the paragraph documenting the SQL seam (sql.go:34-48, inside
 // DefaultStatementTimeout's docblock) declared the seam an interface precisely
 // because go.mod had no driver, and declined to choose one. That paragraph now
 // names the answer in the same breath — pgx/v5 via pgx/stdlib, in
@@ -821,16 +820,17 @@ func openStoreFile(path string) (sinkBundle, error) {
 // require block listed five modules. Prose describing its own file has no
 // checker, so the only cheap moment to fix it is the commit that makes it false.
 //
-// The pooler is the ninth and is constructible independently: NewPoolerCollector
+// The pooler-clients collector is the ninth and the pooler itself the tenth;
+// the pooler is constructible independently of the opener: NewPoolerCollector
 // takes a MetricsFetch, and pooler.go:51-54 says the production implementation
 // "is a method value — kube.Client.GetDirect(ctx, url) has exactly this signature
 // (client.go:300) — so wiring it in cmd/pgsi is `kube.GetDirect` with no
 // adapter". That is what the first argument below is: a method value, no adapter,
 // exactly as promised.
 //
-// The remaining two of §3.3's thirteen — instance-metrics (S3) and k8s-events
-// (S4) — have no file yet, so there is nothing to construct; see targets.go for
-// why their targets are not produced either.
+// The remaining three of §3.3's thirteen — progress, instance-metrics (S3) and
+// k8s-events (S4) — have no file yet, so there is nothing to construct; see
+// targets.go for why their targets are not produced either.
 //
 // The overrides argument is built from argv now, by runServe's scanArgs. The
 // paragraph this replaces said it was "empty rather than built from argv, and that
@@ -850,11 +850,12 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 	}
 	collectors := []collector.Collector{pooler}
 
-	// The eight SQL collectors ride the opener, and the nil check is the reason
-	// the signature has an opener parameter at all. Each of the eight constructors
-	// is `func NewXCollector(opener SQLOpener, cfg SQLConfig) *XCollector` — one
+	// The eight §3.3 SQL collectors plus pooler-clients ride the opener — nine
+	// constructors in the append below — and the nil check is the reason the
+	// signature has an opener parameter at all. Each of the nine constructors is
+	// `func NewXCollector(opener SQLOpener, cfg SQLConfig) *XCollector` — one
 	// return value, no error — so each accepts a nil opener at construction and
-	// only fails when Collect runs. Registering eight collectors that cannot
+	// only fails when Collect runs. Registering nine collectors that cannot
 	// collect would turn a wiring gap into nine error logs per round on a healthy
 	// /metrics endpoint, which is R8.7's shape (a process that answers 200 and is
 	// not actually working) reproduced inside the registry. Gating here makes the
