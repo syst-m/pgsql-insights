@@ -407,25 +407,19 @@ describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () =
     // One string asserts the whole request the page builds: the pid in the path
     // and not the query, the pair the route needs for scoping, and `confirm=true`
     // present at all — the literal that is R4.5's confirmed action spelled in a
-    // type. A page that fired without confirming, or moved the pid into the query
-    // string, fails here. The order is `search()`'s (client.ts:193 preserves the
-    // object's own key order rather than sorting), so it is part of the claim.
-    // What the page owns is the request's *content*: the pid as the path segment
-    // and the pair plus `confirm=true` as the query string. `confirm` is the
-    // literal that is R4.5's confirmed action spelled in a type, so a page that
-    // fired without arming the dialog cannot produce this string. The path's
-    // suffix is deliberately not asserted — `client.ts:620` builds
-    // `/api/v1/sessions/{pid}` where the contract (`requirements.md:330`,
-    // `internal/api/server.go:207`) names `/api/v1/sessions/{pid}/terminate`;
-    // that is A4's line to move, and the assertion tightens to the exact URL when
-    // their fix lands.
-    await waitFor(() => expect(stub.calls.some((c) => c.startsWith("POST "))).toBe(true));
-    const post = stub.calls.find((c) => c.startsWith("POST "))!;
-    expect(post.startsWith(`POST /api/v1/sessions/${ROW_41288.pid}`)).toBe(true);
-    const query = new URLSearchParams(post.slice(post.indexOf("?") + 1));
-    expect(query.get("namespace")).toBe("open-webui");
-    expect(query.get("cluster")).toBe("open-webui-pg");
-    expect(query.get("confirm")).toBe("true");
+    // type, so a page that fired without arming the dialog cannot produce it. The
+    // order is `search()`'s (`client.ts:193` preserves the object's own key order
+    // rather than sorting), so it is part of the claim. The `/terminate` suffix is
+    // `client.ts:620`'s and the contract's (`requirements.md:330`,
+    // `internal/api/server.go:207`): this assertion was first written against the
+    // suffix-less URL the fetcher had and tightened to the exact string when A4's
+    // `9790fda` added it, which is the pair the api suite asserts too at
+    // `client.test.ts:1286-1288` (the URL string at :1286, the method at :1288).
+    await waitFor(() =>
+      expect(stub.calls).toContain(
+        `POST /api/v1/sessions/${ROW_41288.pid}/terminate?namespace=open-webui&cluster=open-webui-pg&confirm=true`,
+      ),
+    );
     // And the re-read the flow ends in: the initial GET, then a second one after
     // the POST resolved. Asserting the count is what proves the success path
     // refetched — the render itself looks the same either way.
