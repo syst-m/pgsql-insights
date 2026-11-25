@@ -161,6 +161,10 @@ cardinality-check:
 # resolves `grep` to a shell function from ~/.claude/shell-snapshots wrapping ugrep 7.8.4,
 # which honours it too — probed by grepping a directory holding both a matching .sh and a
 # matching .py, which returned only the .sh under each binary.
+# `/bin/grep` itself is absent here (A4's finding, confirmed: `test -x /bin/grep` → no, and
+# /bin is a 39-entry directory rather than a symlink to /usr/bin), so the recipe must resolve
+# `grep` through PATH — a target that hardcoded /bin/grep would fail on this machine even
+# though /usr/bin/grep is present.
 sha-check:
 	@if grep -rn --include='*.sh' 'rev-parse --short' scripts/; then \
 		echo 'FAIL: a script uses git rev-parse --short — D6 forbids a short SHA as a version stamp'; exit 1; fi
