@@ -450,7 +450,7 @@ function LongestCell({ label, row }: { label: string; row?: SessionView }) {
         <span className="scorecard-value">{NULL_VALUE}</span>
       ) : (
         <div className="scorecard-longest">
-          <span className="scorecard-value num" title={`pid ${row.pid}`}>
+          <span className="scorecard-value" title={`pid ${row.pid}`}>
             {formatDurationMs(row.queryDurationSeconds * 1000)}
           </span>
           <span className="scorecard-query trunc" title={row.query}>

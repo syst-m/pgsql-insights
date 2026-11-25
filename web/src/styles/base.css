@@ -1587,3 +1587,234 @@ table.data[data-density="comfortable"] th.sortable button {
 .qla-table {
   margin-top: 12px;
 }
+
+/* --- R10.8 Active Queries (pages/ActiveQueries.tsx) ------------------------ *
+ *
+ * R4.1's page. Reuses `.page` (:774), `.page-title` (:784), `.page-meta` (:778),
+ * `.breadcrumb` (:814), `.card` (:187), `.card-head` (:194), `.card-title` (:829),
+ * `.card-meta` (:836), `.card-actions` (:756), `table.data` (:213), `.query-cell`
+ * (:684), `.num` (:62), `.secondary` (:72) and `.btn` (:290); the rules below are
+ * the shapes the page draws that the file does not already have. The only colour
+ * is `--status-critical` on `.btn-danger`, and that token names the Terminate
+ * button's severity, not a health verdict; the scorecard counts states, and
+ * R10.23 reserves the four status colours for verdicts, so `active` and
+ * `idle in transaction` are ink.
+ *
+ * `.scorecard-cell` is the third use of the tile treatment `.stat-tile` (:1040)
+ * starts — same fill, same radius, for the same reason (a bordered box inside a
+ * bordered card costs the card its hierarchy). It is spelled its own way here for
+ * the reason `.ext-cost` and `.rl-grid` are (:1436): a component should not depend
+ * on a class the file does not define, and a further variant is cheaper to fold in
+ * later than a pre-empted unification.
+ *
+ * `.trunc` is the shared ellipsis three pages already spell inline: `QueryTable.tsx`
+ * and `ActiveQueries.tsx` both put it on a query string and `Tags.tsx` on a tag
+ * name, while :684 inlines the same three properties on `.query-cell > .query-link`
+ * and :769's list of unstyled test-handle classes does not name it. */
+
+/* The one-line ellipsis. `display: block` because `text-overflow` needs a block
+   container; `min-width: 0` at the call sites is what lets it shrink inside a
+   grid or flex track. */
+.trunc {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A short note under a value ("This row names 41102 as blocking it…"). Same
+   treatment `.latency-note` (:1049) and `.qla-scope` (:1569) give their notes:
+   12px secondary, capped so a long sentence doesn't run the width of a 1440px
+   page. */
+.card-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+/* --- the R4.1 scorecard --------------------------------------------------- */
+
+/* Three cells, not a table: the by-state counts, the longest running query and
+   the longest idle-in-transaction answer three different questions and share no
+   columns, so a `table.data` would assert a row relationship that isn't there.
+   The two `longest*` cells get the wider tracks because a SQL string is the
+   content; the count column is the narrow one. */
+.scorecard-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr) minmax(240px, 2fr);
+  gap: 8px;
+}
+
+.scorecard-cell {
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.scorecard-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* The by-state list. The UA's bullets and 40px padding are what made the count
+   read as part of the label (`active2`): with the markers gone and each pair a
+   flex row, the state is the label column and the count sits in its own track. */
+.scorecard-states {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scorecard-states li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scorecard-state {
+  color: var(--text-primary);
+}
+
+/* --- the two `longest*` cells --------------------------------------------- */
+
+/* The value, the query and the pid/db/user line are three lines of one fact, so
+   they stack; `min-width: 0` is what lets the query ellipsise instead of pushing
+   the cell open. The value carries no `.num` (:62 reserves tabular figures for
+   columns) — it is a tile value, and the duration is already fixed-width text. */
+.scorecard-longest {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scorecard-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scorecard-query {
+  color: var(--text-primary);
+}
+
+.scorecard-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* --- the table's expand column and its expansion -------------------------- */
+
+/* Fixed and centred so the chevron doesn't stretch with the row the way an
+   auto-width td would. */
+.expand-col {
+  width: 34px;
+  text-align: center;
+}
+
+/* A chevron, not an action: the row's hit target is the row (R10.19), so this
+   button gets no border and no fill until it is hovered. */
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.btn-xs {
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+/* The Terminate confirm. `--status-critical` here names the action's severity,
+   not a health verdict, which is the one use of a status colour this block
+   makes; the button carries the word "Terminate", so the colour is never the
+   only encoding (R10.23). */
+.btn-danger {
+  border-color: color-mix(in srgb, var(--status-critical) 45%, transparent);
+  color: var(--status-critical);
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--status-critical) 8%, transparent);
+}
+
+/* The expanded row's single spanning cell. It is chrome, not a data row, so it
+   takes the tile fill and no hover state. */
+.row-expansion > td {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  padding: 8px 10px;
+}
+
+/* --- R4.4's blocking chain ------------------------------------------------ */
+
+.chain {
+  display: grid;
+  gap: 6px;
+}
+
+.chain-head {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* The UA's 40px `padding-left` is sized for prose; :1431's note applies here too. */
+.chain-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* pid · query · the rest, on one line: the query takes the flexible track and
+   ellipsises so a 400-character statement cannot wrap the item to four lines. */
+.chain-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.chain-query {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.chain-meta {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* --- R4.5's Action cell --------------------------------------------------- */
+
+/* The button and its reason stack: R4.5's gate renders the action disabled *with*
+   the reason it is disabled, and a reason beside the button reads as the button's
+   label. */
+.action-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.action-reason {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* R10.8's "refreshes every 15 s", riding inside `.page-meta` (:778). Muted
+   because it describes the page's behaviour, not the data on the page. */
+.refresh-indicator {
+  color: var(--text-muted);
+}
