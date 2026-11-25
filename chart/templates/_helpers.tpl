@@ -61,9 +61,27 @@ the Service and the probes can never disagree about where pgsi listens.
 R11.16 / R11.3: image reference. tag defaults to Chart.AppVersion; CI publishes
 :dev plus the git-SHA tag, so an empty tag always resolves to a real image.
 */}}
+{{/*
+R11.16 — the image reference, in both forms.
+
+With image.digest set the reference is `repository@digest` and image.tag is
+ignored. A digest is the only immutable form of an image reference, so it is the
+only one pullPolicy: IfNotPresent can trust — a mutable tag plus IfNotPresent
+makes a node reuse its cached layer after a new push, which is how the reference
+environment ended up unable to roll out a fresh :dev on 2026-11-25 (the tag it
+named resolved to the old cached image; only a digest-pinned pod spec deployed
+the new one).
+
+Without a digest the reference is `repository:tag`, tag defaulting to
+Chart.AppVersion, which is R11.16's CI-published form.
+*/}}
 {{- define "pgsi.image" -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "pgsi.serviceAccountName" -}}

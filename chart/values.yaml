@@ -30,6 +30,15 @@ image:
   repository: ghcr.io/frankellis/pgsql-insights
   # Empty → Chart.AppVersion. CI sets this to the git SHA tag (R11.16).
   tag: ""
+  # Set to pin by digest (sha256:…). When set, pgsi.image renders
+  # `repository@digest` and tag is ignored — the only immutable form of an image
+  # reference, and therefore the only one pullPolicy: IfNotPresent below can
+  # actually trust. A mutable tag plus IfNotPresent means a node reuses its
+  # cached image after a new push: the reference environment hit exactly that on
+  # 2026-11-25, where a fresh :dev push could not be rolled out until the pod
+  # spec carried the digest, because the tag it named still resolved to the old
+  # cached layer.
+  digest: ""
   pullPolicy: IfNotPresent
   # R11.4: the amd64 image is ~3.3 MB compressed (distroless + a static Go binary),
   # far under the < 60 MB target. The SPA's gzipped JS is reported separately in CI.
