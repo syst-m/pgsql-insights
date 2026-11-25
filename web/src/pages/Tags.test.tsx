@@ -92,7 +92,7 @@ describe("TagsPage — the table (R10.3's ninth page)", () => {
   it("renders the shell for a cluster URL", () => {
     const { container } = renderPage();
     expect(container.querySelector('[data-page="tags"]')).not.toBeNull();
-    // The exact `routes.ts:259` title, which `routes.test.tsx:52-67`'s
+    // The exact `routes.ts:259` title, which `routes.test.tsx:53-68`'s
     // `R10_3_TITLES` asserts for the nav and this asserts for the page.
     expect(screen.getByRole("heading", { level: 1, name: "Tags" })).toBeInTheDocument();
     expect(screen.getByTestId("tags-table")).toBeInTheDocument();

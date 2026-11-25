@@ -35,7 +35,7 @@
  * series call for N fingerprints rather than N calls, which is the feeding
  * R9.13's batch exists for. `fetchQueries`' default limit is 50
  * (`internal/api/paging.go:50`'s `DefaultLimit`, passed through unclamped —
- * `client.ts:263-264`) and the batch's cap is 50
+ * `client.ts:322`) and the batch's cap is 50
  * (`internal/api/series.go:56`'s `MaxBatchFingerprints`, above which the server
  * answers `InvalidRequest` because R8.10 forbids the clamp), so a page that
  * renders a whole list can hand it over entire without tripping the cap; a

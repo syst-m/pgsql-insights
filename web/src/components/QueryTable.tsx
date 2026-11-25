@@ -58,7 +58,7 @@
  *
  * The cell's tooltip also names the derivation, because `loadByIOWaitMs` means
  * `blk_read_time + blk_write_time` on PG 15–16 and
- * `shared_blk_read_time + shared_blk_write_time` on PG 17+ (queries.go:69-78)
+ * `shared_blk_read_time + shared_blk_write_time` on PG 17+ ((internal/api/dto/queries.go:77-78)
  * and the two are not comparable across the boundary — which is R10.28's named
  * "PG16 vs PG17 column differences" state, and `pgMajor` is the only field that
  * knows which side a row is on.
@@ -139,7 +139,7 @@ export interface QueryColumn {
  *
  *  It renders `Sparkline`, the same component and the same data path as R10.7's
  *  detail chart: both read R8.11's `/insights/queries/series` (whose batch-of-one
- *  rationale queries.go:235 spells out), which is why the two shipped in one
+ *  rationale internal/api/dto/queries.go:22-25 spells out), which is why the two shipped in one
  *  change. The data arrives through `QueryTableProps.series`, not the row —
  *  `types.ts:575` documents why `QueryView` cannot inline it.
  */
@@ -201,14 +201,14 @@ export function queryDetailHref(row: QueryView): string {
  *  point of LoadBars' discriminated union is that a cell can't be in two states
  *  at once, and this is the function that decides which one. */
 export function loadCellFor(row: QueryView, key: QueryColumnKey): LoadCellProps | null {
-  // The derivation this row's numbers came from, for the tooltips. queries.go:69
+  // The derivation this row's numbers came from, for the tooltips. internal/api/dto/queries.go:77-78
   // names both sides; pgMajor picks one.
   const ioSource =
     row.pgMajor >= 17 ? "shared_blk_read_time + shared_blk_write_time" : "blk_read_time + blk_write_time";
 
   switch (key) {
     case "loadByTotalTime":
-      // A percentage of total load (queries.go:82), so the whole is 100.
+      // A percentage of total load (internal/api/dto/queries.go:87-91), so the whole is 100.
       return {
         kind: "bar",
         fraction: row.loadByTotalTime / 100,
@@ -253,7 +253,7 @@ export function loadCellFor(row: QueryView, key: QueryColumnKey): LoadCellProps 
 /** The text a plain-value cell renders, for the columns that are neither a link
  *  nor a load bar. Exported so the formatting rules are assertable without a
  *  table — `avgRowsReturned` in particular, which is a mean over an R3.3 delta
- *  (queries.go:102) and so renders 12.5, not 12. */
+ *  (internal/api/dto/queries.go:115-118) and so renders 12.5, not 12. */
 export function textCell(row: QueryView, key: QueryColumnKey): string {
   switch (key) {
     case "query":
@@ -286,10 +286,13 @@ export interface QueryTableProps {
   columns?: readonly string[];
   /** R8.11's batched series, keyed by fingerprint, for the `sparkline` column.
    *
-   *  Keyed rather than a parallel array because R8.11's batch endpoint returns
-   *  the rows it has, not one per requested query (queries.go:235), so a page of
-   *  50 queries can legitimately get 37 series back and index arithmetic would
-   *  pair row 3 with series 3 the wrong way. Optional because only one column
+   *  Keyed rather than a parallel array because the envelope's entries are
+   *  labelled, not positional: `internal/api/dto/series.go:79` documents
+   *  `QuerySeries` as "one requested fingerprint's answer" and `:90` says the
+   *  secondary id is "never the key — `fingerprint` is", which is what
+   *  `web/src/pages/Queries.tsx:261`'s `seriesByFingerprint` projects. Array
+   *  order carries no meaning, so index arithmetic would pair row 3 with the
+   *  wrong series whatever the counts were. Optional because only one column
    *  needs it: a caller that has not fetched the series still renders thirteen
    *  correct columns and one `—`. */
   series?: Record<string, QuerySeries>;
@@ -476,7 +479,7 @@ export function QueryCell({
   }
 
   // R7.1 (the index recommender) is marked post-0.1 and the array is empty for
-  // every Phase 3 response (queries.go:205). An empty one is R10.4's `—` with a
+  // every Phase 3 response (internal/api/dto/queries.go:206-212). An empty one is R10.4's `—` with a
   // marker naming the pending source, not a count of nothing; a populated one is
   // the count, because the number is the answer R3.2's column asks for.
   if (col.key === "recommendations" && row.recommendations.length === 0) {

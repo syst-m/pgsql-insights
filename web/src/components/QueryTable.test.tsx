@@ -284,7 +284,7 @@ describe("loadCellFor — the denominators", () => {
 
 describe("textCell", () => {
   it("Avg rows returned keeps the decimal — it is a mean, not a count", () => {
-    // queries.go:102: a float64 mean over an R3.3 delta, so 12.5 is a real
+    // internal/api/dto/queries.go:115-118: a float64 mean over an R3.3 delta, so 12.5 is a real
     // answer and rendering it as `12` is a wrong number, not a rounding choice.
     expect(textCell(pg16, "avgRowsReturned")).toBe(formatNumber(pg16.avgRowsReturned, 1));
     expect(textCell(pg16, "avgRowsReturned")).toBe("1.0");
@@ -361,7 +361,7 @@ describe("QueryCell", () => {
 
   it("empty recommendations render the R7.1 pending marker, not a zero", () => {
     // R7.1 is marked post-0.1 and the array is empty for every Phase 3 response
-    // (queries.go:205). `0` would claim the recommender ran and found nothing.
+    // (internal/api/dto/queries.go:206-212). `0` would claim the recommender ran and found nothing.
     const { container } = render(
       <QueryCell row={pg16} col={col("recommendations")} onOpen={onOpen} />,
     );

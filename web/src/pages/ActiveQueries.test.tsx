@@ -200,7 +200,7 @@ describe("ActiveQueriesPage — the refresh indicator (R10.8's second clause)", 
   });
 
   it("offers no range control", () => {
-    // `client.ts:442-445`'s params are namespace+cluster only: pg_stat_activity
+    // `client.ts:549-552`'s params are namespace+cluster only: pg_stat_activity
     // answers "now", so a time window would be R10.15's question about the query
     // store rendered on a page that cannot ask it.
     const { container } = renderPage();
