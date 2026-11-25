@@ -232,6 +232,128 @@ paths:
         # today, because the default source cannot error.
         '503':
           $ref: '#/components/responses/NotReady'
+
+  # R4.5's action route, and the only mutation this product performs on a
+  # Postgres instance. It is not in R8.2's catalogue (requirements.md:374
+  # names twenty paths and this is not one of them): R4.5 names it itself at
+  # requirements.md:330, which is why it had its own `x-planned-paths` key
+  # instead of being filed under r8.2-catalogue. The manifest's retirement
+  # note carries that argument; this entry is the fact.
+  /api/v1/sessions/{pid}/terminate:
+    post:
+      tags: [insights]
+      operationId: terminateSession
+      summary: R4.5's Terminate connection, behind R12.8's --allow-actions gate
+      description: |
+        `pg_terminate_backend(pid)` — Cloud SQL's Enterprise-Plus-only
+        `Action → Terminate connection`. R4.5's sentence carries five
+        obligations and this route implements four of them; the fifth,
+        "refused on a replica", is the source's answer rather than a check
+        here, because only the thing that opens the connection knows the role.
+
+        The four it does implement: the route itself; R12.8's gate, read
+        through the same `actionFor` that fills R4.1's `Action` column, so the
+        column and the route cannot disagree (one function answers "is
+        terminate allowed" for both — a second gate implementation is the
+        second copy that would let a row say `terminate` over a route that
+        answers 403); the confirmed UI action, which the server cannot observe
+        and so requires as `?confirm=true`, the client's statement of a dialog
+        R10.8 owns; and the audit line, whose `actor` and `target` are read
+        once and written to both the log line and this body so the two cannot
+        drift.
+
+        The instance is named in the query string, not the path, and that is a
+        consequence of `pg_stat_activity` being per-instance: a pid is unique
+        only within one instance, so `/sessions/{pid}` alone does not identify
+        a session. R4.1's GET takes the same two parameters for the same
+        reason, which is also why this POST has no requestBody at all — one
+        parameter set describes both routes, and a body repeating the three
+        values the path and query already carry would be a second copy inside
+        one request. `namespace` and `cluster` are inline rather than `$ref`s
+        for the reason the two entries below give: the shared components say
+        `required: false` and this route requires both.
+
+        Two refusals answer 403 — the gate off, and a replica — and both
+        are `Unsupported` rather than one code each. R8.5's `Unsupported` is
+        literally "feature gated off by config", which is what
+        --allow-actions=false is; `Forbidden` is R12's scope verdict, and R8.8
+        refuses to let one code answer two different failures "without costing
+        the client the distinction", so spending it on a role refusal is that
+        mistake. Minting an eleventh code is available (R8.3 did it for its own
+        narrow case) and not taken: R4.5 unites the two refusals in one
+        sentence as two ways the action is not available, and a client that
+        handles one must handle the other.
+      x-status: implemented
+      parameters:
+        - name: pid
+          in: path
+          description: |
+            The backend pid to terminate. A positive integer; anything else is
+            `InvalidRequest`, because `pg_terminate_backend` takes one.
+          required: true
+          schema:
+            type: integer
+          example: 4271
+        - name: namespace
+          in: query
+          description: |
+            The namespace of the instance whose backend this is. Required:
+            `pg_stat_activity` is per-instance, so a pid cannot name one
+            alone.
+          required: true
+          schema:
+            type: string
+        - name: cluster
+          in: query
+          description: |
+            The CloudNativePG Cluster whose instance runs the backend. Also
+            required, and echoed back in the response's `target`.
+          required: true
+          schema:
+            type: string
+        - name: confirm
+          in: query
+          description: |
+            R4.5's "requiring a confirmed UI action" as the client's
+            statement: the value must be exactly `true`. Any other value is a
+            refusal to confirm and answers 400 `InvalidRequest`, not 403 —
+            the reason is inside the request itself, which is the class R8.5
+            gives a missing parameter. Without it, a retried or prefetched POST
+            would terminate a backend nobody confirmed.
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+      responses:
+        '200':
+          description: |
+            The action ran. `terminated: false` on a 200 means the signal
+            reached no backend — the session was already gone — which is a
+            different fact from an error and so is a field, not a status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminateResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Unsupported'
+        # 403 is `Unsupported`, not `Forbidden`, for both of R4.5's refusals;
+        # the argument is in the description above.
+        #
+        # No 404, and it is the list-route rule rather than an omission: a pid
+        # that does not exist answers 200 with `terminated: false`, because that
+        # is pg_terminate_backend's own answer to a dead backend and R8.5's
+        # NotFound would claim "no such object" where the object is a session
+        # that was here a moment ago.
+        '503':
+          $ref: '#/components/responses/NotReady'
+
+        # One 503 body in code, as on every other authenticated route: the
+        # readiness gate's NotReady. The default source cannot error, so
+        # Unavailable is unreachable here for the same reason it is elsewhere.
   /api/v1/clusters:
     get:
       tags: [clusters]
@@ -2034,26 +2156,28 @@ x-planned-paths:
     - /api/v1/events                        # R8.2
     - /api/v1/explain                       # R8.2
     - /api/v1/search                        # R8.2 (?q=)
-  # r4.5-actions is the second live key, and it exists because R8.2's catalogue is
-  # not the whole route set. R4.5 (requirements.md:330) names
+  # r4.5-actions was the second live key, and it existed because R8.2's catalogue is
+  # not the whole route set: R4.5 (requirements.md:330) names
   # `POST /api/v1/sessions/{pid}/terminate` — `pg_terminate_backend(pid)`, behind
   # R12.8's gate — and that path is not one of the twenty R8.2 lists at
-  # requirements.md:374, so filing it under r8.2-catalogue would attribute it to a
-  # requirement that does not name it. That is the same error the note above just
-  # corrected on /api/v1/active-queries, one direction round: there an implemented
-  # route carried an id belonging to a different feature; here a planned route would
-  # be filed in a catalogue that never asked for it. The manifest's keys are
-  # per-requirement-set (r8.2-catalogue, r8.3-promql-pair, r8.11-batched-series,
-  # r8.7-debug), so a route named by R4.5 gets an r4.5 key.
+  # requirements.md:374, so filing it under r8.2-catalogue would have attributed it
+  # to a requirement that does not name it. The key is gone now rather than marked,
+  # the rule the r8.3-promql-pair note below states: the route is in `paths`, and a
+  # planned path that is implemented is a second name for a route that exists.
   #
-  # It is planned, not implemented: R4.5's own text requires more than a handler —
-  # "requiring a confirmed UI action, audited to a log line with actor and target,
-  # and refused on a replica" — and all three of those are Phase 6a's remaining
-  # scope. R4.1's route is live without it: the `Action` column R4.1 requires renders
-  # `disabled` (active_queries.go's actionFor) precisely so the column is not blank
-  # while the action behind it is unbuilt.
-  r4.5-actions:
-    - /api/v1/sessions/{pid}/terminate      # R4.5, R12.8 (POST)
+  # The note here also used to say the route was "planned, not implemented: R4.5's
+  # own text requires more than a handler — 'requiring a confirmed UI action, audited
+  # to a log line with actor and target, and refused on a replica' — and all three of
+  # those are Phase 6a's remaining scope." All three are in the handler now
+  # (internal/api/sessions.go): the confirmation arrives as `?confirm=true`, the only
+  # server-side form a UI dialog can take; the audit line and the response body are
+  # written from one read of actor and target, which is what stops R4.5's two copies
+  # of those two values from disagreeing; and the replica refusal is the source's
+  # answer, mapped to the same 403 as the config gate for the reason the handler's
+  # header gives. The sentence about R4.1's `Action` column rendering `disabled`
+  # "while the action behind it is unbuilt" is the one this commit makes false: the
+  # column now reads `terminate` whenever --allow-actions names it, from the same
+  # actionFor call this route's gate makes.
   # r8.3-promql-pair was the second entry here: /api/v1/metrics/query and
   # /api/v1/metrics/system, GET|POST each. Both moved up to `paths` when R8.3
   # landed, so the entry is gone rather than marked — a planned-path that is
@@ -2308,14 +2432,16 @@ components:
               code: InvalidRequest
               message: 'invalid limit: 5000 exceeds the maximum of 500 (R8.10)'
               details: []
-    # R8.5's enum has ten codes and this block had six; `NotFound` is the
-    # seventh, added with the route that emits it. The remaining three are
-    # deliberately absent rather than pending: `MethodNotAllowed` is a status
-    # ServeMux itself returns (every registered pattern answers 405 for the
-    # other methods, which server_test.go asserts) and carries no body worth
-    # documenting; `Unsupported` and `Internal` have no emitting route yet, and
-    # documenting a response no path references is the prose kind of contract
-    # that goes stale silently.
+    # R8.5's enum has ten codes and this block has eight. `NotFound` was the
+    # seventh, added with the route that emits it; `Unsupported` is the eighth,
+    # added with R4.5's terminate route, which emits it twice (the gate off and
+    # a replica) and is the reason the entry exists now rather than earlier. The
+    # remaining two are deliberately absent rather than pending:
+    # `MethodNotAllowed` is a status ServeMux itself returns (every registered
+    # pattern answers 405 for the other methods, which server_test.go asserts)
+    # and carries no body worth documenting; `Internal` has no emitting route
+    # yet, and documenting a response no path references is the prose kind of
+    # contract that goes stale silently.
     NotFound:
       description: |
         The object does not exist (R8.5 `NotFound`). On a detail route this is
@@ -2426,6 +2552,24 @@ components:
             error:
               code: PromQLUnavailable
               message: 'query "sum(node_load1)" is not in the /api/v1/metrics/query catalogue and no Prometheus is configured to evaluate it (R8.3)'
+              details: []
+    Unsupported:
+      description: |
+        The feature is gated off by config (R8.5 `Unsupported`). One route emits
+        it today and does so from two refusals: `--allow-actions` not naming
+        terminate (R12.8, off by default) and a request that reaches a replica,
+        which cannot run `pg_terminate_backend` at all. The second is not a config
+        setting, and the reason one code answers both is on the route's own
+        description: R4.5 unites them in one sentence as two ways the action is
+        not available, and a client that handles one must handle the other.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error:
+              code: Unsupported
+              message: 'actions are disabled: --allow-actions does not name terminate (R12.8)'
               details: []
 
   schemas:
@@ -4259,6 +4403,51 @@ components:
             than null on the wire for the usual reason.
           items:
             $ref: '#/components/schemas/SessionView'
+
+    # ---- Session terminate (R4.5) --------------------------------------------
+
+    TerminateResponse:
+      type: object
+      description: |
+        The body of `POST /api/v1/sessions/{pid}/terminate`: the action's
+        answer, and R4.5's audit-line content, from one read.
+
+        Not an envelope, and this is the third of the project's three named
+        bodies that are not `dto.Envelope[T]` — each with its own reason on its
+        own file. R8.4's generic is the shape of a *list* route (`data` plus
+        `meta`), and `meta.truncated` has no meaning for a single object, so
+        wrapping one would put a page where there is nothing to page. The
+        precedent for a non-list body is `api.VersionResponse`; the precedent
+        for a list route that still names its body is
+        `dto.ActiveQueriesResponse`, forced by R4.1's scorecard.
+
+        `actor` and `target` are in the body because R4.5 requires them in the
+        audit log line. The handler reads them once and writes them to both the
+        line and this response, which is the only reason the two can disagree
+        about who terminated what — and the reason they do not.
+      required: [pid, terminated, actor, target]
+      properties:
+        pid:
+          type: integer
+          description: |
+            The backend pid the action was performed on, echoed from the path.
+        terminated:
+          type: boolean
+          description: |
+            pg_terminate_backend's return value: whether the termination signal
+            reached the backend. False on a 200 means the session was already
+            gone, which is a different fact from an error and is why it is a
+            field rather than folded into the status code.
+        actor:
+          type: string
+          description: |
+            The authenticated caller R4.5 requires the audit line to name — the
+            same identity the auth middleware resolved, read once and written to
+            both the log line and this body.
+        target:
+          type: string
+          description: |
+            The `<namespace>/<cluster>` pair whose instance ran the backend.
 
     # ---- Tags (R3.12, R10.3) ----------------------------------------------
 

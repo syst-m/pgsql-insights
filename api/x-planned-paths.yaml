@@ -98,26 +98,28 @@ x-planned-paths:
     - /api/v1/events                        # R8.2
     - /api/v1/explain                       # R8.2
     - /api/v1/search                        # R8.2 (?q=)
-  # r4.5-actions is the second live key, and it exists because R8.2's catalogue is
-  # not the whole route set. R4.5 (requirements.md:330) names
+  # r4.5-actions was the second live key, and it existed because R8.2's catalogue is
+  # not the whole route set: R4.5 (requirements.md:330) names
   # `POST /api/v1/sessions/{pid}/terminate` — `pg_terminate_backend(pid)`, behind
   # R12.8's gate — and that path is not one of the twenty R8.2 lists at
-  # requirements.md:374, so filing it under r8.2-catalogue would attribute it to a
-  # requirement that does not name it. That is the same error the note above just
-  # corrected on /api/v1/active-queries, one direction round: there an implemented
-  # route carried an id belonging to a different feature; here a planned route would
-  # be filed in a catalogue that never asked for it. The manifest's keys are
-  # per-requirement-set (r8.2-catalogue, r8.3-promql-pair, r8.11-batched-series,
-  # r8.7-debug), so a route named by R4.5 gets an r4.5 key.
+  # requirements.md:374, so filing it under r8.2-catalogue would have attributed it
+  # to a requirement that does not name it. The key is gone now rather than marked,
+  # the rule the r8.3-promql-pair note below states: the route is in `paths`, and a
+  # planned path that is implemented is a second name for a route that exists.
   #
-  # It is planned, not implemented: R4.5's own text requires more than a handler —
-  # "requiring a confirmed UI action, audited to a log line with actor and target,
-  # and refused on a replica" — and all three of those are Phase 6a's remaining
-  # scope. R4.1's route is live without it: the `Action` column R4.1 requires renders
-  # `disabled` (active_queries.go's actionFor) precisely so the column is not blank
-  # while the action behind it is unbuilt.
-  r4.5-actions:
-    - /api/v1/sessions/{pid}/terminate      # R4.5, R12.8 (POST)
+  # The note here also used to say the route was "planned, not implemented: R4.5's
+  # own text requires more than a handler — 'requiring a confirmed UI action, audited
+  # to a log line with actor and target, and refused on a replica' — and all three of
+  # those are Phase 6a's remaining scope." All three are in the handler now
+  # (internal/api/sessions.go): the confirmation arrives as `?confirm=true`, the only
+  # server-side form a UI dialog can take; the audit line and the response body are
+  # written from one read of actor and target, which is what stops R4.5's two copies
+  # of those two values from disagreeing; and the replica refusal is the source's
+  # answer, mapped to the same 403 as the config gate for the reason the handler's
+  # header gives. The sentence about R4.1's `Action` column rendering `disabled`
+  # "while the action behind it is unbuilt" is the one this commit makes false: the
+  # column now reads `terminate` whenever --allow-actions names it, from the same
+  # actionFor call this route's gate makes.
   # r8.3-promql-pair was the second entry here: /api/v1/metrics/query and
   # /api/v1/metrics/system, GET|POST each. Both moved up to `paths` when R8.3
   # landed, so the entry is gone rather than marked — a planned-path that is

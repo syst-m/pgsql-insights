@@ -174,6 +174,7 @@ func TestRouteTable(t *testing.T) {
 		"GET /readyz",
 		"POST /api/v1/metrics/query",
 		"POST /api/v1/metrics/system",
+		"POST /api/v1/sessions/{pid}/terminate",
 	}
 	sort.Strings(want)
 	if !reflect.DeepEqual(routes, want) {
@@ -182,9 +183,10 @@ func TestRouteTable(t *testing.T) {
 	}
 
 	// The constant-resolution case, called out separately because it is the one
-	// a grep-based generator gets wrong. Nine of the twenty distinct paths in
-	// `want` are registered as a method concatenated onto a path constant — seven
-	// in server.go (ActiveQueriesPath, ClusterDetailPath, QueriesPath,
+	// a grep-based generator gets wrong. Ten of the twenty-one distinct paths
+	// in `want` are registered as a method concatenated onto a path constant
+	// — eight in server.go (ActiveQueriesPath, SessionsTerminatePath,
+	// ClusterDetailPath, QueriesPath,
 	// QuerySeriesPath, QueryDetailPath, QueryPlansPath and TagsPath, the R3.12
 	// route this commit registers) and two in promql.go (QueryMetricsPath and
 	// SystemMetricsPath, each registered twice, GET and POST) — and this loop names
@@ -201,6 +203,7 @@ func TestRouteTable(t *testing.T) {
 	// — which is the project's own R16.8 argument, turned on the test suite.
 	for _, s := range []string{
 		"GET /api/v1/active-queries",
+		"POST /api/v1/sessions/{pid}/terminate",
 		"GET /api/v1/clusters/{namespace}/{name}",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",

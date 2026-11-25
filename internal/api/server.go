@@ -204,6 +204,22 @@ type Config struct {
 	// (2b63f1e) applies here too.
 	ActiveQueries ActiveQueriesSource
 
+	// Terminate is R4.5's action (POST /api/v1/sessions/{pid}/terminate,
+	// implemented in sessions.go). It sits next to ActiveQueries because the two
+	// routes are the two halves of one requirement group: R4.1's list renders the
+	// `Action` column and R4.5's route is the action that column names, both
+	// gated by the same Actions field above through the same actionFor call.
+	//
+	// Nil selects a source that answers "this process has no SQL endpoint", which
+	// is the keyed-route rule (a request that names a pid and gets nothing has one
+	// true answer, and "no rows" is not it) rather than the list rule. In practice
+	// the default is rarely reached, because Actions defaults to empty and the
+	// gate is checked before the source is consulted: a stock server answers 403
+	// Unsupported. The field exists so the documented route is registered and
+	// answering for the wrong reason-free R14.7 reason on a process that serves
+	// the API without collecting.
+	Terminate TerminateSource
+
 	// Tags is R3.12's tag rollups (GET /api/v1/insights/tags, implemented in
 	// tags.go). Nil selects the empty source, so the route answers 200 with an
 	// empty list — the list-route rule Queries and ActiveQueries follow, not the
@@ -434,6 +450,15 @@ func (s *Server) Handler() http.Handler {
 	// `# R3.11` until this commit moved it up to `paths` with the id corrected
 	// (active_queries.go's header gives the reason the correction is not cosmetic).
 	mux.HandleFunc("GET "+ActiveQueriesPath, s.handleActiveQueries)
+	// R4.5's terminate action (sessions.go), registered next to R4.1's list for
+	// the reason the two files give: the list's `Action` column and this route are
+	// one requirement group's two halves, both gated by the Actions field through
+	// the same actionFor call. POST only — active_queries.go's header rules that
+	// the terminate action "is not a verb on this route", so the two requirements
+	// get two paths, which is how R8.2 counts them. The path comes from
+	// SessionsTerminatePath so this line, the annotation entry and
+	// sessions_test.go's pairing test cannot drift apart.
+	mux.HandleFunc("POST "+SessionsTerminatePath, s.handleTerminateSession)
 	mux.HandleFunc("GET /api/v1/clusters", s.handleClusters)
 	// R8.2's `/clusters/{ns}/{name}` (cluster_detail.go) — Phase 5's first new
 	// route. Same inline-listing reason as the series route below, and the path
