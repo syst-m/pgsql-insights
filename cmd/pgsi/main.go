@@ -558,7 +558,7 @@ func runServe(args []string) int {
 		// --credential-password), so the process has one answer to "who do we
 		// connect as" rather than one per consumer. It is nil when kc has no
 		// clientset, and newRegistry treats a nil opener as "no SQL collectors"
-		// rather than as seven collectors that fail every round.
+		// rather than as eight collectors that fail every round.
 		opener := newSQLOpener(kc, collector.ConnConfig{
 			Secret:   *sf.credSecret,
 			Username: *sf.credUser,
@@ -800,12 +800,13 @@ func openStoreFile(path string) (sinkBundle, error) {
 // newRegistry builds this process's collector set: the []Collector argument
 // R2.1's registry takes, with R2.3's overrides applied over each Descriptor.
 //
-// It holds eight collectors when the opener is non-nil and one when it is nil,
+// It holds nine collectors when the opener is non-nil and one when it is nil,
 // and the two shapes exist because the two halves of §3.3 have different
 // dependencies.
 //
-// The seven SQL collectors — activity, database, locks, replication, settings,
-// statements and wal — all take an `opener SQLOpener` as their first argument,
+// The eight SQL collectors — activity, database, io, locks, replication,
+// settings, statements and wal — all take an `opener SQLOpener` as their first
+// argument,
 // and for most of this repository's life there was no value to pass them: the
 // paragraph documenting the SQL seam (sql.go:34-48, inside
 // DefaultStatementTimeout's docblock) declared the seam an interface precisely
@@ -820,7 +821,7 @@ func openStoreFile(path string) (sinkBundle, error) {
 // require block listed five modules. Prose describing its own file has no
 // checker, so the only cheap moment to fix it is the commit that makes it false.
 //
-// The pooler is the eighth and is constructible independently: NewPoolerCollector
+// The pooler is the ninth and is constructible independently: NewPoolerCollector
 // takes a MetricsFetch, and pooler.go:51-54 says the production implementation
 // "is a method value — kube.Client.GetDirect(ctx, url) has exactly this signature
 // (client.go:300) — so wiring it in cmd/pgsi is `kube.GetDirect` with no
@@ -849,12 +850,12 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 	}
 	collectors := []collector.Collector{pooler}
 
-	// The seven SQL collectors ride the opener, and the nil check is the reason
-	// the signature has an opener parameter at all. Each of the seven constructors
+	// The eight SQL collectors ride the opener, and the nil check is the reason
+	// the signature has an opener parameter at all. Each of the eight constructors
 	// is `func NewXCollector(opener SQLOpener, cfg SQLConfig) *XCollector` — one
 	// return value, no error — so each accepts a nil opener at construction and
-	// only fails when Collect runs. Registering seven collectors that cannot
-	// collect would turn a wiring gap into eight error logs per round on a healthy
+	// only fails when Collect runs. Registering eight collectors that cannot
+	// collect would turn a wiring gap into nine error logs per round on a healthy
 	// /metrics endpoint, which is R8.7's shape (a process that answers 200 and is
 	// not actually working) reproduced inside the registry. Gating here makes the
 	// registry's contents say what the process can actually do.
@@ -871,6 +872,7 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 			collector.NewPoolerClientsCollector(opener, cfg),
 			collector.NewActivityCollector(opener, cfg),
 			collector.NewDatabaseCollector(opener, cfg),
+			collector.NewIOCollector(opener, cfg),
 			collector.NewLocksCollector(opener, cfg),
 			collector.NewReplicationCollector(opener, cfg),
 			collector.NewSettingsCollector(opener, cfg),
