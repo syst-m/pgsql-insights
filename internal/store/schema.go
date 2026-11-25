@@ -368,7 +368,7 @@ CREATE TABLE IF NOT EXISTS plan_change (
 // R3.12's comment-grammar parser -- not this phase's statement store, which is
 // why the write path (PutDimensionRollups) takes the dimensions as data rather
 // than growing a tag-specific method the parser's owner has not asked for.
-// R3.13:317's --record-client-address gates kind='client_address' rows, and
+// R3.13:318's --record-client-address gates kind='client_address' rows, and
 // client_address is the column those rows render: the first version of this table
 // had a column for three of R3.7's four dimensions and a kind for all four, so the
 // fourth kind's rows had a hash and no value.
