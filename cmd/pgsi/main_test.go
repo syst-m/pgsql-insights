@@ -166,11 +166,20 @@ func TestNewRegistryOverrideNamesAnUnregisteredCollector(t *testing.T) {
 
 // TestOpenSinkProfiles pins the two shapes --store resolves to, which is the
 // half of R11.6's profile pair that cmd/pgsi owns: the memory profile fills two
-// of the three api.Config fields and leaves R9.5's family nil, and a file store
-// fills all three from one handle. The "sqlite" profile word itself is not
-// exercised here because it resolves to defaultStoreFile, a path that exists
-// only where the chart's PVC is mounted; the arm's body is openStoreFile, which
-// the explicit-path subtest covers directly.
+// of the seven api.Config fields and leaves R9.5's family and the four read
+// routes nil, and a file store fills all seven from one handle. The "sqlite"
+// profile word itself is not exercised here because it resolves to
+// defaultStoreFile, a path that exists only where the chart's PVC is mounted;
+// the arm's body is openStoreFile, which the explicit-path subtest covers
+// directly.
+//
+// The four read-side assertions are the point of the file-store subtest rather
+// than a rounding of it: the store has implemented QueryList, QuerySeries,
+// QueryDetail and Tags since Phase 3, cmd/pgsi has had seven fields to assign
+// them to since then, and nothing assigned them, so the routes were documented,
+// mounted, tested against a stub, and empty in the binary. Assigning a field
+// whose type the compiler checks is the fix; asserting it here is what stops the
+// next field added to api.Config from being the next one nobody notices.
 func TestOpenSinkProfiles(t *testing.T) {
 	t.Run("memory", func(t *testing.T) {
 		b, err := openSink(defaultStoreProfile)
@@ -185,6 +194,25 @@ func TestOpenSinkProfiles(t *testing.T) {
 		}
 		if b.perQuery != nil {
 			t.Errorf("perQuery = %v, want nil (MemSink has no RenderPerQuery, so R9.5's family is absent)", b.perQuery)
+		}
+		// All four read views are nil here for the same reason perQuery is: a
+		// MemSink holds samples, not the normalised rows the routes serve. The
+		// assertion is that they are the *plain* nil, not a typed nil — a typed
+		// nil in an interface field is not == nil (2b63f1e's caveat), and the four
+		// api accessors would then hand a nil *store.Store to a route instead of
+		// their documented empty source.
+		for _, f := range []struct {
+			name string
+			got  any
+		}{
+			{"queries", b.queries},
+			{"series", b.series},
+			{"detail", b.detail},
+			{"tags", b.tags},
+		} {
+			if f.got != nil {
+				t.Errorf("%s = %v, want nil (MemSink implements no read route)", f.name, f.got)
+			}
 		}
 		if b.close != nil {
 			t.Error("close is set, want nil (a MemSink owns no handle to close)")
@@ -204,6 +232,22 @@ func TestOpenSinkProfiles(t *testing.T) {
 		if b.sink == nil || b.storeSize == nil || b.perQuery == nil {
 			t.Errorf("file profile filled sink=%v storeSize=%v perQuery=%v, want all three non-nil",
 				b.sink != nil, b.storeSize != nil, b.perQuery != nil)
+		}
+		// The four read routes. Each field's type is the api interface, so the
+		// compiler already proved *store.Store satisfies it; what this loop pins is
+		// that openStoreFile *assigns* it, which is the half that was missing.
+		for _, f := range []struct {
+			name string
+			got  any
+		}{
+			{"queries", b.queries},
+			{"series", b.series},
+			{"detail", b.detail},
+			{"tags", b.tags},
+		} {
+			if f.got == nil {
+				t.Errorf("%s = nil, want the same *store.Store the sink fields use", f.name)
+			}
 		}
 		if b.close == nil {
 			t.Error("close = nil, want *store.Store's Close")

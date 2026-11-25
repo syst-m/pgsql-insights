@@ -722,7 +722,7 @@ const defaultStoreFile = "/var/lib/pgsi/store.db"
 
 // sinkBundle is one store resolved into every api.Config field that reads it.
 //
-// The three fields are separate types — collector.Sink for the scheduler,
+// The first three fields are separate types — collector.Sink for the scheduler,
 // metrics.StoreSizer for R13.5's gauge, metrics.PerQueryFamily for R9.5's
 // family — and a process that fills them with three different objects reports
 // the size of one store while serving queries from another.
@@ -740,6 +740,21 @@ type sinkBundle struct {
 	storeSize metrics.StoreSizer
 	perQuery  metrics.PerQueryFamily
 
+	// The four Phase 3 read-side views of the same handle: R3.2's query list,
+	// R3.9's series, R3.13's detail and R3.11's tags. They are in this struct for
+	// the reason the three above are — api.Config names one field per route and
+	// each docblock says "Phase 3's query store replaces the default by assigning
+	// this field", the store shipped, and nothing in cmd/pgsi did the assigning, so
+	// a SQLite-backed process served emptyQuerySource on four documented routes
+	// while holding the rows it serves. Declaring them as the api interface types
+	// rather than as *store.Store keeps each assignment a compile-time check that
+	// the store satisfies that route's contract, which is the argument the three
+	// fields above give for their own types.
+	queries api.QueryListSource
+	series  api.QuerySeriesSource
+	detail  api.QueryDetailSource
+	tags    api.TagsSource
+
 	// close is the SQLite handle's Close, nil for the memory profile because a
 	// collector.MemSink owns no file. A func field rather than an io.Closer
 	// assertion so the nil case is a nil check, not a type switch.
@@ -754,7 +769,9 @@ type sinkBundle struct {
 //   - "memory" (case-insensitive) → collector.NewMemSink(0), R13.5's ring-buffer
 //     store at its own DefaultMaxBytes. R9.5's family is nil here: MemSink has no
 //     RenderPerQuery to offer, so the field stays nil and /metrics renders the
-//     family absent.
+//     family absent. The four read-side views are nil for the same reason — a
+//     MemSink holds samples, not the normalised query rows R3.2's route serves —
+//     and api's accessors turn each nil into its documented empty source.
 //   - "sqlite" / "sqlite:" (case-insensitive) → the §3.4:218 profile at
 //     defaultStoreFile, the path the chart's PVC mounts. All three fields fill
 //     from the one *store.Store. The trailing-colon spelling is accepted because
@@ -786,15 +803,23 @@ func openSink(spec string) (sinkBundle, error) {
 	}
 }
 
-// openStoreFile fills all three fields from one *store.Store, which is the whole
-// point: the sink the scheduler writes to, the gauge /metrics reads, and the
-// family R9.5 renders are one handle, opened once, closed once.
+// openStoreFile fills all seven fields from one *store.Store, which is the whole
+// point: the sink the scheduler writes to, the gauge /metrics reads, the family
+// R9.5 renders and the four read routes the API serves are one handle, opened
+// once, closed once. Splitting the write side from the read side — a store the
+// scheduler fills and a second store the routes read — is the shape the struct's
+// docblock refuses, and it is the shape the four read fields had before this
+// function filled them: the store existed, the assignment did not.
 func openStoreFile(path string) (sinkBundle, error) {
 	st, err := store.Open(store.Config{Path: path})
 	if err != nil {
 		return sinkBundle{}, err
 	}
-	return sinkBundle{sink: st, storeSize: st, perQuery: st, close: st.Close}, nil
+	return sinkBundle{
+		sink: st, storeSize: st, perQuery: st,
+		queries: st, series: st, detail: st, tags: st,
+		close: st.Close,
+	}, nil
 }
 
 // newRegistry builds this process's collector set: the []Collector argument
