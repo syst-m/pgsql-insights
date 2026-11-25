@@ -307,6 +307,39 @@ func TestPGMajorSources(t *testing.T) {
 	}
 }
 
+// TestPGMajorIgnoresOtherClustersPods is the live-fleet regression. BuildCluster
+// is handed the namespace snapshot's whole pod list (discovery.go's
+// `Pods: snap.pods`), and with no --namespaces that snapshot is every pod in the
+// cluster. Iterating it unfiltered let a cluster read a neighbour's
+// app.kubernetes.io/version, and the deployed instance reported
+// open-webui/open-webui-pg — image postgresql:16, both its pods labelled 16 — as
+// pgMajor 17, because the first parseable label in the list belonged to a PG-17
+// pod. The membership rule applied here is splitPods' own.
+func TestPGMajorIgnoresOtherClustersPods(t *testing.T) {
+	c := clusterCR("ns", "owui", map[string]any{"imageName": "ghcr.io/cloudnative-pg/postgresql:16"}, nil)
+	pods := []corev1.Pod{
+		// A neighbour's pod, first in the list: pre-fix this is the pod that
+		// answers, and it answers 17.
+		{ObjectMeta: metav1.ObjectMeta{
+			Name: "other-pg-1", Namespace: "ns",
+			Labels: map[string]string{labelCluster: "other", labelPodRole: "instance", labelK8sVersion: "17"},
+		}},
+		{ObjectMeta: metav1.ObjectMeta{
+			Name: "owui-pg-1", Namespace: "ns",
+			Labels: map[string]string{labelCluster: "owui", labelPodRole: "instance", labelK8sVersion: "16.11"},
+		}},
+	}
+	v, err := BuildCluster(ClusterInputs{Cluster: c, Pods: pods})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.PGMajor == nil || *v.PGMajor != 16 || v.PGVersionDetail != "16.11" {
+		t.Errorf("pgMajor=%v detail=%q, want 16/16.11: the version must come from this "+
+			"cluster's own pods, not from the first pod in the namespace snapshot",
+			v.PGMajor, v.PGVersionDetail)
+	}
+}
+
 // TestPGMajorFromVersion pins the parser that keeps the 16-vs-17 distinction
 // honest across every source's spelling.
 func TestPGMajorFromVersion(t *testing.T) {

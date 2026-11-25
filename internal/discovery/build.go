@@ -190,8 +190,21 @@ func clusterImage(cr *unstructured.Unstructured) string {
 // which the DTO renders as JSON null — a 0 would look like PostgreSQL 0.
 func resolvePGVersion(in ClusterInputs) *PGVersion {
 	// 1. The pod label (R1.3's first choice). Any instance pod answers for the
-	// whole cluster: CNPG pins one image per cluster.
+	// whole cluster: CNPG pins one image per cluster — but only a pod OF this
+	// cluster. in.Pods is the namespace snapshot's whole pod list
+	// (discovery.go's `Pods: snap.pods`), and with no --namespaces the snapshot
+	// is every pod in the fleet, so an unfiltered loop let a cluster inherit a
+	// neighbour's version: the deployed instance reported
+	// open-webui/open-webui-pg — image postgresql:16, both its pods labelled
+	// 16 — as pgMajor 17, because the first parseable label in the list
+	// belonged to a PG-17 pod. The membership rule is splitPods' own, restated
+	// rather than reused because splitPods returns DTO rows and pooler pods,
+	// not the instance pods whose label R1.3 names.
 	for i := range in.Pods {
+		if in.Pods[i].Labels[labelCluster] != "" &&
+			in.Pods[i].Labels[labelCluster] != in.Cluster.GetName() {
+			continue
+		}
 		if v := in.Pods[i].Labels[labelK8sVersion]; v != "" {
 			if major, ok := pgMajorFromVersion(v); ok {
 				return &PGVersion{Major: major, Detail: v, Source: "label"}
