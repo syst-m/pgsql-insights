@@ -129,7 +129,7 @@ const VIEWPORT_HEIGHT = 640;
 // file first carried: with `verbatimModuleSyntax: true` a type-only specifier
 // emits no runtime import, so a local `const TAG_NOUN: BannerNoun` annotated
 // from a type import was a second copy of a value the envelope file exports.
-// The `copyFor(…, TAGS_COPY, TAG_NOUN)` call at `:203` is unchanged by the swap
+// The `copyFor(…, TAGS_COPY, TAG_NOUN)` call at `:235` is unchanged by the swap
 // — the two definitions were byte-identical.
 
 /** The page's column set: `TagView`'s eighteen json tags, in the order the
@@ -653,7 +653,7 @@ export function useTagsFetch(cfg: ClientConfig, params: TagsParams | null): UseT
    *  a dep of `load`, or every fetch produces a new `load`, the effect re-runs,
    *  and the page refetches forever. And the `key` half is what separates the
    *  two cases `params` identity conflates: the caller memoises with
-   *  `useMemo(..., [state])` (`:178`), which keys on the whole `UrlState`, so
+   *  `useMemo(..., [state])` (`:187`), which keys on the whole `UrlState`, so
    *  patching *any* other URL param yields a new `params` for the same cluster.
    *  Same subject → hold the rows while the refetch is in flight; different
    *  subject → drop them, because cluster a's rows under cluster b's title is
