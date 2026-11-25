@@ -209,9 +209,9 @@ export function routeCluster(resp: QueryResponse, state: UrlState): string {
  *  renders that as the plain empty rather than R10.27's screen.
  *
  *  The route's databases are every row whose `namespace`/`cluster` pair matches
- *  `routeCluster`, so a cluster-scoped URL joins to that cluster's rows and a
- *  namespace-filtered one joins to every cluster in the namespace it filtered
- *  to. A payload with rows for other clusters only is the empty answer above. */
+ *  `routeCluster` — exactly one pair: `web/src/state/urlState.ts:60` types
+ *  `cluster` as a single "namespace/name" string, so a namespace filter picks
+ *  which cluster the URL names, never widens the join (S125). */
 export function resolveExtensionInstalled(
   resp: QueryResponse,
   state: UrlState,
