@@ -13,22 +13,80 @@
 
 import { expect, test } from "@playwright/test";
 
-/** R10.12's named states plus the detail route, as URLs. */
-const SCREENS: readonly { name: string; url: string }[] = [
-  { name: "fleet", url: "/?fixture=fleet" },
-  { name: "empty", url: "/?fixture=empty" },
-  { name: "partial", url: "/?fixture=partial" },
-  { name: "unavailable", url: "/?fixture=unavailable" },
+// `import type` so this import is erased: a value import of `client.ts` would
+// pull `fixtures.ts` into the spec's runtime, and `fixtures.ts`'s JSON imports
+// carry no `with { type: "json" }` attribute, which Node's ESM loader (the
+// runtime Playwright transpiles specs into) refuses. The type is what the
+// SCREENS table needs; the payload itself is never called here.
+import type { FixtureName } from "../src/api/client";
+// The R16.8 contract file, imported rather than retyped — see the query-detail
+// entry below. The attribute is what makes the same import work in Node and in
+// Vite; `fixtures.ts:80` (`FIXTURE_QUERY_DETAIL`) is the app-side alias for it.
+import apiQueryDetailJson from "../../testdata/api/query-detail.json" with { type: "json" };
+
+/** One screenshot target: the name the baseline png is keyed on, and the URL
+ *  that reaches it. */
+interface Screen {
+  readonly name: string;
+  readonly url: string;
+}
+
+/** Build a screen URL so the `?fixture=` half is typed rather than typed out.
+ *
+ *  `fixture` is `FixtureName` (`web/src/api/client.ts:88` (`FixtureName`)) — the
+ *  client's own union, the one `urlState.ts`'s `fixtureFlag` parses a URL into.
+ *  Naming a fixture the API layer doesn't have used to be a string this file
+ *  could get wrong in silence: the app falls back to a default payload, the
+ *  screenshot matches the baseline it was cut from, and the test stays green
+ *  while screenshotting a state it thinks it deleted. With the union imported —
+ *  and `web/tsconfig.json` (`include`) covering this directory, which is what
+ *  makes the import load-bearing rather than decorative, since Playwright
+ *  transpiles specs with esbuild and typechecks nothing — a fixture name that
+ *  is not in the contract is a `tsc` error.
+ */
+const screen = (name: string, path: string, fixture: FixtureName, extra = ""): Screen => ({
+  name,
+  url: `${path}?fixture=${fixture}${extra}`,
+});
+
+/** Every route `web/src/routes.ts` (`ROUTES`) has a component for, plus the
+ *  R10.12 named states of the fleet route, plus one placeholder. Which routes
+ *  have components is the route table's answer, so this list names routes and
+ *  never restates a count (docs/agents.md §5 rule 10). */
+const SCREENS: readonly Screen[] = [
+  screen("fleet", "/", "fleet"),
+  screen("empty", "/", "empty"),
+  screen("partial", "/", "partial"),
+  screen("unavailable", "/", "unavailable"),
   // `?delay=` holds the fetch open so the loading panel is on screen when the
   // screenshot is taken; without it the fixture resolves in 60ms and the
   // capture races it.
-  { name: "loading", url: "/?fixture=fleet&delay=60000" },
-  { name: "detail", url: "/c/freeidp/freeidp-pg?fixture=fleet" },
+  screen("loading", "/", "fleet", "&delay=60000"),
+  screen("detail", "/c/freeidp/freeidp-pg", "fleet"),
   // R10.6's page, screenshotted now that routes.ts mounts a component there.
   // The page reads a QueryResponse and takes its own fixture when the URL names
   // none, so `?fixture=fleet` here is for the shell's benefit — the nav and the
   // theme — not the page's.
-  { name: "queries", url: "/c/freeidp/freeidp-pg/queries?fixture=fleet" },
+  screen("queries", "/c/freeidp/freeidp-pg/queries", "fleet"),
+  // R10.7's page. The fingerprint is the fixture's own, imported rather than
+  // retyped: `web/src/api/client.ts:387` (`fetchQueryDetail`) answers every
+  // fingerprint on the fixture arm with `FIXTURE_QUERY_DETAIL`, so a stale copy
+  // of the string here would still render — the URL would name one query and the
+  // page would show another, which is a screenshot of a state nobody asked for.
+  // The cluster is the fixture's too (open-webui/open-webui-pg), because the
+  // detail route's (namespace, cluster, fingerprint) triple is the key.
+  screen(
+    "query-detail",
+    `/c/open-webui/open-webui-pg/queries/${apiQueryDetailJson.fingerprint}`,
+    "fleet",
+  ),
+  // R10.8's active-queries page (Phase 6a) and R10.9's tag browser (Phase 5).
+  // Both have components now, and both ignore their params on the fixture arm
+  // (`web/src/api/client.ts:559` (`fetchActiveQueries`),
+  // `web/src/api/client.ts:522` (`fetchTags`)), so the cluster here is the one
+  // the rest of the suite uses rather than one the fixtures name.
+  screen("active", "/c/freeidp/freeidp-pg/active", "fleet"),
+  screen("tags", "/c/freeidp/freeidp-pg/tags", "fleet"),
   // R10.3's page set is fourteen pages; the ones with components render, the
   // rest render the placeholder, and R16.7 screenshots one placeholder so the
   // shell itself is covered — the nav's links and the card that names the phase.
@@ -37,7 +95,7 @@ const SCREENS: readonly { name: string; url: string }[] = [
   // a route still without a component, which is why it moved off `/queries`
   // when that page got one. routes.test.tsx renders every planned route;
   // screenshotting near-identical cards would grow the matrix, not the coverage.
-  { name: "planned", url: "/c/freeidp/freeidp-pg/databases?fixture=fleet" },
+  screen("planned", "/c/freeidp/freeidp-pg/databases", "fleet"),
 ];
 
 /** Font antialiasing differs a little between machines and OS versions; a
@@ -45,11 +103,11 @@ const SCREENS: readonly { name: string; url: string }[] = [
  *  (a missing column, a wrong colour) slip under it. */
 const SHOT = { fullPage: true, maxDiffPixelRatio: 0.01 } as const;
 
-for (const screen of SCREENS) {
-  test(`renders the ${screen.name} state`, async ({ page }) => {
-    await page.goto(screen.url);
+for (const entry of SCREENS) {
+  test(`renders the ${entry.name} state`, async ({ page }) => {
+    await page.goto(entry.url);
     await expect(page.locator("main")).toBeVisible();
-    await expect(page).toHaveScreenshot(`fleet-${screen.name}.png`, SHOT);
+    await expect(page).toHaveScreenshot(`fleet-${entry.name}.png`, SHOT);
   });
 }
 
