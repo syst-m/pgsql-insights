@@ -1060,7 +1060,7 @@ its §8 acceptance as not yet passing live, and does not record a cause it has n
 `sslmode=verify-ca` (`internal/collector/pgxopener/pgxopener.go:223`) while the package handed pgx
 no trust anchors, so pgx's verify-ca branch built `x509.VerifyOptions{Roots: tlsConfig.RootCAs}`
 from a nil `RootCAs` and every round failed; the fix reads the `<cluster>-ca` secret's PEM and
-installs it (`ReadCA`, `internal/collector/pgxopener/pgxopener.go:135`). Filed as **A3's S115**.
+installs it (`ReadCA`, `internal/collector/pgxopener/pgxopener.go:133`). Filed as **A3's S115**.
 Its scope is the SQL path — nine `Begin` sites (`io.go:211`, `wal.go:165`, `locks.go:298`,
 `activity.go:322`, `database.go:163`, `pooler_clients.go:280`, `settings.go:116`,
 `replication.go:176`, `internal/collector/statements.go:487`) — and not the pooler, whose source is an HTTP inventory
