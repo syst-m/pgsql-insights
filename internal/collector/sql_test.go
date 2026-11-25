@@ -334,6 +334,12 @@ func TestUnqualifiedCall(t *testing.T) {
 		{"pg_catalog.f(x) + g(y)", "g"},
 		{"pg_catalog.f(x) + other.g(y)", "other.g"},
 		{"7up(x)", "7up"}, // a name starting with a digit is not a valid identifier
+		// S143: the identifier left of the "(" is SQL syntax, not a callee.
+		{"coalesce(a, b)", ""},
+		{"NULLIF(a, b)", ""}, // folded: the scan hands isSQLKeyword the raw bytes
+		{"CASE WHEN x THEN (SELECT 1) END", ""},
+		{"greatest(a, b)", "greatest"},                        // a real pg_catalog function, so still reported
+		{"other_schema.coalesce(x)", "other_schema.coalesce"}, // a dot wins over the keyword rule
 	}
 	for _, tc := range cases {
 		if got := unqualifiedCall(tc.expr); got != tc.want {

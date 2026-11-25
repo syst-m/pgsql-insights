@@ -422,6 +422,71 @@ func knownSchema(schema string) bool {
 	return false
 }
 
+// sqlKeywords is the closed set of words that can sit immediately left of a "(" in
+// valid SQL without being a callee, and it is S143's fix.
+//
+// Without it the byte scan reads SQL's own syntax as a function call. In
+// "CASE WHEN x IS NULL THEN (SELECT …) END" the identifier before the subselect's
+// "(" is "THEN"; in "coalesce(a, b)" it is "coalesce". Neither is a function, so
+// neither can be schema-qualified, and both used to be returned as unqualified calls
+// — the false positives bloat.go:120 documents and works around by writing the
+// default branch as 0 + (…) instead of a bare subselect.
+//
+// Membership rule: a word is in the set when Postgres treats it as syntax with no
+// callable pg_catalog counterpart. That is the discriminator the finding names.
+// COALESCE and NULLIF are SQL-standard conditional expressions — there is no
+// pg_catalog.coalesce to qualify them with (bloat.go:120), so they are in. GREATEST
+// and LEAST are real pg_catalog functions — bloat.go:201's pg_catalog.greatest(...)
+// passes the check — so they are out, and a bare greatest(a, b) is still reported.
+// The same rule keeps substring, trim, overlay, position and extract out despite
+// being keywords: each has a pg_catalog implementation, which is exactly what makes
+// the bare form shadowable and therefore worth reporting.
+//
+// The set is Postgres's reserved words (both reserved columns of Appendix C) plus
+// coalesce and nullif. It is not a grammar and never needs to be: the scan consults
+// it only for an identifier it has already found before a "(", so listing a word
+// that never appears in that position costs nothing, while listing a word that IS a
+// function costs a false negative. That asymmetry is why the list is grouped by
+// category here rather than pasted as one flat word list.
+//
+// It is a map where knownSchemas is a slice because it has 94 members instead of
+// two; the loop in knownSchema is fine for two and noise for 94.
+var sqlKeywords = map[string]struct{}{
+	// Postgres's reserved words (Appendix C, "reserved").
+	"all": struct{}{}, "analyse": struct{}{}, "analyze": struct{}{}, "and": struct{}{}, "any": struct{}{},
+	"array": struct{}{}, "as": struct{}{}, "asc": struct{}{}, "asymmetric": struct{}{}, "authorization": struct{}{},
+	"binary": struct{}{}, "both": struct{}{}, "case": struct{}{}, "cast": struct{}{}, "check": struct{}{},
+	"collate": struct{}{}, "collation": struct{}{}, "column": struct{}{}, "concurrently": struct{}{}, "constraint": struct{}{},
+	"create": struct{}{}, "cross": struct{}{}, "current_catalog": struct{}{}, "current_date": struct{}{}, "current_role": struct{}{},
+	"current_schema": struct{}{}, "current_time": struct{}{}, "current_timestamp": struct{}{}, "current_user": struct{}{}, "default": struct{}{},
+	"deferrable": struct{}{}, "desc": struct{}{}, "distinct": struct{}{}, "do": struct{}{}, "else": struct{}{},
+	"end": struct{}{}, "except": struct{}{}, "false": struct{}{}, "fetch": struct{}{}, "for": struct{}{},
+	"foreign": struct{}{}, "from": struct{}{}, "grant": struct{}{}, "group": struct{}{}, "having": struct{}{},
+	"in": struct{}{}, "initially": struct{}{}, "intersect": struct{}{}, "into": struct{}{}, "lateral": struct{}{},
+	"leading": struct{}{}, "limit": struct{}{}, "localtime": struct{}{}, "localtimestamp": struct{}{}, "not": struct{}{},
+	"null": struct{}{}, "offset": struct{}{}, "on": struct{}{}, "only": struct{}{}, "or": struct{}{},
+	"order": struct{}{}, "overlaps": struct{}{}, "returning": struct{}{}, "select": struct{}{}, "session_user": struct{}{},
+	"show": struct{}{}, "similar": struct{}{}, "table": struct{}{}, "then": struct{}{}, "to": struct{}{},
+	"true": struct{}{}, "union": struct{}{}, "unique": struct{}{}, "user": struct{}{}, "using": struct{}{},
+	"variadic": struct{}{}, "when": struct{}{}, "where": struct{}{}, "window": struct{}{}, "with": struct{}{},
+	// Appendix C, "reserved (can be function or type name)", minus the members
+	// that name a pg_catalog function and so stay reportable.
+	"freeze": struct{}{}, "ilike": struct{}{}, "is": struct{}{}, "isnull": struct{}{}, "join": struct{}{},
+	"notnull": struct{}{}, "tablesample": struct{}{}, "verbose": struct{}{}, "over": struct{}{}, "partition": struct{}{},
+	"within": struct{}{}, "require": struct{}{},
+	// Non-reserved, cannot be a function or type name, and syntax not a callee.
+	"coalesce": struct{}{}, "nullif": struct{}{},
+}
+
+// isSQLKeyword reports whether name is in sqlKeywords. The comparison folds case
+// because the scan hands it the raw bytes: Postgres folds unquoted identifiers to
+// lower case, and this codebase writes SQL both ways — "CASE WHEN" in bloat.go's
+// expressions, "coalesce(" in the same file's comment at :120.
+func isSQLKeyword(name string) bool {
+	_, ok := sqlKeywords[strings.ToLower(name)]
+	return ok
+}
+
 // isIdentByte reports whether b can appear in a Postgres identifier.
 func isIdentByte(b byte) bool {
 	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
@@ -481,6 +546,8 @@ func identBefore(expr string, p int) (name string, start int) {
 //     expression, not a call)
 //   - "pg_catalog.has_database_privilege(oid, 'CONNECT')" → "" (one call; the
 //     second argument is a string literal, not a call)
+//   - "coalesce(a, b)", "CASE WHEN x THEN (SELECT 1) END" → "" (the identifier left
+//     of the "(" is a keyword from sqlKeywords, so it is syntax, not a callee — S143)
 func unqualifiedCall(expr string) string {
 	for i := 0; i < len(expr); i++ {
 		if expr[i] != '(' {
@@ -501,6 +568,9 @@ func unqualifiedCall(expr string) string {
 				continue
 			}
 			return schema + "." + name
+		}
+		if isSQLKeyword(name) {
+			continue // S143: "coalesce(a, b)" is syntax, not a call to coalesce
 		}
 		return name
 	}

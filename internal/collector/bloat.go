@@ -117,7 +117,7 @@ const bloatNextAutovacuumSQL = "pg_catalog.date_part('epoch', last_autovacuum + 
 // The threshold for one table is its own autovacuum_vacuum_threshold if the table sets
 // one in pg_class.reloptions, and the autovacuum_vacuum_threshold setting otherwise.
 // Expressing "override, else default" is what coalesce is for, and `requirements.md:368`
-// rules that coalesce cannot be written here at all: `sql.go:484`'s unqualifiedCall is a
+// rules that coalesce cannot be written here at all: `sql.go:551`'s unqualifiedCall is a
 // bare byte scan with no keyword exclusion list, so bare `coalesce(a, b)` returns
 // "coalesce" and fails validation, and `pg_catalog.coalesce(...)` is not the fix because
 // COALESCE is a SQL-standard conditional *expression* (PostgreSQL §9.22), not a
@@ -192,7 +192,7 @@ const bloatNeverAnalyzedSQL = "CASE WHEN last_analyze IS NULL AND last_autoanaly
 // filter here; R2.5's schema prefix comes from pgversion.Schema, and ValidateProjection
 // checks the three expressions themselves (D20's S10) rather than trusting this
 // paragraph — every one of them is schema-qualified, including greatest, which the
-// unqualifiedCall check at sql.go:484 inspects exactly like the other two.
+// unqualifiedCall check at sql.go:551 inspects exactly like the other two.
 var bloatSpecs = map[pgversion.View]QuerySpec{
 	pgversion.ViewStatUserTables: {
 		Extras: []Extra{

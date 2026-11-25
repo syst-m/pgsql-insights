@@ -317,15 +317,18 @@ func TestBloatR74Expressions(t *testing.T) {
 		t.Errorf("unqualifiedCall(over_autovacuum_threshold) = %q, want empty: a non-empty answer fails ValidateProjection on every round", bad)
 	}
 
-	// The trap the shape works around, asserted rather than narrated. A "(" whose left
-	// neighbour is a SQL keyword is read as a call to that keyword, so a parenthesised
-	// subselect directly after THEN is rejected as a call to THEN — which is why the
-	// default branch is 0 + (…) and not a bare subselect.
-	if got := unqualifiedCall("CASE WHEN x IS NULL THEN (SELECT y FROM pg_catalog.pg_class) END"); got != "THEN" {
-		t.Errorf(`unqualifiedCall("CASE WHEN x IS NULL THEN (SELECT y FROM pg_catalog.pg_class) END") = %q, want "THEN"`, got)
+	// S143's fix, asserted rather than narrated. Before sqlKeywords the scan read
+	// SQL's own syntax as a callee and these two returned "THEN" and "coalesce" —
+	// the false positives this file's Extra dodges by writing the default branch as
+	// 0 + (…) instead of a bare subselect. Both now return empty. The third case is
+	// unchanged on purpose: the checker accepts pg_catalog.coalesce, so the checker
+	// was never what forbade it, and pinning that keeps the fix from being mistaken
+	// for a rule that coalesce must be qualified.
+	if got := unqualifiedCall("CASE WHEN x IS NULL THEN (SELECT y FROM pg_catalog.pg_class) END"); got != "" {
+		t.Errorf(`unqualifiedCall("CASE WHEN x IS NULL THEN (SELECT y FROM pg_catalog.pg_class) END") = %q, want empty (S143: "THEN" is a keyword, not a callee)`, got)
 	}
-	if got := unqualifiedCall("coalesce(a, b)"); got != "coalesce" {
-		t.Errorf(`unqualifiedCall("coalesce(a, b)") = %q, want "coalesce" (S143: no keyword exclusion list)`, got)
+	if got := unqualifiedCall("coalesce(a, b)"); got != "" {
+		t.Errorf(`unqualifiedCall("coalesce(a, b)") = %q, want empty (S143: COALESCE is SQL-standard syntax, and there is no pg_catalog.coalesce to qualify it with)`, got)
 	}
 	if got := unqualifiedCall("pg_catalog.coalesce(a, b)"); got != "" {
 		t.Errorf(`unqualifiedCall("pg_catalog.coalesce(a, b)") = %q, want empty: the checker accepts the qualified form, so the checker is not what forbids it — Postgres does (S143)`, got)
