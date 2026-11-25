@@ -33,7 +33,7 @@ anything.
 | **Phase 0** — packaging & skeleton | ⚠️ done with deviations | A4 — this commit; ⚠️ deviations in §5 |
 | **Phase 1a** — discovery + `/api/v1/clusters` | 🔄 in progress | A1 (opus) — `362e8d3` + this commit (see §3.4's commit map); §3.4–§3.5 + §3.8, ⚠️ deviations §5-D4, D6, D16, D17 |
 | **Phase 1b** — embedded SPA + Fleet page | ✅ done | A4 (sonnet) — this commit; §3.4–§3.6, ⚠️ deviations §5-D7…D9 |
-| Phases 2–9 | 🔄 in progress (5 of 8) | see §3 |
+| Phases 2–9 | 🔄 in progress (6 of 8) | see §3 |
 | v0.1.0 release | ⬜ not started | end of Phase 9 |
 
 **What exists on disk right now:** everything Phase 0 scopes — `cmd/pgsi/`, `internal/api/`,
@@ -118,7 +118,7 @@ owners and share one validation entry.
 | **4** | ServiceMonitor/PodMonitor, PrometheusRule with `critical` tier, cardinality assertion, live scrape by the reference Prometheus | R9.1, R9.6, R9.8–R9.11, R13.3, R13.4, R16.4 | A2 | 🔄 (§3.9 — one requirement transferred, recorded there) | — — **R9.11 was taken in Phase 5**, not here: `chart/templates/prometheusrule.yaml` and the `make rules-check` target shipped in `f9aae41` and are tabled in §3.7's R9.11 row, because A4 held the ServiceMonitor/PodMonitor half of this phase and the rule set rode out with it. R14.9's per-owner rule needs this row to acknowledge the transfer rather than keep claiming a file another phase committed — an unmarked ⬜ next to a requirement that is implemented is how a requirement gets implemented twice |
 | **5** | Full API surface + OpenAPI + auth + PromQL pair + **Cluster Overview** page + remaining shell reqs (SPA shell, Fleet page and the test harness moved to **1b**) | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | 🔄 | §3.7 (the Go half: R8.1, R8.2, R8.3, R8.8, R8.9, R8.10; the R10.x page half and R8.11 are open). **A3's review of `f9aae41`** is landed here: six fixes to the two files A2 owns — four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it), plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it. **The R8.3 commit that followed** lands the PromQL pair (`internal/api/promql.go`, `internal/api/promql_catalogue.go`, `internal/api/promql_test.go`, the two `paths` entries — and `cmd/pgsi`'s `--prometheus-url`, which is **not** in that commit: `02381ba` touches seven files and `cmd/pgsi/main.go` is not one of them, the flag landed separately in `e6800c1`), R8.1's CI half (`scripts/check-openapi.py` → `make openapi-check` → a `lint`-job step), and **A5** — A3's seventh fix, dropped from their own list and forwarded afterwards: `GroupFor` classifies `/metrics/` alongside `/metrics`, so the metrics group's policy no longer hinges on a trailing slash. `internal/api/server.go`'s mount of the pair has since landed, in `362e8d3` — the §3.7 write-and-flag flag on that file is closed, and the pair's own three files are at HEAD from `02381ba` |
 | **6a** | Active queries + blocking chain + wait events + terminate + Active Queries & Wait Events pages + alerts surface | R4.1–R4.8, R10.8, R10.9, R10.25, R10.26 | A1 | ⬜ | — |
-| **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A6 | ⬜ | — |
+| **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A6 | 🔄 | §3.14 |
 | **7** | System Insights: OS + DB families, summary cards, compare-5, PNG/CSV export + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | ⬜ | — |
 | **8** | Pooler insights + bloat/autovacuum/TXID recommenders + events timeline | R6.1–R6.5, R7.2, R7.4, R7.5, R7.6, R5.9, R10.11 | A1 | ⬜ | — |
 | **9** | Docs site, runbooks, README, screenshots, lab profile, v0.1.0 release | R11.6, R11.9, R13.6, R14.3–R14.7, R15.2, R15.3 | A4 | 🔄 | — **started at `0b440df`**: R14.3's README refreshed (its status line now carries all ten phases from this table, and its API table lists every route registered at HEAD — R14.7's route half) and R14.5's dev-loop half brought in line with the Makefile's four lint deps plus the `make openapi` target that `9794560` added; `b097882` closed the `.gitignore` gap that build exposed. R14.4's `docs/` index closed at `2a645e8` (corrected at `76fe953`) — it shipped before this row was written and this row still read it as open; open: R15.2's release automation, R15.3's go-licenses audit, R13.6's kind/minikube validation, and the release itself |
@@ -1042,6 +1042,124 @@ R14.2 names the second one theirs, so this table does not flip the row it docume
 | R10.23 | Colour-blind-safe palette plus non-colour encoding: every series distinguishable in greyscale, every state conveyed by shape/icon/label as well as colour (R4.1's icons, R5.1's card states) | `web/src/styles/tokens.css` (D12's validated palette; `scripts/validate_palette.js` vendored at db41cbb); `web/src/components/StatusGlyph.tsx` (14d4df0) + test; `web/src/components/HealthBar.tsx` (f5a7635); every chart's table-view twin | **in-progress** — the palette half and the health-cell half are done and §4's D12 records the validation; §5's 1b entry names `StatusGlyph.tsx` as the interim relief with R10.23 as the requirement that generalises it, and that generalisation is the open part. Two specifics: R5.1's card states are Phase 7's, so the "every state conveyed by shape as well as colour" set is incomplete by construction; and the greyscale claim for the chart-series family is asserted per chart in the dataviz headers rather than measured — `scripts/validate_palette.js` validates the token palette and appears in neither the Makefile nor CI (0 hits in both), so it exists as a command, not as a gate. |
 | R10.27 | `pg_stat_statements` not-installed is a first-class screen, designed and tested — the product's most-seen screen in v1 given K2 | `web/src/components/ExtensionNotInstalled.tsx` (1927125) + test; `web/src/components/StatePanel.tsx:110`; `web/src/pages/Queries.tsx:236` (the `extensionInstalled?` prop) and `web/src/pages/Queries.tsx:281-282` (the read site); `web/src/pages/Tags.tsx`; `web/src/api/types.ts:525-528`; `testdata/api/queries.json` (f7b197e) | **in-progress** — A3's rule for this row. The screen exists and is tested, and the presence *type* exists, but the value is not reachable from the fetcher: `web/src/api/types.ts:525-528` says so in the file ("Not yet reachable from a fetcher. `QueryResponse` gains `pgStatStatements` in the commit that adopts the named wire body"), and `testdata/api/queries.json` has no such key, so `web/src/pages/Queries.tsx:281-282` still renders the fixture-backed response and takes the presence from the prop override. Two commits gate the flip and neither is mine: A1's fixture commit (`TestQueriesFixtureIsCanonical` at `internal/api/dto/queries_test.go:89` has to emit the key first), then A4's `types.ts` field. The third open item is a rule asked of A3: A1's rule ranks an explicit `false` above an unset row while A2's ranks nil above `false`, and `web/src/components/StatePanel.tsx:110` renders `undefined` as `empty` — the three cannot all hold, and the page's `unavailable` arm is the one that changes depending on which wins. |
 | R10.28 | Empty-state catalogue: an enumerated, designed state for every combination the reference environment produces, each with a named fixture in R16.7 | `web/src/pages/EmptyStateCatalogue.test.tsx` (0c8f53e); `web/src/components/StatePanel.tsx` (0c8f53e) | **implemented** — eight rows: the seven R10.28 enumerates (each marked `from: "spec"` and naming its R16.7 fixture) plus the Tags page's own empty state (`from: "page"`), which R10.28 does not enumerate because it is a page-level state rather than a cluster-level one. The test renders each entry through its owning component instead of asserting a list of strings, so a row naming a component that no longer renders that state fails. |
+
+### 3.14 Phase 6b validation entry (R14.2)
+
+**Scope, stated as a file list rather than as "Phase 6b reviewed."** The phase's fifty-two tracked
+files are `web/src/pages/**` (15) and `web/src/components/**` (37), listed below as generated at
+`c5d1772` by `git ls-files web/src/pages web/src/components` — the two directories
+`docs/agents.md:62` gives A6 — with each row's commit from `git log -1 --format=%h -- <path>`, so the rev is part of the
+claim. The `Findings filed` column is copied from `docs/reviews/finding-index.md`; the `Round that
+read it` column is that file's `filed in` column, with the two rows whose `filed in` cell reads
+`this review` rendered as the commit that rowed them (`7954e3a`), because a relative phrase copied
+out of the file that defines it names nothing. That leaves the column able to name a round only where
+something was filed, so the five files this round read are named whether or not they filed:
+`web/src/pages/Tags.tsx`, `web/src/pages/Tags.test.tsx`, `web/src/components/StatePanel.tsx`,
+`web/src/components/ColumnMenu.tsx` and `web/src/pages/EmptyStateCatalogue.test.tsx`, all read at
+`0c8f53e` and all byte-identical there to `c5d1772`. Six of the fifty-two rows name a round; the
+other forty-six are listed with their commits and no read claimed, which is this entry's first named
+gap and the same admission §3.12 makes for Phase 2: the phase's code was reviewed where the findings
+are and inventoried elsewhere, and an entry that claimed the fifty-two had all been read would be
+the claim-without-an-instrument this index keeps filing against other people's code.
+
+| File | Round that read it | Findings filed | Last commit touching it |
+|---|---|---|---|
+| `web/src/components/ClusterTable.tsx` | — | — | `6d78980` |
+| `web/src/components/ColumnMenu.test.tsx` | — | — | `67a299d` |
+| `web/src/components/ColumnMenu.tsx` | `7954e3a` | — | `0c8f53e` |
+| `web/src/components/ExtensionNotInstalled.test.tsx` | — | — | `1927125` |
+| `web/src/components/ExtensionNotInstalled.tsx` | — | — | `1927125` |
+| `web/src/components/HealthBar.test.tsx` | — | — | `6d78980` |
+| `web/src/components/HealthBar.tsx` | — | — | `f5a7635` |
+| `web/src/components/LatencyHistogram.test.tsx` | — | — | `73d5971` |
+| `web/src/components/LatencyHistogram.tsx` | — | — | `73d5971` |
+| `web/src/components/LoadBars.test.tsx` | — | — | `68f052d` |
+| `web/src/components/LoadBars.tsx` | — | — | `68f052d` |
+| `web/src/components/Nav.test.tsx` | — | — | `1949801` |
+| `web/src/components/Nav.tsx` | — | — | `2cbbf78` |
+| `web/src/components/PlanList.test.tsx` | — | — | `73d5971` |
+| `web/src/components/PlanList.tsx` | — | — | `73d5971` |
+| `web/src/components/PlanViewer.test.tsx` | — | — | `73d5971` |
+| `web/src/components/PlanViewer.tsx` | — | — | `73d5971` |
+| `web/src/components/QueryLoadArea.test.tsx` | — | — | `34ae29d` |
+| `web/src/components/QueryLoadArea.tsx` | — | — | `7f6f89f` |
+| `web/src/components/QueryLoadChart.test.tsx` | — | — | `d2ffbfb` |
+| `web/src/components/QueryLoadChart.tsx` | — | — | `d29e6dd` |
+| `web/src/components/QueryTable.test.tsx` | — | — | `d2ffbfb` |
+| `web/src/components/QueryTable.tsx` | — | — | `8e5d3e1` |
+| `web/src/components/RecommendationList.test.tsx` | — | — | `73d5971` |
+| `web/src/components/RecommendationList.tsx` | — | — | `73d5971` |
+| `web/src/components/ResourceLoadPanel.test.tsx` | — | — | `a107147` |
+| `web/src/components/ResourceLoadPanel.tsx` | — | — | `a107147` |
+| `web/src/components/Sparkline.test.tsx` | — | — | `729f60c` |
+| `web/src/components/Sparkline.tsx` | — | — | `962cb89` |
+| `web/src/components/StatePanel.test.tsx` | — | — | `215895d` |
+| `web/src/components/StatePanel.tsx` | `7954e3a` | S98 | `0c8f53e` |
+| `web/src/components/StatusGlyph.test.tsx` | — | — | `6892d9d` |
+| `web/src/components/StatusGlyph.tsx` | — | — | `14d4df0` |
+| `web/src/components/ThemeToggle.test.tsx` | — | — | `14d4df0` |
+| `web/src/components/ThemeToggle.tsx` | — | — | `14d4df0` |
+| `web/src/components/VirtualList.test.tsx` | — | — | `0b6bcc9` |
+| `web/src/components/VirtualList.tsx` | — | — | `0b6bcc9` |
+| `web/src/pages/ActiveQueries.test.tsx` | — | — | `7855768` |
+| `web/src/pages/ActiveQueries.tsx` | — | — | `8d777ad` |
+| `web/src/pages/ClusterDetail.test.tsx` | — | — | `b840e06` |
+| `web/src/pages/ClusterDetail.tsx` | — | — | `3feae96` |
+| `web/src/pages/EmptyStateCatalogue.test.tsx` | `7954e3a` | — | `0c8f53e` |
+| `web/src/pages/Fleet.test.tsx` | — | — | `6d78980` |
+| `web/src/pages/Fleet.tsx` | `68f052d` | S22 | `6d78980` |
+| `web/src/pages/NotImplemented.test.tsx` | — | — | `82c09f1` |
+| `web/src/pages/NotImplemented.tsx` | — | — | `af433cc` |
+| `web/src/pages/Queries.test.tsx` | — | — | `7855768` |
+| `web/src/pages/Queries.tsx` | — | — | `0544374` |
+| `web/src/pages/QueryDetail.test.tsx` | — | — | `3feae96` |
+| `web/src/pages/QueryDetail.tsx` | — | — | `3feae96` |
+| `web/src/pages/Tags.test.tsx` | `7954e3a` | — | `0c8f53e` |
+| `web/src/pages/Tags.tsx` | `7954e3a` | S96, S97 | `0c8f53e` |
+
+**Also read this round, owned by the 6a/1b half.** Phase 6b's tracked set is pages and components;
+the Tags page mounts through seven files A4 owns, and the review read them because three of the
+findings are about them rather than about A6's page.
+
+| File | Round that read it | Findings filed | Last commit touching it |
+|---|---|---|---|
+| `web/src/api/client.ts` | — | — | `e8f1005` |
+| `web/src/api/envelope.ts` | `7954e3a` | S95 | `843986b` |
+| `web/src/api/types.ts` | — | — | `1d4ea46` |
+| `web/src/routes.ts` | — | — | `843986b` |
+| `web/src/state/useActiveQueries.ts` | — | — | `df3e83b` |
+| `web/src/state/useQueries.ts` | — | — | `0effc54` |
+| `web/src/state/useQueryDetail.ts` | — | — | `0effc54` |
+**Findings.** Four rows in `docs/reviews/finding-index.md` belong to this entry: A3's S96 and A3's
+S97 against `web/src/pages/Tags.tsx` (a `load` dep array that includes the state `load` writes, so
+the hook refetches in a loop, measured at 21 calls in 30 ms with `fetchTags` mocked to return a
+fresh object; and R10.22's subject key dropped, so navigating `/c/ns/a/tags` to `/c/ns/b/tags`
+renders cluster a's rows under cluster b's header for the whole in-flight window), A3's S98 against
+`web/src/components/StatePanel.tsx` (four cites one line off plus a short count of the derivations
+that can reach `unavailable`), and A3's S95 against `web/src/api/envelope.ts`, filed earlier and
+closed at `843986b`. S96 and S97 are open; the phase cannot be marked done with two open majors in
+its newest page, and the page's suite cannot see either one — `useTagsFetch` is not exported and the
+468-line test file contains no `vi.mock` and no `toHaveBeenCalledTimes`, so the fetch path the
+component actually runs is untested at every rev this entry covers.
+
+**R14.8 rows.** Per R14.9 — one row per requirement per phase, because a second row is how a
+requirement gets two contradictory statuses — this entry adds no requirement table of its own.
+§3.13 (A6, `ee97e7f`) is Phase 6b's row set, and this entry's only change to §3's phase table is
+row 6b's own two cells: Status `⬜` → `🔄` and Validation entry `—` → §3.14. The ordering is the one
+R14.1 keeps filing people for: `0c8f53e` landed the Tags page, its suite and the StatePanel and
+ColumnMenu edits on 2026-11-24, and the §3.13 row that documents them arrived two commits later in
+`ee97e7f`, also on 2026-11-24. The review did precede this entry — `7954e3a` rowed the findings
+first, which is R14.2's order — but the code commit did not carry its IMPLEMENTATION.md update, and
+saying so here is cheaper than letting the phase table imply it did.
+
+**Ruling this entry carries.** A6 logged the R3.1 presence-ranking question in §3.13's R10.27 cell
+instead of answering it, and the answer is now in `requirements.md:306` as prose under R3.1: the
+ranking is `true` > `false` > not-known, the Go `Installed *bool` with `json:"installed,omitempty"`
+at `internal/api/dto/queries.go:298` is the contract, and `nullable: true` at
+`internal/api/openapi_annotations.go:3909` is the defect — it adds a second not-known encoding the
+Go type cannot emit, in the same package whose handler rejects `pgStatStatements: null` at
+`internal/api/queries.go:206` for exactly that reason. The ruling names no new requirement id, so it
+touches no R-number: R3.1's own sentence is what was ambiguous, and spec §11 rule 4 files it there.
 
 ## 4. Decisions log
 
