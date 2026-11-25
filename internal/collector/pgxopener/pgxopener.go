@@ -73,19 +73,17 @@ const (
 // DefaultDatabase is the database a connection string names when the target's
 // address does not carry one.
 //
-// R2.7's transaction is per view group and R3.x's statements live per database,
-// so "which database" is a real question the opener has to answer. SQLConfig has
-// no Database field yet — statements.go's own head docblock anticipates one ("When
-// SQLConfig gains A1's `Database` field and the round loop fans out to N databases
-// per round, this file does not change") — so this constant is the standing answer
-// until that field exists: CNPG's clusters always have a `postgres` database, and
-// connecting to it is what every SQL collector's queries need, because the views
-// they read (pg_stat_database, pg_database, pg_locks) are cluster-wide catalog
-// views, not per-database data.
-//
-// It is a constant rather than a literal in the DSN builder so the day the field
-// lands, the fallback has one place to change.
-const DefaultDatabase = "postgres"
+// It is an alias of collector.DefaultDatabase, which is where the value lives now
+// that SQLConfig has a Database field. The paragraph that used to sit here —
+// "SQLConfig has no Database field yet … this constant is the standing answer
+// until that field exists" — described the state that field ended: the field
+// landed as the first link of R3.1's presence producer (A3's S119), so the answer
+// to "which database" is now the config, and this constant is only what an empty
+// config means. One constant, declared by the package that declares the struct, is
+// what keeps the two packages from spelling the fallback differently; the DSN
+// builder applies it to a zero SQLConfig exactly as it applies
+// collector.ApplicationName to an empty one.
+const DefaultDatabase = collector.DefaultDatabase
 
 // Secrets reads Kubernetes Secrets: the existence probe conn.go's credential rules
 // need, the credential that probe resolves to, and the CA R12.5 verifies with.
@@ -334,11 +332,30 @@ func DSN(tgt collector.Target, creds collector.Credentials, cfg collector.SQLCon
 		appName = collector.ApplicationName
 	}
 
+	// R3.1's database half. A collector built through SQLConfig.withDefaults always
+	// has one; the fallback covers the configs callers build by hand, which cannot
+	// call withDefaults because it is unexported. The path is the only place a
+	// per-database value can be set — a Postgres connection is bound to one database
+	// at connect time, so reading another database's pg_extension needs another
+	// connection, and settings.go's extension probe opens one per database for
+	// exactly that reason.
+	//
+	// The cost of that fan-out is stated here because this function is where it
+	// becomes real: pools are keyed by DSN (opener.pool, :525), so N databases means
+	// N pools of at most maxConnsPerTarget each rather than one pool shared by the
+	// collector. At §3.3's 15-minute interval that is the settings collector's
+	// contribution and nothing else's; R13.2's "an idle connection holds a postmaster
+	// child" argument is why idle stays 1 per pool, not why the fan-out is bounded.
+	db := cfg.Database
+	if db == "" {
+		db = DefaultDatabase
+	}
+
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(creds.Role, creds.Password),
 		Host:     host + ":" + port,
-		Path:     DefaultDatabase,
+		Path:     db,
 		RawQuery: "application_name=" + url.QueryEscape(appName),
 	}
 	if creds.SSLMode != "" {

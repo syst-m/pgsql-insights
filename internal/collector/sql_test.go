@@ -104,6 +104,13 @@ func TestSQLConfigWithDefaults(t *testing.T) {
 	if got.ApplicationName != ApplicationName {
 		t.Errorf("ApplicationName = %q, want %q (R2.8)", got.ApplicationName, ApplicationName)
 	}
+	// R3.1's database. The field exists because pg_extension is per-database and the
+	// settings collector has to name the one its SQL runs in; withDefaults is the
+	// single place the default is supplied, which is what lets every builder trust the
+	// field is non-empty.
+	if got.Database != DefaultDatabase {
+		t.Errorf("Database = %q, want %q (R3.1's default database)", got.Database, DefaultDatabase)
+	}
 	if got.Now == nil {
 		t.Fatal("Now = nil, want time.Now")
 	}
@@ -111,9 +118,9 @@ func TestSQLConfigWithDefaults(t *testing.T) {
 	// Set values are kept, including a timeout below the default: R2.7's flag is
 	// a knob, and a config layer that clamped 1 s up to 5 s would make
 	// --statement-timeout=1s unconfigurable.
-	custom := SQLConfig{StatementTimeout: time.Second, ApplicationName: "pgsi-lab"}.withDefaults()
-	if custom.StatementTimeout != time.Second || custom.ApplicationName != "pgsi-lab" {
-		t.Errorf("custom config = %+v, want 1s / pgsi-lab", custom)
+	custom := SQLConfig{StatementTimeout: time.Second, ApplicationName: "pgsi-lab", Database: "appdb"}.withDefaults()
+	if custom.StatementTimeout != time.Second || custom.ApplicationName != "pgsi-lab" || custom.Database != "appdb" {
+		t.Errorf("custom config = %+v, want 1s / pgsi-lab / appdb", custom)
 	}
 }
 

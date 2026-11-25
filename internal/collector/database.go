@@ -205,10 +205,53 @@ func (c *DatabaseCollector) Collect(ctx context.Context, tgt Target) (Result, er
 	return Result{Samples: samples, RoundTrips: trips}, nil
 }
 
-// viewProjection pairs one view with the query built for a specific major.
+// viewProjection pairs one view with the query built for a specific major, and
+// with the database that query runs against.
+//
+// The third field exists because a Projection's SQL answers a different question
+// depending on which database it runs in. pg_extension, pg_stat_statements and the
+// rest of the catalogue live *inside* one database, so "which database" is part of
+// what a row means and not a detail of the connection; A3's second ruling on R3.1
+// named the missing producer in exactly these terms — the projection was `{view,
+// Projection}` with no database field, so a collector that probed N databases had
+// nowhere to record which one a row came from.
+//
+// The two builders fill it the same way (from their collector's
+// SQLConfig.Database, which withDefaults guarantees is non-empty) and read it
+// differently, and the difference is the matrix's rather than a choice:
+//
+//   - a view whose rows name their own database (pg_database, pg_stat_database,
+//     and the pg_stat_statements rows that carry a current_database() Extra) takes
+//     the datname label from the *row*, because the row's answer is about one
+//     database while the projection's is about the connection it was read through.
+//     samplesFromRows below keeps doing exactly what it did; the field records the
+//     SQL's database without becoming the label.
+//   - a view that *is* a per-database catalogue and has no database column of its
+//     own (pg_extension) has nothing to read the answer from, and settings.go's
+//     extensionSamples takes the label from this field. That is the producer R3.1's
+//     `database` cell was missing.
 type viewProjection struct {
 	view pgversion.View
 	Projection
+
+	// database is the database Projection's SQL runs against.
+	database string
+}
+
+// in returns the same pairing against a different database: the same SQL, run in
+// `db`.
+//
+// It exists because the pair is the unit. A collector that fans one query out over N
+// databases needs N pairings of that SQL, not one projection whose `database` field
+// is right for exactly one of them — and settings.go's extension probe, which builds
+// its projection once from its own SQLConfig.Database and then runs it in every
+// connectable database, is the only place that needs it. Rebuilding the pair per
+// database is what keeps the field meaning what its doc says it means; the alternative
+// is a label that silently reports the configured database for rows read from
+// somewhere else, which is the S119 bug in its smallest form.
+func (pv viewProjection) in(db string) viewProjection {
+	pv.database = db
+	return pv
 }
 
 // projections builds one query per view for the target's major.
@@ -240,7 +283,7 @@ func (c *DatabaseCollector) projections(tgt Target) ([]viewProjection, error) {
 		if err := ValidateProjection(p); err != nil {
 			return nil, err
 		}
-		out = append(out, viewProjection{view: v, Projection: p})
+		out = append(out, viewProjection{view: v, Projection: p, database: c.cfg.Database})
 	}
 	return out, nil
 }

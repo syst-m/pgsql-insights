@@ -61,6 +61,26 @@ const DefaultStatementTimeout = 5 * time.Second
 // cnpg_metrics_exporter, which is why ours has to be ours and not theirs.
 const ApplicationName = "pgsi-collector"
 
+// DefaultDatabase is the database a SQL collector connects to when nothing names
+// one: postgres.
+//
+// It is R3.1's "per database" question answered at the connection layer.
+// pg_extension, pg_stat_statements and the rest of the per-database catalogue live
+// *inside* one database, so a collector cannot read them for a cluster's other
+// databases over one connection: the database the connection opened against is the
+// only one those rows can describe. SQLConfig.Database carries the value; this is
+// what withDefaults gives an empty one, because a CNPG cluster always has a
+// `postgres` database and the cluster-wide views (pg_stat_database, pg_database,
+// pg_locks) are reachable from it.
+//
+// It lives here rather than in pgxopener — which had the constant first, as the
+// standing answer while SQLConfig had no field to be the answer for — because
+// withDefaults is where every other SQLConfig default is resolved, and a default
+// that lives only in the driver package is one the collector package cannot state.
+// pgxopener.DefaultDatabase is now an alias of this one, so the value has one home
+// and the two packages cannot drift.
+const DefaultDatabase = "postgres"
+
 // SourceNowColumn is the alias every generated query gives now(), and the
 // column through which a SQL collector fills R13.11's first timestamp.
 //
@@ -126,14 +146,14 @@ type SQLOpener interface {
 }
 
 // SQLConfig is the configuration every SQL collector shares: the two connection
-// settings R2.7 and R2.8 make mandatory, and the clock R13.11's IngestTime comes
-// from.
+// settings R2.7 and R2.8 make mandatory, the database R3.1's per-database
+// detection needs, and the clock R13.11's IngestTime comes from.
 //
-// It is one struct rather than three constructor parameters because all four SQL
-// collectors take the same three values, and four constructors with three
-// optional fields each is how a phase ends up with four collectors that disagree
-// about what a zero means. withDefaults resolves every zero in one place, the
-// same way Config does for the scheduler.
+// It is one struct rather than a parameter list per constructor because every SQL
+// collector takes the same values, and a constructor per collector with optional
+// fields each is how a phase ends up with collectors that disagree about what a
+// zero means. withDefaults resolves every zero in one place, the same way Config
+// does for the scheduler.
 type SQLConfig struct {
 	// StatementTimeout is R2.7's per-query bound; zero selects
 	// DefaultStatementTimeout (5 s). It is the tuning knob Descriptor.Timeout
@@ -143,6 +163,23 @@ type SQLConfig struct {
 	StatementTimeout time.Duration
 	// ApplicationName is R2.8's session name; empty selects ApplicationName.
 	ApplicationName string
+	// Database is the database the transaction opens against, and therefore the
+	// database whose catalogue every row that transaction returns describes; empty
+	// selects DefaultDatabase.
+	//
+	// It exists because R3.1's unit of detection is a database while R2.7's unit of
+	// execution is a transaction, and a Postgres transaction belongs to exactly one
+	// database: a collector that answers "which databases have pg_stat_statements"
+	// from one fixed connection answers it for one database, which is the failure
+	// A3's S119 names (the fixed `postgres` connection made the endpoint report one
+	// presence row and render every other database as not-known). The settings
+	// collector's extension probe now fans out — one connection per database from
+	// the pg_database enumeration — and each connection's SQLConfig names the
+	// database it opened, so the datname a sample carries is the one the query ran
+	// in rather than one the collector guessed. That field is the first link of the
+	// producer R3.1's second ruling asked for; the rest is
+	// viewProjection.database and settings.go.
+	Database string
 	// Now is the collector's clock, for Sample.IngestTime (R13.11's second
 	// timestamp); nil selects time.Now. Injectable for the same reason the
 	// scheduler's is: a test that cannot control the clock can only assert
@@ -158,6 +195,9 @@ func (c SQLConfig) withDefaults() SQLConfig {
 	}
 	if c.ApplicationName == "" {
 		c.ApplicationName = ApplicationName
+	}
+	if c.Database == "" {
+		c.Database = DefaultDatabase
 	}
 	if c.Now == nil {
 		c.Now = time.Now

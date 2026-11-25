@@ -130,6 +130,16 @@ func TestDSNFromTarget(t *testing.T) {
 			want:  "postgres://appuser:s3cret@10.42.1.11:5432/postgres?application_name=custom",
 		},
 		{
+			// The database half of S119: the DSN's path is the database the
+			// connection opens, and a collector that fans out over N databases
+			// reaches them by varying this field, not by varying anything else.
+			name:  "a configured database replaces the default in the DSN path",
+			tgt:   baseTarget(),
+			creds: collector.Credentials{Role: "appuser", Password: "s3cret"},
+			cfg:   collector.SQLConfig{Database: "appdb"},
+			want:  "postgres://appuser:s3cret@10.42.1.11:5432/appdb?application_name=pgsi-collector",
+		},
+		{
 			name:  "a non-default port survives",
 			tgt:   collector.Target{Namespace: "db", Cluster: "pg", Source: collector.SourceSQL, Address: "10.0.0.5:5433"},
 			creds: collector.Credentials{Role: "u", Password: "p"},
@@ -509,12 +519,21 @@ func TestStatementTimeoutSetting(t *testing.T) {
 	}
 }
 
-// TestDefaultDatabaseIsPostgres pins the constant on its own. It is the answer to
-// a question SQLConfig does not have a field for yet, and the day that field
-// lands, this test is the one that says which value was the standing answer.
+// TestDefaultDatabaseIsPostgres pins the constant on its own, and pins which file
+// owns it.
+//
+// The constant used to be this package's answer to a question SQLConfig had no
+// field for; SQLConfig now has a Database field (R3.1's fan-out), so the value
+// lives in collector/sql.go and this one aliases it. The alias is the assertion
+// worth having: two packages each spelling "postgres" is two places to change when
+// the default moves, and only one of them is read by withDefaults.
 func TestDefaultDatabaseIsPostgres(t *testing.T) {
 	if DefaultDatabase != "postgres" {
 		t.Errorf("DefaultDatabase = %q, want \"postgres\"", DefaultDatabase)
+	}
+	if DefaultDatabase != collector.DefaultDatabase {
+		t.Errorf("pgxopener.DefaultDatabase = %q, want collector.DefaultDatabase = %q (the value has one home; this package aliases it)",
+			DefaultDatabase, collector.DefaultDatabase)
 	}
 }
 
