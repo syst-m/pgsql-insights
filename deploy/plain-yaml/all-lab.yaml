@@ -35,14 +35,14 @@ data:
     shutdownTimeout: "10s"
 
 ---
-# Source: pgsi/templates/role.yaml
-# R12.1 — the default Role is namespaced and least-privilege; the verb set comes
-# from the shared helper so the namespaced and cluster-scoped variants cannot drift.
+# Source: pgsi/templates/clusterrole.yaml
+# R12.3 — cluster-scoped RBAC exists ONLY when rbac.allNamespaces=true, and
+# R11.10's uninstall story depends on that: the same gate that creates the
+# ClusterRole/Binding removes them, so `helm uninstall` leaves no residue.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: pgsi
-  namespace: pgsi
   labels:
     helm.sh/chart: pgsi-0.1.0
     app.kubernetes.io/name: pgsi
@@ -107,12 +107,11 @@ rules:
   verbs: ["get", "list", "watch"]
 
 ---
-# Source: pgsi/templates/rolebinding.yaml
+# Source: pgsi/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: pgsi
-  namespace: pgsi
   labels:
     helm.sh/chart: pgsi-0.1.0
     app.kubernetes.io/name: pgsi
@@ -121,7 +120,7 @@ metadata:
     app.kubernetes.io/part-of: pgsql-insights
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
+  kind: ClusterRole
   name: pgsi
 subjects:
   - kind: ServiceAccount
@@ -222,6 +221,17 @@ spec:
           # (R3.1). v1 ships `serve` only (IMPLEMENTATION.md D9).
           args:
             - serve
+            # R1.1 / R12.3 — discovery scope. A namespaced Role can authorise a LIST
+            # only inside its own namespace, but discovery returns
+            # metav1.NamespaceAll whenever --namespaces is empty and
+            # --exclude-namespaces is too (discovery.go:284 -> :295-296), so leaving
+            # the flag off under a namespaced Role asks for a cluster-scoped LIST the
+            # Role cannot grant: every watch returns Forbidden, and R8.7 keeps
+            # /readyz at 503 while any informer is unsynced — a pod that serves and
+            # is live but never Ready. The release namespace is exactly the set the
+            # Role can see, so render it. With rbac.allNamespaces=true the
+            # ClusterRole does authorise the cluster-scoped LIST, so the flag stays
+            # off there and discovery keeps NamespaceAll.
             - --listen=:8080
             - --shutdown-timeout=10s
             # R8.8: cmd/pgsi's own default is --auth=token, so a profile that

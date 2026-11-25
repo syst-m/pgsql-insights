@@ -3,8 +3,9 @@
 # =============================================================================
 # A DELTA from values.yaml (see R11.12). The lab profile is the configuration the
 # reference k3s environment is tested with: in-memory store, no PVC, auth off,
-# single namespace, no ServiceMonitor. R13.6 requires this profile to be testable
-# without a StorageClass, a registry login or an ingress controller.
+# cluster-scoped RBAC (the rbac block explains why that is not the single
+# namespace R13.6's row names), no ServiceMonitor. R13.6 requires this profile to
+# be testable without a StorageClass, a registry login or an ingress controller.
 # =============================================================================
 
 # Which profile this is (overridden from `default`).
@@ -42,12 +43,24 @@ auth:
   tokenSecret: ""
   tokenKey: token
 
-# --- Single namespace (overrides rbac.allNamespaces: false, kept explicit) ---
-# R2.4 — a lab install scopes discovery to one namespace; the namespaced Role is
-# exactly the right size for that and no ClusterRole is created (R12.3).
+# --- Cluster-scoped RBAC (overrides rbac.allNamespaces: false) --------------
+# R11.6 (:450) calls this profile "`--single-namespace` capable" and R13.6's row
+# (:83) names `--single-namespace` as its shape — which is what false gives, and
+# what this key read until 2026-11-25. It reads true now because the reference
+# k3s environment this profile exists for runs its Postgres clusters in four
+# *other* namespaces (ai-api-gateway, cookbook, freeidp, open-webui), and a
+# namespaced Role in the release namespace cannot see any of them: with
+# --namespaces rendered to the release namespace (deployment.yaml's
+# rbac.allNamespaces=false branch) discovery finds no clusters there, and without
+# the flag discovery asks for the cluster-scoped LIST a namespaced Role cannot
+# authorise (discovery.go:284 -> :295-296). The reference install then ran a day
+# on a ClusterRole applied by hand from this same render. R11.6's "capable" is
+# still satisfied by the default profile, which keeps false. A3 is ratifying the
+# spec wording (ruling of 2026-11-25); until that row lands this value is ahead
+# of the spec text, not in agreement with it.
 rbac:
   create: true
-  allNamespaces: false
+  allNamespaces: true
   allowPodsExec: false
   extraRules: []
 

@@ -272,6 +272,17 @@ spec:
           # (R3.1). v1 ships `serve` only (IMPLEMENTATION.md D9).
           args:
             - serve
+            # R1.1 / R12.3 — discovery scope. A namespaced Role can authorise a LIST
+            # only inside its own namespace, but discovery returns
+            # metav1.NamespaceAll whenever --namespaces is empty and
+            # --exclude-namespaces is too (discovery.go:284 -> :295-296), so leaving
+            # the flag off under a namespaced Role asks for a cluster-scoped LIST the
+            # Role cannot grant: every watch returns Forbidden, and R8.7 keeps
+            # /readyz at 503 while any informer is unsynced — a pod that serves and
+            # is live but never Ready. The release namespace is exactly the set the
+            # Role can see, so render it. With rbac.allNamespaces=true the
+            # ClusterRole does authorise the cluster-scoped LIST, so the flag stays
+            # off there and discovery keeps NamespaceAll.
             - --listen=:8080
             - --shutdown-timeout=10s
             # R8.8: cmd/pgsi's own default is --auth=token, so a profile that

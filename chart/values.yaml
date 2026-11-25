@@ -10,8 +10,8 @@
 #   values-production.yaml             documented delta: PVC-backed store, token
 #                                      auth on, ServiceMonitor on, tighter limits
 #   values-lab.yaml                    documented delta: in-memory store, auth
-#                                      off, ServiceMonitor off, single namespace,
-#                                      no PVC (R11.6, R13.6)
+#                                      off, ServiceMonitor off, cluster-scoped
+#                                      RBAC, no PVC (R11.6, R13.6)
 #
 # Both profiles are deltas from this file, not replacements for it: every key they
 # change is commented with the value it overrides.
@@ -72,7 +72,7 @@ config:
   # Phase 2+ keys, rendered into the ConfigMap so the contract exists early:
   #   store: sqlite            # sqlite | memory (R11.6 lab profile uses memory)
   #   pollInterval: 60s        # R2.1
-  #   singleNamespace: ""      # R2.4 — scope discovery to one namespace
+  #   singleNamespace: ""      # R1.1 — the one-namespace form of --namespaces
   #   logSource: off           # R5.10
   #   allowActions: []         # R12.8 — named mutations, off by default
   #   maxStoreBytes: 536870912 # R13.5
