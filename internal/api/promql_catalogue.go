@@ -243,7 +243,7 @@ func DefaultCatalogue() *Catalogue {
 		{"backends_by_state", "pgsi_db_backends_by_state", "R5.2 backends: backend count grouped by pg_stat_activity state."},
 		{"backends_by_application_name", "pgsi_db_backends_by_application_name", "R5.2 backends: backend count grouped by application_name."},
 		{"database_size_bytes", "pgsi_db_size_bytes", "R5.2 database sizes: pg_database_size per database."},
-		{"txid_age", "pgsi_db_txid_age", "R5.2/R7.5: oldest transaction id age per database (1.5B warn / 1B critical bands are R7.5's)."},
+		{"txid_age", "pgsi_db_txid_age", "R5.2/R7.5: oldest transaction id age per database (300M warn / 1.5B critical bands are R7.5's)."},
 		{"mxid_age", "pgsi_db_mxid_age", "R5.2/R7.5: multixact id age per database."},
 		{"wal_size_bytes", "pgsi_wal_size_bytes", "R5.2 WAL: on-disk WAL volume."},
 		{"wal_generated_bytes", "pgsi_wal_generated_bytes_total", "R5.2 WAL: bytes generated (rate gives the generation rate)."},
