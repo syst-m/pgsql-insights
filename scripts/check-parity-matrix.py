@@ -404,6 +404,8 @@ def check_paths(root, tracked):
         L = lines_of(root, r[0])
         if e > len(L):
             bad.append((rel, n, kind, f"{path}:{s}-{e} — {r[0]} has {len(L)} lines")); continue
+        if not L[s - 1].strip():              # A3's S118: a blank line cannot be what a cite names
+            bad.append((rel, n, kind, f"{path}:{s} is blank")); continue
         if kind == "B":                        # the durable form asserts the heading
             actual = re.sub(r"^#+\s*", "", L[s - 1]).strip()
             if not L[s - 1].startswith("#"):
