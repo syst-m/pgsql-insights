@@ -695,9 +695,9 @@ dump(status_bad, lambda n, rid, cell: f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}"
 # ends that churn, where re-pointing the number would have restarted it on the next edit above
 # the row.
 WIDTH_EXEMPT = {
-    ("requirements.md", 843), ("requirements.md", 844), ("requirements.md", 845),
-    ("requirements.md", 846), ("requirements.md", 847), ("requirements.md", 848),
-    ("requirements.md", 849), ("requirements.md", 850),
+    ("requirements.md", 844), ("requirements.md", 845), ("requirements.md", 846),
+    ("requirements.md", 847), ("requirements.md", 848), ("requirements.md", 849),
+    ("requirements.md", 850), ("requirements.md", 851),
 }
 # WIDTH_DOC is the whole scan set -- four named files, not "the docs" generally. The three
 # round-1 documents (docs/reviews/round-1-architecture.md, round-1-product.md and
@@ -745,7 +745,7 @@ def check_table_widths(root):
 # markdown heading target, that it is that heading) -- never that the line is the
 # row the prose is talking about, so an off-by-one row cite is green. First run
 # found one: IMPLEMENTATION.md:729 read "`scripts/validate-env.sh` is R16.5
-# (`requirements.md:521`)" and :521 is R16.4's row; R16.5 is at :522. The check
+# (`requirements.md:522`)" and :521 is R16.4's row; R16.5 is at :522. The check
 # ships with its own proof -- the tree one commit earlier makes it print 1 and
 # exit 1 -- which is the standard this file holds itself to: a checker that
 # cannot fail is a comment.
@@ -780,9 +780,9 @@ def check_table_widths(root):
 # narrow and its count small, and why widening it further buys false positives
 # before it buys coverage.
 IDCITE_RX = re.compile(
-    # "R16.5 (`requirements.md:521`)", "R9.8 (requirements.md:401)", and the prose
-    # forms "the R9.8 row at `requirements.md:401`" / "this R2.2 cell, in
-    # `requirements.md:330`" -- the gap is capped at one short connector so a random
+    # "R16.5 (`requirements.md:522`)", "R9.8 (requirements.md:401)", and the prose
+    # forms "the R9.8 row at `requirements.md:402`" / "this R2.2 cell, in
+    # `requirements.md:331`" -- the gap is capped at one short connector so a random
     # id and a random cite in the same sentence do not pair up.
     r"(?<![\w.])(?P<id>R\d+\.\d+[a-z]?)"
     r"(?:\s{0,2}|\s+(?:the|this|that|its)\s+(?:row|cell|entry|line|section|half|step|table|spec)\s+at\s+)"
@@ -797,7 +797,7 @@ QUOTED_SPAN = re.compile(r'\"[^\"]*\"|\u201c[^\u201d]*\u201d')
 def dequote(line):
     # Blank every quoted span before pairing ids with cites. A row that *documents*
     # a wrong cite has to quote it, and quoting is not asserting: S55's own row
-    # quotes "R16.5 (`requirements.md:521`)" -- the bad pairing it exists to record --
+    # quotes "R16.5 (`requirements.md:522`)" -- the bad pairing it exists to record --
     # and the check flagged the quotation as a second instance of the defect.
     # Blank the quotations first and the check asks the right question: does the
     # prose *assert* a pairing, not does it contain the string.
@@ -808,7 +808,7 @@ def check_id_cites(root):
     # (checked, bad) -- bad is a named id whose cited line is another requirement's
     # row. Two forms, both needing a requirement-table row on the end to compare
     # against (a .go/.yml line has no id column, so .md targets only):
-    #   1. adjacency -- "R16.5 (`requirements.md:521`)": the id written next to the
+    #   1. adjacency -- "R16.5 (`requirements.md:522`)": the id written next to the
     #      cite must be the requirement at that line.
     #   2. table row -- a row whose first cell is an id (or "R9.2 / R9.3") may only
     #      cite lines belonging to one of its own ids; this catches a row citing a
