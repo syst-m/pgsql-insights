@@ -63,7 +63,7 @@ chart, the `api/` client + fixtures + R1.2 health rollup, `lib/` format/sort, `s
 useFleet, and the design system in `styles/tokens.css`), its `dist/` bundle committed for
 `go:embed` (`web/embed.go`, wired into `internal/api/server.go` as `GET /`), and the R16.7 harness
 (9 `src/**/*.test.ts(x)` files for Vitest, `e2e/fleet.spec.ts` + `playwright.config.ts` for
-Playwright with 8 committed baselines).
+Playwright with 9 committed baselines).
 
 ---
 
@@ -279,7 +279,7 @@ sibling's staged files staged for their owner.
 | 1b.5 | **Fleet page**: header with the R10.22 refetch/partial banner, the health-distribution chart (legend table twin + hover), the sortable cluster table (health, cluster, namespace, instances serving/reported, PG major, age) with R10.21 timestamps | R10.4 | A4 | ✅ |
 | 1b.6 | Cluster detail page (instances, PVCs, services, poolers, conditions — every field the R1.5 contract carries) | R10.4 | A4 | ✅ |
 | 1b.7 | R10.12's named page states as URL-addressable fixtures (`?fixture=fleet\|empty\|partial\|unavailable`, `?delay=ms` for loading) | R10.12 | A4 | ✅ |
-| 1b.8 | R16.7 harness: Vitest (9 files, 149 tests at Phase 1b; **13 files, 227 tests at `2648f99`** — A6's Phase 6b component tests and `routes.test.tsx` landed after this row was written) + Playwright (14 tests, 8 committed baselines), both in CI | R16.7, R16.8 | A4 | ✅ |
+| 1b.8 | R16.7 harness: Vitest (9 files, 149 tests at Phase 1b; **13 files, 227 tests at `2648f99`** — A6's Phase 6b component tests and `routes.test.tsx` landed after this row was written) + Playwright (15 tests, 9 committed baselines), both in CI | R16.7, R16.8 | A4 | ✅ |
 | 1b.9 | Build plumbing: Makefile `web` / `typecheck-web` / `test-web`, `Dockerfile` `COPY web/`, `.dockerignore`, CI `web` job, `scripts/image-size.py --spa-bundle` | R11.4, R11.11 | A4 | ✅ |
 
 ### 3.5 Phase 1 validation entry (R14.2)
@@ -590,10 +590,10 @@ this machine runs, and a floating `^4` would have let npm resolve a version whos
 **Visual regression (R16.7)**
 - `npx playwright test` — **14 passed**, against `vite preview` on the built bundle, not the dev
   server, so what is screenshotted is byte-identical to what `pgsi serve` embeds.
-- 8 baselines committed in `web/e2e/__snapshots__/fleet/`. Seven come from the spec's `SCREENS`
-  table — the four R10.12 states (`empty`, `loading`, `partial`, `unavailable`) plus the populated
-  `fleet` view, the `detail` route, and since `af433cc` the `planned` placeholder route — and the
-  eighth is the dark-mode capture (R10.13's media-query path, which a light-only screenshot cannot
+- 9 baselines committed in `web/e2e/__snapshots__/`. Eight come from the spec's `SCREENS` table — the four
+  R10.12 states (`empty`, `loading`, `partial`, `unavailable`) plus the populated `fleet` view, the `detail`
+  and `queries` routes (the latter since `a9cdf30`), and since `af433cc` the `planned` placeholder route —
+  and the ninth is the dark-mode capture (R10.13's media-query path, which a light-only screenshot cannot
   prove). The six interaction tests are assertions without screenshots (sort rewrites the URL,
   Back restores it, the theme toggle writes `data-theme`, a row link opens the detail page, the nav
   reaches the R10.3 routes, the legend table matches the bar), so they raise the test count without
