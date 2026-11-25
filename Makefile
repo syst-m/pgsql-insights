@@ -85,7 +85,7 @@ cover:
 		{ echo "FAIL: coverage $$total% is below the 70% gate (R11.11)"; exit 1; }
 
 ## lint: go vet + golangci-lint when installed (R11.11)
-lint: vet lint-go openapi-check cardinality-check
+lint: vet lint-go openapi-check cardinality-check sha-check
 
 vet:
 	go vet ./...
@@ -136,6 +136,27 @@ openapi-check:
 ## (pgsi_build_info), so that check would be `1 < 24 480`.
 cardinality-check:
 	python3 scripts/cardinality-check.py --quiet
+
+## sha-check: D6 — no script in scripts/ stamps anything with a short SHA.
+# D6's rule: a short SHA is not a valid version stamp. ci.yml:43-51 is the record — the
+# old CI check was `grep -q "$(git rev-parse --short HEAD)" version.txt`, which a binary
+# stamped with some *other* commit could pass, and the first published binary did exactly
+# that (stamped a47e149, built from db4f237). The fix compared the binary's stamp to
+# $GITHUB_SHA, and in doing so removed CI's only use of the flag; nothing was left behind
+# to catch a *script* using it, which is how scripts/build-push-dev.sh:20 shipped
+# `COMMIT=${COMMIT:-$(git rev-parse --short HEAD)}` and stayed green until A4's 6a9ba00.
+# The build job's step gates the binary; this gates the scripts.
+#
+# Breadth, decided rather than inherited: D6 forbids the short SHA as a *stamp*, and this
+# greps every .sh under scripts/ instead of only stamping assignments. Scoping it to
+# assignments would mean re-authoring D6's rule as a regex — which variable names count as
+# a stamp, in which of the ways a script can assign one — and an invented pattern is a
+# second copy of the contract it is checking. The wide form's worst case is failing on a
+# comment that mentions the flag, and the fix there is to reword the comment; the narrow
+# form's worst case is a silent miss.
+sha-check:
+	@if grep -rn --include='*.sh' 'rev-parse --short' scripts/; then \
+		echo 'FAIL: a script uses git rev-parse --short — D6 forbids a short SHA as a version stamp'; exit 1; fi
 
 ## tidy-check: fail if go.mod is not tidy (R13.10: no replace, tidy in CI)
 tidy-check:

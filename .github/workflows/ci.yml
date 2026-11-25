@@ -73,6 +73,15 @@ jobs:
           cache: true
       - name: spec parity matrix (requirements.md §6 vs the §7.3 index)
         run: bash scripts/check-parity-matrix.sh
+      # D6's short-SHA rule, scripts half. The step above the OpenAPI check in this job is
+      # ci.yml's record of the original defect: the check became a $GITHUB_SHA comparison
+      # on the binary, which removed CI's only use of `--short` and left nothing to catch a
+      # script using it — so scripts/build-push-dev.sh:20 shipped `git rev-parse --short`
+      # and stayed green until A4's 6a9ba00. R8.1c's precedent puts a doc-consistency gate
+      # that can fail the build in this job, and `make sha-check` is its local mirror
+      # (R11.11: CI runs no command the Makefile lacks).
+      - name: no short SHAs in scripts (D6)
+        run: make sha-check
       # R8.1's "checked in CI" half: the document api/embed.go ships is the one
       # GET /api/v1/openapi serves, so a broken document is a broken endpoint.
       # The check is scripts/check-openapi.py; `make openapi-check` is its local
