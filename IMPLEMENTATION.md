@@ -725,7 +725,7 @@ deliverable inside this same row's scope, and the label had stolen its identity.
 R2.9** (the global scheduler budget), not R13.11 — R13.11 is the clock contract, which belongs to
 step 1 and which step 1's own commit title already claims correctly. Reading the two rows side by
 side surfaced a third mislabel the correction missed: the step-5 line carries
-`validate-env.sh (R11.8)`, but R11.8 is config precedence and `pgsi config dump` (`requirements.md:452`)
+`validate-env.sh (R11.8)`, but R11.8 is config precedence and `pgsi config dump` (`requirements.md:453`)
 while `scripts/validate-env.sh` is R16.5 (`requirements.md:524`). So R11.8 had no step either, and it
 is assigned below rather than left implied.
 
