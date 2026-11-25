@@ -880,14 +880,14 @@ claim-without-an-instrument this index keeps filing against other people's code.
 
 | File | Round that read it | Findings filed | Last commit touching it |
 |---|---|---|---|
-| `cmd/pgsi/config.go` | — | — | `bf55762` |
-| `cmd/pgsi/config_test.go` | — | — | `bf55762` |
-| `cmd/pgsi/main.go` | `74485a4`, `f08b6ac`, IMPLEMENTATION.md §5 D18 | A3's S3, A3's S65, A3's S66, A3's S67, A3's S112 | `5652612` |
-| `cmd/pgsi/main_test.go` | — | — | `9e6572a` |
-| `cmd/pgsi/opener.go` | — | — | `9e6572a` |
-| `cmd/pgsi/opener_test.go` | — | — | `9e6572a` |
-| `cmd/pgsi/targets.go` | — | — | `058800c` |
-| `cmd/pgsi/targets_test.go` | — | — | `058800c` |
+| `cmd/pgsi/config.go` | — | — | `5652612` |
+| `cmd/pgsi/config_test.go` | — | — | `5652612` |
+| `cmd/pgsi/main.go` | `74485a4`, `f08b6ac`, IMPLEMENTATION.md §5 D18 | A3's S3, A3's S65, A3's S66, A3's S67, A3's S112 | `b82cc28` |
+| `cmd/pgsi/main_test.go` | — | — | `b82cc28` |
+| `cmd/pgsi/opener.go` | — | — | `482d82e` |
+| `cmd/pgsi/opener_test.go` | — | — | `482d82e` |
+| `cmd/pgsi/targets.go` | — | — | `f3b30b0` |
+| `cmd/pgsi/targets_test.go` | — | — | `f3b30b0` |
 | `go.mod` | `74485a4`, `9e6572a` | A3's S67, A3's S68 | `b8510b0` |
 | `internal/collector/activity.go` | — | — | `56644c7` |
 | `internal/collector/activity_test.go` | — | — | `9ff60c6` |
@@ -897,8 +897,8 @@ claim-without-an-instrument this index keeps filing against other people's code.
 | `internal/collector/cnpgmetrics/parse_test.go` | — | — | `f6fd730` |
 | `internal/collector/cnpgmetrics/registry.go` | — | — | `967d557` |
 | `internal/collector/cnpgmetrics/registry_test.go` | — | — | `967d557` |
-| `internal/collector/collector.go` | — | — | `a40828f` |
-| `internal/collector/collector_test.go` | — | — | `aa974c6` |
+| `internal/collector/collector.go` | — | — | `e6614d7` |
+| `internal/collector/collector_test.go` | — | — | `e6614d7` |
 | `internal/collector/conn.go` | — | — | `ca5f5d4` |
 | `internal/collector/conn_test.go` | — | — | `ca5f5d4` |
 | `internal/collector/database.go` | `021b646` | A3's S6, A3's S7, A3's S8, A3's S9 | `56644c7` |
@@ -912,24 +912,24 @@ claim-without-an-instrument this index keeps filing against other people's code.
 | `internal/collector/metrics.go` | — | — | `69d2f8d` |
 | `internal/collector/metrics_test.go` | — | — | `b4e4b56` |
 | `internal/collector/metrictype/metrictype.go` | — | — | `967d557` |
-| `internal/collector/naming.go` | this review | A3's S50, A3's S50, A3's S50 | `967d557` |
+| `internal/collector/naming.go` | this review | A3's S50, A3's S50, A3's S50 | `0da370d` |
 | `internal/collector/naming_catalogue_test.go` | — | — | `360fd39` |
-| `internal/collector/naming_test.go` | — | — | `f58889e` |
+| `internal/collector/naming_test.go` | — | — | `0da370d` |
 | `internal/collector/pgversion/matrix.go` | — | — | `ab41d6c` |
 | `internal/collector/pgversion/matrix_data.go` | — | — | `f5bb41c` |
 | `internal/collector/pgversion/matrix_test.go` | — | — | `f5bb41c` |
 | `internal/collector/pgversion/succession.go` | `2ee4b10` | A3's S5 | `2ee4b10` |
 | `internal/collector/pgversion/succession_test.go` | — | — | `2ee4b10` |
-| `internal/collector/pgxopener/pgxopener.go` | — | — | `9e6572a` |
-| `internal/collector/pgxopener/pgxopener_test.go` | — | — | `9e6572a` |
+| `internal/collector/pgxopener/pgxopener.go` | — | — | `482d82e` |
+| `internal/collector/pgxopener/pgxopener_test.go` | — | — | `482d82e` |
 | `internal/collector/pooler.go` | `d39717c` | A3's S57 | `b78bc23` |
 | `internal/collector/pooler_test.go` | `d39717c` | A3's S56, A3's S57 | `bcd0055` |
 | `internal/collector/registry.go` | — | — | `4360e21` |
 | `internal/collector/registry_test.go` | — | — | `4360e21` |
 | `internal/collector/replication.go` | `1c3d7b0` | A3's S16 | `56644c7` |
 | `internal/collector/replication_test.go` | `a906362` | A3's S17 | `a906362` |
-| `internal/collector/scheduler.go` | — | — | `07b907f` |
-| `internal/collector/scheduler_test.go` | — | — | `07b907f` |
+| `internal/collector/scheduler.go` | — | — | `e6614d7` |
+| `internal/collector/scheduler_test.go` | — | — | `e6614d7` |
 | `internal/collector/settings.go` | `1c3d7b0`, `34936ed` | A3's S13, A3's S16 | `56644c7` |
 | `internal/collector/settings_test.go` | `34936ed`, `a906362` | A3's S14, A3's S17 | `a906362` |
 | `internal/collector/sink.go` | — | — | `4360e21` |
@@ -1063,7 +1063,7 @@ from a nil `RootCAs` and every round failed; the fix reads the `<cluster>-ca` se
 installs it (`ReadCA`, `internal/collector/pgxopener/pgxopener.go:135`). Filed as **A3's S115**.
 Its scope is the SQL path — nine `Begin` sites (`io.go:211`, `wal.go:165`, `locks.go:298`,
 `activity.go:322`, `database.go:163`, `pooler_clients.go:280`, `settings.go:116`,
-`replication.go:176`, `statements.go:487`) — and not the pooler, whose source is an HTTP inventory
+`replication.go:176`, `internal/collector/statements.go:487`) — and not the pooler, whose source is an HTTP inventory
 URL, so the pooler's 72/72 pair is the second domain and the fix leaves it standing. The entry now
 records a cause for the SQL half and still records none for the pooler half.
 
@@ -1154,15 +1154,15 @@ the claim-without-an-instrument this index keeps filing against other people's c
 | `web/src/components/Sparkline.test.tsx` | — | — | `729f60c` |
 | `web/src/components/Sparkline.tsx` | — | — | `962cb89` |
 | `web/src/components/StatePanel.test.tsx` | — | — | `215895d` |
-| `web/src/components/StatePanel.tsx` | `7954e3a` | S98 | `0c8f53e` |
+| `web/src/components/StatePanel.tsx` | `7954e3a` | S98 | `bee6b5f` |
 | `web/src/components/StatusGlyph.test.tsx` | — | — | `6892d9d` |
 | `web/src/components/StatusGlyph.tsx` | — | — | `14d4df0` |
 | `web/src/components/ThemeToggle.test.tsx` | — | — | `14d4df0` |
 | `web/src/components/ThemeToggle.tsx` | — | — | `14d4df0` |
 | `web/src/components/VirtualList.test.tsx` | — | — | `0b6bcc9` |
 | `web/src/components/VirtualList.tsx` | — | — | `0b6bcc9` |
-| `web/src/pages/ActiveQueries.test.tsx` | — | — | `7855768` |
-| `web/src/pages/ActiveQueries.tsx` | — | — | `8d777ad` |
+| `web/src/pages/ActiveQueries.test.tsx` | — | — | `a216448` |
+| `web/src/pages/ActiveQueries.tsx` | — | — | `0dd5f23` |
 | `web/src/pages/ClusterDetail.test.tsx` | — | — | `b840e06` |
 | `web/src/pages/ClusterDetail.tsx` | — | — | `3feae96` |
 | `web/src/pages/EmptyStateCatalogue.test.tsx` | `7954e3a` | — | `0c8f53e` |
@@ -1174,8 +1174,8 @@ the claim-without-an-instrument this index keeps filing against other people's c
 | `web/src/pages/Queries.tsx` | — | — | `0544374` |
 | `web/src/pages/QueryDetail.test.tsx` | — | — | `3feae96` |
 | `web/src/pages/QueryDetail.tsx` | — | — | `3feae96` |
-| `web/src/pages/Tags.test.tsx` | `7954e3a` | — | `0c8f53e` |
-| `web/src/pages/Tags.tsx` | `7954e3a` | S96, S97 | `0c8f53e` |
+| `web/src/pages/Tags.test.tsx` | `7954e3a` | — | `bee6b5f` |
+| `web/src/pages/Tags.tsx` | `7954e3a` | S96, S97 | `bee6b5f` |
 
 **Also read this round, owned by the 6a/1b half.** Phase 6b's tracked set is pages and components;
 the Tags page mounts through seven files A4 owns, and the review read them because three of the
@@ -1183,8 +1183,8 @@ findings are about them rather than about A6's page.
 
 | File | Round that read it | Findings filed | Last commit touching it |
 |---|---|---|---|
-| `web/src/api/client.ts` | — | — | `e8f1005` |
-| `web/src/api/envelope.ts` | `7954e3a` | S95 | `843986b` |
+| `web/src/api/client.ts` | — | — | `9790fda` |
+| `web/src/api/envelope.ts` | `7954e3a` | S95 | `efdabb3` |
 | `web/src/api/types.ts` | — | — | `1d4ea46` |
 | `web/src/routes.ts` | — | — | `843986b` |
 | `web/src/state/useActiveQueries.ts` | — | — | `df3e83b` |

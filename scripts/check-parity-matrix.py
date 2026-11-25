@@ -308,18 +308,30 @@ dump(id_orphans, lambda k: f"  orphan exemption: {k} — {EXEMPT[k]}")
 #   C  `:197`                         — bare, inherits the file from the line's first citation
 # What fails the build: a resolvable path whose number is past the file's end (A, C), and a
 # durable-form citation whose quoted heading is not the text at that line (B). An
-# unresolvable or ambiguous path is reported but not failed — external file, deleted file
-# and typo are not separable without a human. docs/research/ is excluded from this half
+# unresolvable path is reported but not failed — external file, deleted file and typo are
+# not separable without a human. An ambiguous one (2+ matches) fails: len(r) >= 2 proves the
+# name exists in the tree, so it cannot be external, and the defect is the cite itself. That is
+# the same rule the orphan-exemption check states at :410-413, applied to the case it left out
+# -- A3's S117, filed against e2c042b's `statements.go:487`. docs/research/ is excluded from this half
 # entirely: those notes cite the upstream projects' own files (postgres_exporter's
 # README.md:310-321), which this repo's file list cannot resolve.
 PATH_SKIP_DIRS = ("docs/research/",)
 # Cited paths that are known-not-to-resolve, keyed on the (citing file, cited path) pair with
 # the reason, mirroring EXEMPT above. Keyed on the pair, not the bare path string, and applied
-# only while the path still fails to resolve: if the repo ever gains a real
+# only while the path fails to resolve -- which since the ambiguity gate means 0 matches OR
+# 2+ matches, not just 0: a quoted exhibit of a fixed ambiguous cite is unresolvable by
+# design and needs the same keyed reason, or the gate fails on the row that documents the fix
+# (A3's S116). If the repo ever gains a real references/components.md, IMPLEMENTATION.md's
+# cite of it becomes checkable and gets checked, rather than being silently exempted forever.
 # references/components.md, IMPLEMENTATION.md's cite of it becomes checkable and gets checked,
 # rather than being silently exempted forever. Without self-expiry the table is a standing
 # warning that outlives its own reason — which is how real findings get skipped.
 PATH_EXEMPT = {
+    ("docs/reviews/finding-index.md", "statements.go"):
+        "S116's exhibit: the row quotes the bad cite verbatim to document the fix, and that "
+        "basename matches internal/collector/statements.go and internal/store/statements.go, "
+        "so the quoted form is unresolvable by design while the live reference at "
+        "IMPLEMENTATION.md:1066 is now spelled and checked",
     ("IMPLEMENTATION.md", "references/components.md"):
         "the dataviz skill bundle's own file; the bundle is cited by absolute path + sha256 in "
         "the same cell (D12), so the relative form there refers outside this repo",
@@ -376,16 +388,18 @@ def path_citations(root, tracked):
     return out
 
 def check_paths(root, tracked):
-    checked, bad, unresolved, exempt = 0, [], [], 0
+    checked, bad, unresolved, ambiguous, exempt = 0, [], [], [], 0
     pairs = set()                                  # every (citing file, cited path) it found
     tset = set(tracked)
     for rel, n, kind, path, s, e, head in path_citations(root, tracked):
         pairs.add((rel, path))
         r = resolve_path(tracked, tset, rel, path)
-        if not r and (rel, path) in PATH_EXEMPT:
+        if (rel, path) in PATH_EXEMPT and len(r) != 1:
             exempt += 1; continue              # exempt only while it still fails to resolve
-        if len(r) != 1:
-            unresolved.append((rel, n, kind, path, len(r))); continue
+        if len(r) == 0:
+            unresolved.append((rel, n, kind, path, 0)); continue
+        if len(r) > 1:                       # the cite under-specified a path the repo has 2+ of
+            ambiguous.append((rel, n, kind, path, len(r))); continue
         checked += 1
         L = lines_of(root, r[0])
         if e > len(L):
@@ -396,7 +410,7 @@ def check_paths(root, tracked):
                 bad.append((rel, n, kind, f"{path}:{s} is not a heading ({actual[:48]!r})"))
             elif actual != head.strip():
                 bad.append((rel, n, kind, f"quotes {head!r}, {path}:{s} reads {actual!r}"))
-    return checked, bad, unresolved, exempt, pairs
+    return checked, bad, unresolved, ambiguous, exempt, pairs
 
 # A4's L1, applied to this half too: gate on the file set, not on the per-half count. A repo
 # with markdown but zero path citations is legal, and "file discovery broke" is false when
@@ -406,17 +420,19 @@ scanned_md = sum(1 for rel in files_all
 if not scanned_md:
     print("GUARD: no scannable markdown — file discovery broke, not a pass")
     sys.exit(2)
-checked_path, path_bad, unresolved, exempt_path, cited_pairs = check_paths(root, files_all)
+checked_path, path_bad, unresolved, ambiguous, exempt_path, cited_pairs = check_paths(root, files_all)
 # A PATH_EXEMPT key that matches no citation is a dead exemption — the table is read at one
 # site, so an orphan key is invisible and the check it performs has quietly stopped running.
 # Unlike an external path (reported, not failed: external/deleted/typo aren't separable), an
 # orphan key is unambiguous, so it fails.
 path_orphans = sorted(set(PATH_EXEMPT) - cited_pairs)
 print(f"path citations: {checked_path} resolved · {len(path_bad)} wrong · "
-      f"{len(unresolved)} unresolvable (reported, not failed) · {exempt_path} exempt · "
+      f"{len(unresolved)} unresolvable (reported, not failed) · "
+      f"{len(ambiguous)} ambiguous (failed) · {exempt_path} exempt · "
       f"{len(path_orphans)} orphan exemptions")
 dump(path_bad, lambda f, n, kind, msg: f"  {f}:{n} [{kind}] {msg}")
 dump(unresolved, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
+dump(ambiguous, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
 dump(path_orphans, lambda k: f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
 
 # --- relative markdown links (A4's docs/README.md find, generalised) ---
@@ -1155,7 +1171,7 @@ print(f"checker self-lint: {len(self_bad)} bare capped loops "
       f"(dump() is the only sanctioned form)")
 dump(self_bad, lambda n: f"  {__file__}:{n}: {SELF[n - 1]}", cap=5)
 
-sys.exit(1 if (bad or missing or cite_bad or path_bad or links_bad or header_bad
+sys.exit(1 if (bad or missing or cite_bad or path_bad or ambiguous or links_bad or header_bad
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
               or width_bad or idc_bad or ve_dangling or ve_orphans
