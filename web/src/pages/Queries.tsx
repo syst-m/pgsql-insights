@@ -186,6 +186,47 @@ function currentDatabase(state: UrlState): string {
   return (state as UrlState & { database?: string }).database ?? "";
 }
 
+/** The cluster this route is showing, as the one "namespace/name" string.
+ *
+ *  The URL's `state.cluster` when it names one, else the first row's pair — the
+ *  exact expression `PageHeader` used inline for its breadcrumb before this was
+ *  extracted, kept as one function so the breadcrumb's label and R3.1's presence
+ *  join cannot answer with two different identities for the same URL. "" when
+ *  neither the URL nor the payload names a cluster. */
+export function routeCluster(resp: QueryResponse, state: UrlState): string {
+  const first = resp.queries[0];
+  return state.cluster ?? (first === undefined ? "" : `${first.namespace}/${first.cluster}`);
+}
+
+/** R3.1's presence report, joined to the route — the rule the prop above states.
+ *
+ *  `resp.pgStatStatements` answers per database, so the AND across the route's
+ *  databases has to be three-valued to survive the `*bool`: **nil** if any row is
+ *  nil (unknown beats false — an unreported database is not a missing one),
+ *  **false** if any row is false and none is nil, **true** only when every row
+ *  is true. Zero matching rows is also nil: a payload that says nothing about
+ *  this cluster has not said it lacks the extension, and `StatePanel.tsx:110`
+ *  renders that as the plain empty rather than R10.27's screen.
+ *
+ *  The route's databases are every row whose `namespace`/`cluster` pair matches
+ *  `routeCluster`, so a cluster-scoped URL joins to that cluster's rows and a
+ *  namespace-filtered one joins to every cluster in the namespace it filtered
+ *  to. A payload with rows for other clusters only is the empty answer above. */
+export function resolveExtensionInstalled(
+  resp: QueryResponse,
+  state: UrlState,
+): boolean | undefined {
+  const [namespace, ...rest] = routeCluster(resp, state).split("/");
+  const cluster = rest.join("/");
+  if (cluster === "") return undefined;
+  const rows = resp.pgStatStatements.filter(
+    (row) => row.namespace === namespace && row.cluster === cluster,
+  );
+  if (rows.length === 0) return undefined;
+  if (rows.some((row) => row.installed === undefined)) return undefined;
+  return rows.every((row) => row.installed === true);
+}
+
 export interface QueriesPageProps extends PageProps<QueryResponse> {
   /** R3.1's per-database `pg_stat_statements` presence, for R10.27's
    *  not-installed screen.
@@ -212,8 +253,12 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
    *  `&false` is *not installed*, `&true` is *installed*. That is what makes the
    *  tri-state below representable in the payload instead of only in this page —
    *  a missing key and an explicit false used to be the same byte, which is the
-   *  whole reason the prop exists. Measured at `e8f1005` neither type is in the
-   *  file yet, so the prop is still the source. The earlier wording named
+   *  whole reason the prop exists. Both types are in `api/types.ts` as of
+   *  `79d4c4f` (the fixture's own rows arrived one commit earlier in
+   *  `ae9cc86`), so the payload is the source and this prop is the override:
+   *  `resolveExtensionInstalled` below is the rule, and the prop still wins when
+   *  a caller passes one, exactly as `fixtureOverride` does for the rows. The
+   *  earlier wording named
    *  `dto/clusters.go` as the file that doesn't expose it; the answer moved the
    *  type to `dto/queries.go` and ruled out putting it on `ClusterView` as well
    *  (one fact, two read paths, two refresh timings — R16.8's class), which is
@@ -290,9 +335,18 @@ export function QueriesPage(props: QueriesPageProps) {
     [onPatch],
   );
 
+  // The prop is the caller's override and the payload is the source, in that
+  // order — the same precedence `resp` itself uses two lines above, and for the
+  // same reason: a named fixture has to be able to say something the live
+  // response does not. `state` joins the deps because the derived half reads it.
   const panel = useMemo(
-    () => deriveQueryPanelState({ phase, queries: resp, extensionInstalled: props.extensionInstalled }),
-    [phase, resp, props.extensionInstalled],
+    () =>
+      deriveQueryPanelState({
+        phase,
+        queries: resp,
+        extensionInstalled: props.extensionInstalled ?? resolveExtensionInstalled(resp, state),
+      }),
+    [phase, resp, props.extensionInstalled, state],
   );
 
   const sort = resolveSort(state.sort);
@@ -415,8 +469,10 @@ function PageHeader({
   resp: QueryResponse;
   patch: (p: QueryUrlPatch) => void;
 }) {
-  const first = resp.queries[0];
-  const cluster = state.cluster ?? (first === undefined ? "" : `${first.namespace}/${first.cluster}`);
+  // `first` was read here before `routeCluster` existed; the helper now derives
+  // the same string from the same row, and leaving the local behind is a
+  // `noUnusedLocals` error rather than a judgement call.
+  const cluster = routeCluster(resp, state);
 
   return (
     <header className="page-head">

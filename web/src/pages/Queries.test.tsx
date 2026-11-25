@@ -30,10 +30,12 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import apiQueriesJson from "../../../testdata/api/queries.json";
+
 import type { ClientConfig } from "../api/client";
 import { emptyEnvelope, toQueriesResponse } from "../api/envelope";
 import { FIXTURE_GENERATED_AT, FIXTURE_QUERIES } from "../api/fixtures";
-import type { QueryResponse, QueryView } from "../api/types";
+import type { ExtensionPresenceView, QueryResponse, QueryView } from "../api/types";
 import { DEFAULT_STATE, parseUrl, type UrlState } from "../state/urlState";
 import { formatTimestamp } from "../lib/format";
 import {
@@ -41,7 +43,9 @@ import {
   databaseOptions,
   filterQueries,
   nextDir,
+  resolveExtensionInstalled,
   resolveSort,
+  routeCluster,
   type QueriesPageProps,
 } from "./Queries";
 // `QuerySortKey` comes from the table, not the page: the page imports it from
@@ -364,7 +368,7 @@ describe("the page's states (R10.12, in the queries' nouns)", () => {
     expect(within(banner).getByText("Partial results")).toBeInTheDocument();
     // The body is composed from the payload (R10.22), not from a `partial` key —
     // and asserting the whole string is deliberate: this is the test that went
-    // red when A4 parameterised `partialBanner`'s noun. `Queries.tsx:328` now
+    // red when A4 parameterised `partialBanner`'s noun. `Queries.tsx:417` now
     // passes `QUERY_NOUN`, so the sentence counts queries; before that it said
     // "1 cluster served" above a *queries* payload, which satisfied R10.22's
     // served-count while naming the wrong thing.
@@ -376,5 +380,125 @@ describe("the page's states (R10.12, in the queries' nouns)", () => {
     const { container } = renderPage();
     expect(container.querySelector(".banner")).toBeNull();
     expect(container.querySelector(".state-panel")).toBeNull();
+  });
+});
+
+describe("resolveExtensionInstalled — R3.1's report joined to the route (R10.27)", () => {
+  /* The page's presence rule, tested as a function before the render that uses
+   * it. The five cases are the five ways a `*bool[]` can answer, because the
+   * interesting failure is not "wrong boolean" — it is rendering R10.27's
+   * not-installed screen for a database nobody measured, which the fixture's
+   * own freeidp row (no `installed` key) is the only in-repo example of. */
+
+  // The json's four rows, imported rather than read back through
+  // `FIXTURE_QUERIES`: that export's presence array is the builder's `[]` until
+  // the fixtures move lands, so a test built on it would change meaning under the
+  // commit it is meant to survive. `client.test.ts:861` imports the same array.
+  const fixture = apiQueriesJson.pgStatStatements;
+  const at = (cluster: string): UrlState => ({ ...DEFAULT_STATE, page: "queries", cluster });
+  const withRows = (rows: QueryView[]) => ({
+    data: rows,
+    meta: { total: rows.length, truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+  });
+  const payload = (presence: ExtensionPresenceView[], rows: QueryView[] = []): QueryResponse =>
+    toQueriesResponse(withRows(rows), presence);
+
+  it("the route's cluster reporting installed is the true case", () => {
+    // The fixture's open-webui row is `installed: true`, and the URL the page is
+    // mounted from names that cluster — so this is the answer the page now
+    // derives for the default fixture, with no prop involved.
+    expect(resolveExtensionInstalled(payload(fixture), URL_STATE)).toBe(true);
+  });
+
+  it("a row with no `installed` key is unknown, not false", () => {
+    // `omitempty` on the Go `*bool`: the key is absent, which R3.1's two-source
+    // detection makes a normal answer (S3 only reports the databases a CNPG pod
+    // exports metrics for). `false` here would put R10.27's screen up for a
+    // database that was never measured.
+    expect(resolveExtensionInstalled(payload(fixture), at("freeidp/freeidp-pg"))).toBeUndefined();
+  });
+
+  it("installed in one database and not in another is false", () => {
+    // The AND the prop's docblock specifies: "installed everywhere" is the
+    // conservative reading, because one database lacking it makes this panel's
+    // data partial.
+    const rows: ExtensionPresenceView[] = [
+      { namespace: "cookbook", cluster: "cookbook-pg", database: "cookbook", installed: true },
+      { namespace: "cookbook", cluster: "cookbook-pg", database: "metrics", installed: false },
+    ];
+    expect(resolveExtensionInstalled(payload(rows), at("cookbook/cookbook-pg"))).toBe(false);
+  });
+
+  it("unknown beats false across a cluster's databases", () => {
+    // The ordering inside the AND: one unreported database outranks one reported
+    // as absent, so a partially-measured cluster never renders as not installed.
+    const rows: ExtensionPresenceView[] = [
+      { namespace: "cookbook", cluster: "cookbook-pg", database: "cookbook", installed: true },
+      { namespace: "cookbook", cluster: "cookbook-pg", database: "metrics" },
+    ];
+    expect(resolveExtensionInstalled(payload(rows), at("cookbook/cookbook-pg"))).toBeUndefined();
+  });
+
+  it("a payload with no row for the route's cluster says nothing", () => {
+    // Zero matching rows is `undefined`, not `false`: the payload has not
+    // answered for this cluster, and `StatePanel.tsx:110` renders unknown as the
+    // plain empty. This is the shape every pre-R3.1 response had.
+    const rows: ExtensionPresenceView[] = [
+      { namespace: "ai-api-gateway", cluster: "rev-proxy-pg", database: "gateway", installed: true },
+    ];
+    expect(resolveExtensionInstalled(payload(rows), at("cookbook/cookbook-pg"))).toBeUndefined();
+  });
+
+  it("the route identity is the URL's cluster, else the first row's pair", () => {
+    // `routeCluster` is `PageHeader`'s breadcrumb expression extracted, so the
+    // two cannot name different clusters for one URL — the assertion is on the
+    // helper the header now calls, not on a copy of its line.
+    const withCookbook = payload(fixture, [
+      { ...first, namespace: "cookbook", cluster: "cookbook-pg", database: "cookbook" },
+    ]);
+    expect(routeCluster(withCookbook, URL_STATE)).toBe("open-webui/open-webui-pg");
+    expect(
+      routeCluster(withCookbook, { ...DEFAULT_STATE, page: "queries", ns: ["cookbook"] }),
+    ).toBe("cookbook/cookbook-pg");
+  });
+
+  it("the page renders the derived false as R10.27's screen, with no prop passed", () => {
+    // The visible half of the flip: before this the screen needed a caller to
+    // hand it `extensionInstalled: false`, and every real caller hands it
+    // nothing. Now the payload alone puts it up.
+    const rows: ExtensionPresenceView[] = [
+      { namespace: "cookbook", cluster: "cookbook-pg", database: "cookbook", installed: false },
+    ];
+    const { container } = render(
+      <QueriesPage
+        state={at("cookbook/cookbook-pg")}
+        onPatch={vi.fn()}
+        cfg={CFG}
+        fixtureOverride={payload(rows)}
+      />,
+    );
+    const panel = container.querySelector(".state-panel") as HTMLElement;
+    expect(panel.classList.contains("ext-screen")).toBe(true);
+    expect(panel.getAttribute("data-state")).toBe("unavailable");
+  });
+
+  it("the prop still overrides the payload", () => {
+    // `props.extensionInstalled ?? derived`, the same precedence as
+    // `fixtureOverride` two lines above it in the page: a caller that names a
+    // presence wins, so the flip cannot change what an existing named-fixture
+    // route renders. The payload says installed, the prop says otherwise.
+    const rows: ExtensionPresenceView[] = [
+      { namespace: "cookbook", cluster: "cookbook-pg", database: "cookbook", installed: true },
+    ];
+    const { container } = render(
+      <QueriesPage
+        state={at("cookbook/cookbook-pg")}
+        onPatch={vi.fn()}
+        cfg={CFG}
+        fixtureOverride={payload(rows)}
+        extensionInstalled={false}
+      />,
+    );
+    expect(container.querySelector(".state-panel")?.getAttribute("data-state")).toBe("unavailable");
   });
 });

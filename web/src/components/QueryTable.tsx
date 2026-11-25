@@ -290,7 +290,7 @@ export interface QueryTableProps {
    *  labelled, not positional: `internal/api/dto/series.go:79` documents
    *  `QuerySeries` as "one requested fingerprint's answer" and `:90` says the
    *  secondary id is "never the key — `fingerprint` is", which is what
-   *  `web/src/pages/Queries.tsx:261`'s `seriesByFingerprint` projects. Array
+   *  `web/src/pages/Queries.tsx:306`'s `seriesByFingerprint` projects. Array
    *  order carries no meaning, so index arithmetic would pair row 3 with the
    *  wrong series whatever the counts were. Optional because only one column
    *  needs it: a caller that has not fetched the series still renders thirteen
