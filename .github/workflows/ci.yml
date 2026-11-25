@@ -206,8 +206,11 @@ jobs:
       # committed manifest change fails the build.
       - name: helm template snapshot test (3 profiles)
         run: make render-check
+      # R11.11: through the Makefile, like every other step here. The
+      # --load-restrictor=LoadRestrictionsNone flag that kustomize v5.8.1 needs to read
+      # ../plain-yaml/all.yaml lives in the `kustomize` target, not in this file.
       - name: kustomize build (R11.13 plain-yaml consumer)
-        run: kubectl kustomize deploy/kustomize > /dev/null
+        run: make kustomize
 
   image:
     name: multi-arch image (R11.2, R11.4)

@@ -41,8 +41,8 @@ REPO     ?= frankellis/pgsql-insights
 TAG      ?= dev
 
 .PHONY: all build test cover vet lint lint-go openapi openapi-check tidy-check web test-web typecheck-web \
-       helm-lint render render-check image image-size push-local licenses licenses-check licenses-selftest \
-       deploy verify clean help
+       helm-lint render render-check kustomize rules-check image image-size push-local licenses \
+       licenses-check licenses-selftest deploy verify clean help
 
 all: build
 
@@ -196,6 +196,24 @@ render:
 render-check: render
 	@git diff --exit-code deploy/plain-yaml || \
 		{ echo "FAIL: deploy/plain-yaml is stale — run 'make render' and commit (R11.13)"; exit 1; }
+
+## kustomize: R11.13 — build the deploy/kustomize overlay over the generated plain-yaml.
+# The flag is the whole point of this target, not decoration. kustomize v5.8.1 (the
+# version kubectl v1.36.1 bundles) defaults to --load-restrictor=LoadRestrictionsRootOnly,
+# and this repo's only kustomization has exactly one resource, `../plain-yaml/all.yaml` —
+# one directory ABOVE its own root, which that restrictor rejects outright:
+#   error: accumulating resources: accumulation err='accumulating resources from
+#   '../plain-yaml/all.yaml': security; file '.../deploy/plain-yaml/all.yaml' is not in
+#   or below '.../deploy/kustomize'': must build at directory: '...all.yaml': file is
+#   not directory
+# The restrictor cannot be set in the file at this version — `loadRestrictions: none`
+# parses as `invalid Kustomization: json: unknown field "loadRestrictions"` — so the
+# command-line flag is the only form that builds (probed 2026-11-24: bare command rc=1,
+# with the flag rc=0 and 9 kinds in the output). ci.yml ran the bare command, so the
+# helm job failed there while no Makefile target existed to mirror it (R11.11); the flag
+# now lives here and ci.yml calls `make kustomize`.
+kustomize:
+	@kubectl kustomize deploy/kustomize --load-restrictor=LoadRestrictionsNone > /dev/null
 
 ## rules-check: promtool check rules on the rendered PrometheusRule (R9.11).
 ## The rule set is disabled in all three profiles, so `make render` never renders
