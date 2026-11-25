@@ -652,6 +652,43 @@ func runServe(args []string) int {
 		// meaningful once the store is the sink. That is why it lands in this commit
 		// rather than as the one-line change on its own.
 		cfg.PerQueryMetrics = bundle.perQuery
+		// The four Phase 3 read routes, from the same handle. api.Config names one
+		// field per route and each docblock says the Phase 3 store "replaces the
+		// default by assigning this field"; Phase 3 shipped the store, and these four
+		// lines are the assigning it never did, so a SQLite-backed pgsi served
+		// emptyQuerySource, emptyQuerySeries, emptyQueryDetail and emptyTags on four
+		// documented routes while holding the rows those routes serve. In the memory
+		// profile all four are the plain nil and each accessor turns that into its
+		// documented empty source — the same shape the line above gives for R9.5's
+		// family.
+		cfg.Queries = bundle.queries
+		cfg.Series = bundle.series
+		cfg.QueryDetail = bundle.detail
+		cfg.Tags = bundle.tags
+		// R3.1's extension-presence route, and the one api.Config field not fed by
+		// sinkBundle: NewProbePresenceSource needs the fleet, which openSink has no
+		// handle on, so it is built here rather than added to the bundle. The sink is
+		// type-asserted rather than passed directly because ProbeReader is deliberately
+		// not part of Sink (collector/sink.go): the memory profile's MemSink answers it,
+		// the SQLite store has no probe table and does not, so the sqlite profile leaves
+		// this nil and api's accessor serves its documented empty source — the same
+		// answer the four lines above give for their own nils.
+		//
+		// The target func re-reads disc.Inventory() on every call instead of closing
+		// over a snapshot, which is the rule the scheduler's targets func two lines
+		// below already follows: a cluster that appears mid-round has to be resolvable
+		// by this route in the same round it becomes collectable.
+		if pr, ok := bundle.sink.(collector.ProbeReader); ok {
+			cfg.ExtensionPresence = api.NewProbePresenceSource(pr,
+				func(namespace, cluster string) (collector.Target, bool) {
+					for _, t := range collectTargets(disc.Inventory()) {
+						if t.Namespace == namespace && t.Cluster == cluster {
+							return t, true
+						}
+					}
+					return collector.Target{}, false
+				})
+		}
 		// The targets func is called once per round rather than snapshotted here,
 		// which is what makes R1.9's "drop collectors within one resync" work: a
 		// pod that scaled out appears in the next round's set and starts
