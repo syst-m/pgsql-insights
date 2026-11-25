@@ -782,8 +782,8 @@ export function parseExtensionPresenceView(raw: unknown): ExtensionPresenceView 
 }
 
 /** Check the body of `GET /api/v1/insights/queries` — the third named, non-envelope
- *  body this file validates, after `parseActiveQueriesResponse` at `:671` and
- *  `parseTerminateResponse` at `:718`. The route's body is `dto.QueriesResponse`
+ *  body this file validates, after `web/src/api/envelope.ts:672` (`parseActiveQueriesResponse`) and
+ *  `web/src/api/envelope.ts:719` (`parseTerminateResponse`). The route's body is `dto.QueriesResponse`
  *  (`api/openapi.yaml:3596`), which replaced the `QueriesEnvelope` alias over
  *  `dto.Envelope[dto.QueryView]` because "a route with a named struct has a name
  *  already, so keeping both would be two names for one body".
