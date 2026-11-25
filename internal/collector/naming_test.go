@@ -89,13 +89,18 @@ func TestMetricNameTable(t *testing.T) {
 		{pgversion.ViewStatSLRU, "blks_hit", "slru_blocks_hit_total"},
 		{pgversion.ViewStatSLRU, "flushes", "slru_flushes_total"},
 		{pgversion.ViewFileSettings, "count", "file_settings_count"},
-		// R7.2's bloat families. The two views' 42 rows are ruled names
-		// (`requirements.md:366`); these five are the two names bloat.go's Extras mint
-		// (total_bytes, size), the ratio, the counter R7.2's unused-index detection
-		// reads, and the ratio's numerator.
+		// R7.2's and R7.4's bloat families. The two views' 45 rows are ruled names
+		// (`requirements.md:366` for R7.2's pair of families, `requirements.md:368`
+		// for the three R7.4 names); these eight are the two size names bloat.go's
+		// Extras mint (total_bytes, size), the ratio, the counter R7.2's
+		// unused-index detection reads, the ratio's numerator, and the three R7.4
+		// Extras that the ruling put in bloat.go instead of in a new collector.
 		{pgversion.ViewStatUserTables, "n_dead_tup", "table_dead_tuples"},
 		{pgversion.ViewStatUserTables, "total_bytes", "table_total_bytes"},
 		{pgversion.ViewStatUserTables, "dead_ratio", "table_dead_ratio"},
+		{pgversion.ViewStatUserTables, "next_autovacuum", "table_next_autovacuum_timestamp_seconds"},
+		{pgversion.ViewStatUserTables, "over_autovacuum_threshold", "table_over_autovacuum_threshold"},
+		{pgversion.ViewStatUserTables, "never_analyzed", "table_never_analyzed"},
 		{pgversion.ViewStatUserIndexes, "idx_scan", "index_idx_scan_total"},
 		{pgversion.ViewStatUserIndexes, "size", "index_size_bytes"},
 	}
@@ -137,7 +142,7 @@ func TestMetricNameFallsBackToThePreStep4Formula(t *testing.T) {
 // this is the assertion that enforces it across every named row at once.
 //
 // The sentence used to end "across all 114 rows at once". Four numbers have
-// those five words — 114, then 139, then 171, now 213 — and each went stale on the
+// those five words — 114, then 139, then 171, then 213, now 216 — and each went stale on the
 // commit that added rows, which is the same failure the docblock at
 // naming.go:140-149 documents for the view-key count. TestExportNameViewKeyCount
 // owns the numbers now, so this paragraph says "every named row" and lets the test be
@@ -171,13 +176,13 @@ func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 // docblock does not name, which is the shape of every past count bug here.
 func TestExportNameViewKeyCount(t *testing.T) {
 	const (
-		// The 16 dotted view keys, the 213 rows under them, and the 51 dotless
+		// The 16 dotted view keys, the 216 rows under them, and the 51 dotless
 		// cnpg/pgbouncer keys the R9.4 amendment let in. The bgwriter →
 		// checkpointer pair is two of the 16 keys for one source (R2.4's fourth
 		// enumerated case), which is why 16 keys is 15 sources; the pair's own
 		// section header carries that argument.
 		wantViewKeys = 16
-		wantDotted   = 213
+		wantDotted   = 216
 		wantDotless  = 51
 	)
 	wantViews := []string{

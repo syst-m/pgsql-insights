@@ -32,13 +32,28 @@ import (
 // so: "a phase satisfies this row by collecting and exporting the two pairs the row
 // names (dead-tuple ratio from `pg_stat_user_tables` with `pg_total_relation_size`;
 // `pg_stat_user_indexes.idx_scan = 0` with index size); the view surface rides with
-// R7.1." The two pairs are the three Extras below. The rest of the two views' columns
+// R7.1." The two pairs are the first three Extras below. The rest of the two views' columns
 // ride along because R9.7's union rule makes the matrix's numeric column set the
 // export set once a collector reads a view — "the export set is therefore the union of
 // R5.2's enumerated families and the numeric columns R2.4's matrix returns for the
 // target major, and R9.4's naming function must enumerate that union"
 // (`requirements.md:401`) — so naming them is required rather than optional, and no
 // amendment is needed for the naming half.
+//
+// R7.4 lives here too, and the ruling on its four asks (`requirements.md:368`) is the
+// reason it is not its own file: "R7.4 extends `internal/collector/bloat.go` rather
+// than gaining an `autovacuum` collector, and the reason is the shape of
+// `internal/collector/naming.go:159`'s `exportNames`: one `map[string]exportEntry`
+// keyed by `Canonical(view, column).String()` … so a metric name is a property of a
+// *column*, never of a collector." A second collector over pg_stat_user_tables reads
+// the same columns and therefore mints the same names, and the family word rides with
+// the key — all 35 rows are `table_*` because R7.2's second ruling assigned them there
+// (`requirements.md:366`), so an `autovacuum` collector would have to move them to
+// `autovacuum_*` and shrink this projection back to the R7.2 half. The three R7.4
+// Extras below are the answer to that ruling's ask 2 ("the three names, as offered"),
+// and their SQL is the answer to ask 3 — see bloatNextAutovacuumSQL,
+// bloatOverThresholdSQL and bloatNeverAnalyzedSQL for the constraint each one works
+// around.
 const CollectorBloat = "bloat"
 
 // BloatInterval is §3.3's interval for the bloat collector (5 min), stated as a
@@ -69,10 +84,91 @@ var bloatViews = []pgversion.View{
 	pgversion.ViewStatUserIndexes,
 }
 
+// bloatNextAutovacuumSQL is R7.4's "next vacuum per table" as an Extra.
+//
+// The ruled expression is `requirements.md:368`'s: "the 0.1 model is `last_autovacuum
+// + autovacuum_naptime` (the next launcher cycle), NULL when `last_autovacuum` is
+// NULL". Two things about writing that in this builder are not obvious from the
+// formula.
+//
+// The first is where naptime comes from. autovacuum_naptime is a server setting, not a
+// column of pg_stat_user_tables, so the bare word in the ruling's formula has to be
+// resolved the way ask 3 was ruled: a scalar subquery, not a join (`sql.go:309` emits
+// exactly one FROM and `sql.go:242`'s QuerySpec has only Extras and Where, so a join
+// cannot be produced — the ruling's words are "the builder is the constraint, not the
+// checker"). Reading it from the settings collector instead was option (b) and it
+// failed on schedule: SettingsInterval is 15 min against this collector's 5 min, so the
+// value is up to ten minutes stale and absent entirely on this collector's first
+// rounds.
+//
+// The second is that the expression emits a sample where the six last_* columns do
+// not. The ruling calls the asymmetry intended: `sql.go:363`'s parseValue parses
+// numbers and booleans only, so a bare timestamptz column is kindText and silent
+// (`bloat.go:380-385`, following `wal.go:281-292`), while date_part('epoch', …) is the
+// unix-seconds conversion that same ruling points at and yields a number. NULL is the
+// correct answer for a never-vacuumed table and it costs nothing here: date_part is
+// strict, so NULL in gives NULL out, and parseValue's failure to parse an empty cell is
+// what turns that into "no sample" rather than a 0.
+const bloatNextAutovacuumSQL = "pg_catalog.date_part('epoch', last_autovacuum + (SELECT setting::interval FROM pg_catalog.pg_settings WHERE name = 'autovacuum_naptime'))"
+
+// bloatOverThresholdSQL is R7.4's "tables over the autovacuum threshold" as an Extra,
+// and the expression is the one the ruling's coalesce finding forces.
+//
+// The threshold for one table is its own autovacuum_vacuum_threshold if the table sets
+// one in pg_class.reloptions, and the autovacuum_vacuum_threshold setting otherwise.
+// Expressing "override, else default" is what coalesce is for, and `requirements.md:368`
+// rules that coalesce cannot be written here at all: `sql.go:484`'s unqualifiedCall is a
+// bare byte scan with no keyword exclusion list, so bare `coalesce(a, b)` returns
+// "coalesce" and fails validation, and `pg_catalog.coalesce(...)` is not the fix because
+// COALESCE is a SQL-standard conditional *expression* (PostgreSQL §9.22), not a
+// pg_catalog function, so the qualified form is a syntax error on the instance. The
+// ruling's mandated shape is `CASE … END`.
+//
+// The ruling's own reasoning — a CASE "has no parentheses and is therefore invisible to
+// the check" — is true of the keywords but not of the expression this one needs, and the
+// difference is worth stating because it is the reason the two branches are written the
+// way they are. unqualifiedCall inspects every "(" and requires the identifier
+// immediately left of it (after skipping spaces and tabs) to be a known schema; a "("
+// preceded by anything else, including a SQL keyword, is read as a call to that keyword.
+// So `THEN (SELECT …)` fails validation with "calls THEN without a schema", and so does
+// `WHEN (SELECT …)` or `AND (SELECT …)`. The two branches dodge it in the two ways the
+// check leaves open: the override branch puts its subselect inside a qualified call
+// (pg_catalog.substring, whose "(" is preceded by "substring" preceded by "pg_catalog."),
+// and the default branch puts its subselect behind an operator (`0 + (…)`, whose "(" is
+// preceded by "+", which is not an identifier byte). The `0 +` is also the null guard:
+// it keeps the branch NULL when pg_settings has no such row, which is what a plain
+// greatest(x, 0) would not do, because greatest ignores NULL arguments and would report
+// a threshold of 0 — making every table with a dead tuple look over threshold.
+//
+// The override is read out of reloptions with substring rather than with unnest because
+// reloptions is a text[] and the Extra needs a scalar: the ruling reaches reloptions as
+// `(SELECT reloptions FROM pg_catalog.pg_class WHERE oid = relid)` — "not by a join" —
+// and casting that array to its text form and matching the key is the scalar form of the
+// same read. A table with no options at all has NULL reloptions, so substring returns
+// NULL, so the CASE takes the default branch, which is the correct answer.
+const bloatOverThresholdSQL = "CASE WHEN pg_catalog.substring((SELECT reloptions::text FROM pg_catalog.pg_class WHERE oid = relid), 'autovacuum_vacuum_threshold=([0-9]+)') IS NULL THEN 0 + (SELECT setting::float8 FROM pg_catalog.pg_settings WHERE name = 'autovacuum_vacuum_threshold') ELSE pg_catalog.substring((SELECT reloptions::text FROM pg_catalog.pg_class WHERE oid = relid), 'autovacuum_vacuum_threshold=([0-9]+)')::float8 END"
+
+// bloatNeverAnalyzedSQL is R7.4's "tables never analyzed" as an Extra.
+//
+// The simplest of the three, and the only one whose SQL is a plain expression: a table
+// has never been analyzed when both the manual and the automatic column are NULL. It is
+// also the only one of the three with no parenthesis anywhere, which is the property
+// `requirements.md:368` names as the reason CASE is safe to write at all — see
+// bloatOverThresholdSQL for the case where a CASE still needs help.
+//
+// It pairs with next_autovacuum rather than duplicating it: a never-analyzed table also
+// has no next_autovacuum value (last_autovacuum is NULL for a table that has never been
+// vacuumed, and a table can be vacuumed without ever being analyzed), and the ruling
+// says so — "NULL when `last_autovacuum` is NULL … is also the correct answer for a
+// never-vacuumed table and pairs with `never_analyzed`".
+const bloatNeverAnalyzedSQL = "CASE WHEN last_analyze IS NULL AND last_autoanalyze IS NULL THEN 1 ELSE 0 END"
+
 // bloatSpecs is the per-view SQL the matrix cannot express: the two sizes and the
 // ratio.
 //
-// The three Extras are R7.2's two pairs, and none of the three is a column.
+// Six Extras, and none of the six is a column: the three R7.2 ones below are its two
+// pairs, and the three R7.4 ones are documented on their own constants above.
+//
 // pg_stat_user_tables stores n_live_tup and n_dead_tup, not their ratio; a table's
 // size is pg_total_relation_size(relid) and an index's is pg_relation_size(indexrelid),
 // and neither view has a size column at all. They are declared as Extras so the matrix
@@ -100,8 +196,13 @@ var bloatViews = []pgversion.View{
 var bloatSpecs = map[pgversion.View]QuerySpec{
 	pgversion.ViewStatUserTables: {
 		Extras: []Extra{
+			// R7.2's two pairs.
 			{Expr: "pg_catalog.pg_total_relation_size(relid)", Alias: "total_bytes"},
 			{Expr: "n_dead_tup::float8 / pg_catalog.greatest(n_live_tup + n_dead_tup, 1)", Alias: "dead_ratio"},
+			// R7.4's autovacuum insight, ruled into this file by `requirements.md:368`.
+			{Expr: bloatNextAutovacuumSQL, Alias: "next_autovacuum"},
+			{Expr: bloatOverThresholdSQL, Alias: "over_autovacuum_threshold"},
+			{Expr: bloatNeverAnalyzedSQL, Alias: "never_analyzed"},
 		},
 	},
 	pgversion.ViewStatUserIndexes: {
@@ -113,7 +214,8 @@ var bloatSpecs = map[pgversion.View]QuerySpec{
 
 // BloatCollector is §3.3's bloat collector: the per-table dead-tuple counters and
 // size, the dead-tuple ratio, and the per-index scan counters and size that make up
-// R7.2's two pairs.
+// R7.2's two pairs, plus the three R7.4 autovacuum values the ruling put in this file
+// rather than in a collector of their own.
 //
 // The one judgement in the file is which columns become metrics, and it lives in
 // bloatKindOf rather than being spread through the code — the shape wal.go's
@@ -285,7 +387,11 @@ func bloatKindOf(view pgversion.View, column string) columnKind {
 			"n_tup_ins", "n_tup_upd", "n_tup_del", "n_tup_hot_upd", "n_tup_newpage_upd",
 			"vacuum_count", "autovacuum_count", "analyze_count", "autoanalyze_count",
 			"total_vacuum_time", "total_autovacuum_time", "total_analyze_time", "total_autoanalyze_time",
-			"total_bytes", "dead_ratio":
+			"total_bytes", "dead_ratio",
+			// R7.4's three. next_autovacuum is a date_part number and so emits, which is
+			// the asymmetry `requirements.md:368` calls intended against the six last_*
+			// rows above; the other two are CASE expressions that yield 1 or 0.
+			"next_autovacuum", "over_autovacuum_threshold", "never_analyzed":
 			return kindMetric
 		case "n_live_tup", "n_dead_tup", "n_mod_since_analyze", "n_ins_since_vacuum":
 			// Gauges, not counters: a live-tuple count goes down when a vacuum runs, so

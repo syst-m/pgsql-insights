@@ -20,7 +20,7 @@ var _ Collector = (*BloatCollector)(nil)
 // for ioTarget: the fixture is built from one major's column set, and the two views
 // here differ by major (pg_stat_user_tables is 23 columns on 13-15, 26 on 16-17, 30 on
 // 18; pg_stat_user_indexes is 8 on 13-15 and 9 on 16+). PG17 is the major whose sets
-// match the naming table's 42 rows minus the four PG18-only total_*_time columns, so a
+// match the naming table's 45 rows minus the four PG18-only total_*_time columns, so a
 // fixture built here cannot be a row with columns the query does not select.
 func bloatTarget() Target {
 	return Target{Namespace: "db", Cluster: "pg", Pod: "pg-1", Role: "primary", Source: SourceSQL, PGMajor: 17}
@@ -30,9 +30,10 @@ func bloatTarget() Target {
 // filled and the columns in over set on top.
 //
 // It builds from Project rather than from pgversion.Columns so the Extra aliases
-// (total_bytes, dead_ratio, size) are in the row: they are part of the SELECT list and
+// (total_bytes, dead_ratio, next_autovacuum, over_autovacuum_threshold, never_analyzed,
+// size) are in the row: they are part of the SELECT list and
 // the builder reads them like any other column, so a fixture that omitted them would
-// silently drop two of the three values R7.2 exists to collect.
+// silently drop the derived half of both requirements this collector now serves.
 func bloatRowFor(t *testing.T, view pgversion.View, major int, over map[string]string) Row {
 	t.Helper()
 	p, ok := Project(view, major, bloatSpecs[view])
@@ -76,10 +77,15 @@ func bloatTestRows(t *testing.T, major int) map[pgversion.View][]Row {
 			bloatRowFor(t, pgversion.ViewStatUserTables, major, map[string]string{
 				"relname": "orders", "n_live_tup": "1000", "n_dead_tup": "250",
 				"total_bytes": "81920", "dead_ratio": "0.2",
+				// R7.4's three for a table that has been analyzed and is over its threshold.
+				"next_autovacuum": "1731000000", "over_autovacuum_threshold": "1", "never_analyzed": "0",
 			}),
 			bloatRowFor(t, pgversion.ViewStatUserTables, major, map[string]string{
 				"relname": "audit_log", "n_live_tup": "9000", "n_dead_tup": "1000",
 				"total_bytes": "16384", "dead_ratio": "0.1",
+				// The never-analyzed half of R7.4, on the row that has neither last_analyze
+				// nor last_autoanalyze in the real view.
+				"next_autovacuum": "1731000600", "over_autovacuum_threshold": "1", "never_analyzed": "1",
 			}),
 		},
 		pgversion.ViewStatUserIndexes: {
@@ -242,6 +248,101 @@ func TestBloatDeadRatioGuard(t *testing.T) {
 	}
 }
 
+// TestBloatR74Expressions pins the three R7.4 Extras the way TestBloatDeadRatioGuard
+// pins R7.2's: by quoting the expression, because an Extra that "simplifies" into the
+// wrong SQL still compiles, still returns a number, and still fills a metric. Each of
+// the three carries a hazard the compiler cannot see, so the assertions are the hazards
+// rather than a comparison to the constant each Extra is assigned from — which cannot
+// fail and so documents nothing.
+//
+//   - next_autovacuum must resolve naptime inside the expression. The ruled formula
+//     (`requirements.md:368`) writes the bare word autovacuum_naptime, which is not a
+//     column of pg_stat_user_tables; replacing the subquery with a literal interval, or
+//     reading the value from the settings collector (option (b), rejected on schedule),
+//     both still produce a number and both are wrong.
+//   - over_autovacuum_threshold must be a CASE and must not contain coalesce. S143
+//     records why the second half matters. The test asserts the prohibition instead of
+//     trusting the comment, and asserts the narrower facts the comment rests on by
+//     calling unqualifiedCall directly on the two coalesce forms and on the
+//     paren-after-keyword shape this Extra works around.
+//   - never_analyzed must contain no parenthesis at all, which is the property the
+//     ruling names as the reason a CASE is safe to write.
+func TestBloatR74Expressions(t *testing.T) {
+	spec := bloatSpecs[pgversion.ViewStatUserTables]
+	byAlias := make(map[string]string, len(spec.Extras))
+	for _, e := range spec.Extras {
+		if _, dup := byAlias[e.Alias]; dup {
+			t.Errorf("duplicate Extra alias %q on pg_stat_user_tables", e.Alias)
+		}
+		byAlias[e.Alias] = e.Expr
+	}
+	for _, alias := range []string{"total_bytes", "dead_ratio", "next_autovacuum", "over_autovacuum_threshold", "never_analyzed"} {
+		if _, ok := byAlias[alias]; !ok {
+			t.Errorf("no pg_stat_user_tables Extra with alias %s (R7.2's two pairs plus R7.4's three)", alias)
+		}
+	}
+
+	// next_autovacuum: the ruled formula, with naptime resolved in-expression.
+	next := byAlias["next_autovacuum"]
+	for _, want := range []string{
+		"pg_catalog.date_part('epoch',",
+		"last_autovacuum +",
+		"(SELECT setting::interval FROM pg_catalog.pg_settings WHERE name = 'autovacuum_naptime')",
+	} {
+		if !strings.Contains(next, want) {
+			t.Errorf("next_autovacuum expression %q is missing %s", next, want)
+		}
+	}
+	if bad := unqualifiedCall(next); bad != "" {
+		t.Errorf("unqualifiedCall(next_autovacuum) = %q, want empty", bad)
+	}
+
+	// over_autovacuum_threshold: a CASE, no coalesce, and every "(" in a position the
+	// byte scan cannot read as a call.
+	over := byAlias["over_autovacuum_threshold"]
+	if strings.Contains(strings.ToLower(over), "coalesce(") {
+		t.Errorf("over_autovacuum_threshold expression %q uses coalesce: unqualifiedCall rejects the bare form and Postgres rejects pg_catalog.coalesce (S143), so this Extra has no way to spell override-or-default except CASE", over)
+	}
+	for _, want := range []string{
+		"CASE WHEN", "THEN", "ELSE", "END",
+		"pg_catalog.substring(",
+		"FROM pg_catalog.pg_class WHERE oid = relid",
+		"FROM pg_catalog.pg_settings WHERE name = 'autovacuum_vacuum_threshold'",
+	} {
+		if !strings.Contains(over, want) {
+			t.Errorf("over_autovacuum_threshold expression %q is missing %s", over, want)
+		}
+	}
+	if bad := unqualifiedCall(over); bad != "" {
+		t.Errorf("unqualifiedCall(over_autovacuum_threshold) = %q, want empty: a non-empty answer fails ValidateProjection on every round", bad)
+	}
+
+	// The trap the shape works around, asserted rather than narrated. A "(" whose left
+	// neighbour is a SQL keyword is read as a call to that keyword, so a parenthesised
+	// subselect directly after THEN is rejected as a call to THEN — which is why the
+	// default branch is 0 + (…) and not a bare subselect.
+	if got := unqualifiedCall("CASE WHEN x IS NULL THEN (SELECT y FROM pg_catalog.pg_class) END"); got != "THEN" {
+		t.Errorf(`unqualifiedCall("CASE WHEN x IS NULL THEN (SELECT y FROM pg_catalog.pg_class) END") = %q, want "THEN"`, got)
+	}
+	if got := unqualifiedCall("coalesce(a, b)"); got != "coalesce" {
+		t.Errorf(`unqualifiedCall("coalesce(a, b)") = %q, want "coalesce" (S143: no keyword exclusion list)`, got)
+	}
+	if got := unqualifiedCall("pg_catalog.coalesce(a, b)"); got != "" {
+		t.Errorf(`unqualifiedCall("pg_catalog.coalesce(a, b)") = %q, want empty: the checker accepts the qualified form, so the checker is not what forbids it — Postgres does (S143)`, got)
+	}
+
+	// never_analyzed: no parenthesis anywhere.
+	never := byAlias["never_analyzed"]
+	if strings.ContainsAny(never, "()") {
+		t.Errorf("never_analyzed expression %q contains a parenthesis; the ruling's safety argument for CASE is that it has none", never)
+	}
+	for _, want := range []string{"CASE WHEN", "last_analyze IS NULL", "AND", "last_autoanalyze IS NULL", "THEN 1", "ELSE 0", "END"} {
+		if !strings.Contains(never, want) {
+			t.Errorf("never_analyzed expression %q is missing %s", never, want)
+		}
+	}
+}
+
 // TestBloatCollectSamples is the golden round: the expected count is derived — metric
 // columns times rows, summed over the two projections — not remembered, and then a set
 // of spot checks names the values the fixture set so a builder that emitted the right
@@ -275,7 +376,9 @@ func TestBloatCollectSamples(t *testing.T) {
 			len(res.Samples), want, dumpSamples(res.Samples))
 	}
 
-	// The three values R7.2 names, plus one plain counter, checked by value and label.
+	// The three values R7.2 names, plus one plain counter, checked by value and label,
+	// followed by the three R7.4 ones on both of the table rows so each of the six
+	// R7.2+R7.4 values is checked on at least one row by value.
 	for _, want := range []struct {
 		metric, key, value string
 		valueOf            float64
@@ -283,6 +386,10 @@ func TestBloatCollectSamples(t *testing.T) {
 		{"table_dead_tuples", "relname", "orders", 250},
 		{"table_total_bytes", "relname", "orders", 81920},
 		{"table_dead_ratio", "relname", "orders", 0.2},
+		{"table_next_autovacuum_timestamp_seconds", "relname", "orders", 1731000000},
+		{"table_over_autovacuum_threshold", "relname", "orders", 1},
+		{"table_never_analyzed", "relname", "orders", 0},
+		{"table_never_analyzed", "relname", "audit_log", 1},
 		{"table_seq_scan_total", "relname", "orders", 7},
 		{"index_idx_scan_total", "indexrelname", "orders_idx_created", 0},
 		{"index_size_bytes", "indexrelname", "orders_idx_created", 49152},
@@ -590,6 +697,12 @@ func TestBloatKindOfRoles(t *testing.T) {
 		{pgversion.ViewStatUserTables, "total_bytes", kindMetric},
 		{pgversion.ViewStatUserTables, "dead_ratio", kindMetric},
 		{pgversion.ViewStatUserIndexes, "size", kindMetric},
+		// R7.4's three, including next_autovacuum: its source column last_autovacuum is
+		// kindText two rows above and its own alias is kindMetric, which is the
+		// named-but-silent / derived-and-emitting asymmetry the ruling calls intended.
+		{pgversion.ViewStatUserTables, "next_autovacuum", kindMetric},
+		{pgversion.ViewStatUserTables, "over_autovacuum_threshold", kindMetric},
+		{pgversion.ViewStatUserTables, "never_analyzed", kindMetric},
 		// Gauges, not counters, and still values.
 		{pgversion.ViewStatUserTables, "n_live_tup", kindMetric},
 		{pgversion.ViewStatUserTables, "n_dead_tup", kindMetric},

@@ -123,7 +123,7 @@ type exportEntry struct {
 // style choice. Go detects duplicate keys in a map literal only when the keys are
 // constants, so the previous `pgversion.Source` composite-literal keys got no
 // duplicate detection at all: two rows for one (view, column) compiled and one
-// silently won. A string key is a constant, so the compiler now checks all 213.
+// silently won. A string key is a constant, so the compiler now checks all 216.
 // MetricName and MetricTypeOf keep their (view, column) signatures as the typed
 // entry points and build the key with Source.String(); MetricNameFor and
 // MetricTypeFor take the key directly, which is how the dotless populations —
@@ -576,10 +576,10 @@ var exportNames = map[string]exportEntry{
 	// (archiver_last_archived_timestamp_seconds is the precedent), _bytes where the
 	// source declares a unit, and nothing for a plain count gauge.
 	//
-	// 42 rows, and the count is R9.7's union rule (`requirements.md:401`) applied to
+	// 45 rows, and the count is R9.7's union rule (`requirements.md:401`) applied to
 	// R2.4's matrix rather than a number this file picks: 30 columns is the union of the
 	// three pg_stat_user_tables column sets (23 on 13-15, 26 on 16-17, 30 on 18) plus
-	// bloat.go's two Extras, and 9 is the union of the two pg_stat_user_indexes sets
+	// bloat.go's five Extras, and 9 is the union of the two pg_stat_user_indexes sets
 	// (8 on 13-15, 9 on 16+) plus its one Extra. The union is over the matrix's column
 	// set for the target major, not PostgreSQL's real one, which is why the PG18-only
 	// total_*_time columns get names on every major and simply return no rows below 18.
@@ -594,7 +594,7 @@ var exportNames = map[string]exportEntry{
 	// sharing is a succession, and pg_stat_user_tables.idx_scan (index scans on a table)
 	// and pg_stat_user_indexes.idx_scan (scans of one index) are two counters no
 	// succession can merge.
-	// pg_stat_user_tables — 32 rows (30 matrix columns + the 2 bloat.go Extras)
+	// pg_stat_user_tables — 35 rows (30 matrix columns + the 5 bloat.go Extras)
 	"pg_stat_user_tables.relid":                  {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
 	"pg_stat_user_tables.schemaname":             {name: "", typ: TypeNotExported, src: "R9.3: the schemaname label, not a value"},
 	"pg_stat_user_tables.relname":                {name: "", typ: TypeNotExported, src: "R9.3: the relname label, not a value"},
@@ -627,6 +627,12 @@ var exportNames = map[string]exportEntry{
 	"pg_stat_user_tables.total_autoanalyze_time": {name: "table_total_autoanalyze_time_seconds_total", typ: TypeCounter, src: "R7.4 (PG18): time spent in autoanalyze"},
 	"pg_stat_user_tables.total_bytes":            {name: "table_total_bytes", typ: TypeGauge, src: "R7.2 size half: pg_total_relation_size(relid)"},
 	"pg_stat_user_tables.dead_ratio":             {name: "table_dead_ratio", typ: TypeGauge, src: "R7.2 ratio half: n_dead_tup / (n_live_tup + n_dead_tup)"},
+	// R7.4's three, ruled into bloat.go by `requirements.md:368` rather than into a
+	// collector of their own. next_autovacuum is the only one whose value comes from a
+	// setting (autovacuum_naptime) rather than a column or a relation size.
+	"pg_stat_user_tables.next_autovacuum":           {name: "table_next_autovacuum_timestamp_seconds", typ: TypeGauge, src: "R7.4: last_autovacuum + autovacuum_naptime"},
+	"pg_stat_user_tables.over_autovacuum_threshold": {name: "table_over_autovacuum_threshold", typ: TypeGauge, src: "R7.4: n_dead_tup over the table's own autovacuum threshold"},
+	"pg_stat_user_tables.never_analyzed":            {name: "table_never_analyzed", typ: TypeGauge, src: "R7.4: no manual or automatic ANALYZE has ever run"},
 
 	// pg_stat_user_indexes — 10 rows (9 matrix columns + the 1 bloat.go Extra)
 	"pg_stat_user_indexes.relid":         {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
