@@ -57,7 +57,7 @@ export type ClusterTab = "overview" | "instances" | "replication" | "storage" | 
 
 export interface UrlState {
   page: Page;
-  /** "namespace/name" — set iff page is "cluster". */
+  /** "namespace/name" — set iff `requiresCluster(page)`, i.e. every page but `fleet`. */
   cluster: string | null;
   /** Selected table row (R10.16). On fleet this is the focused cluster id. */
   row: string | null;
@@ -253,8 +253,8 @@ export function withState(current: UrlState, patch: Partial<UrlState>): UrlState
   }
   // 2. A cluster-scoped page with no cluster has nothing to render — fall back
   //    to the fleet rather than emit a URL the parser would reject. Generalised
-  //    from `page === "cluster"` to `requiresCluster(page)`, which is now 12 of
-  //    the 14 pages (R5.9's per-cluster timeline is what makes `events` one).
+  //    from `page === "cluster"` to `requiresCluster(page)` — every page but
+  //    `fleet` (R5.9's per-cluster timeline is what makes `events` one).
   if (requiresCluster(next.page) && next.cluster === null) {
     next.page = "fleet";
   }
