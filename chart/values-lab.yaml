@@ -11,6 +11,17 @@
 # Which profile this is (overridden from `default`).
 profile: lab
 
+# --- Logging (overrides config.logLevel: info) --------------------------------
+# R13.7's second clause makes `debug` the level at which a collector dumps the SQL
+# it executed, and the reference env needs that permanently for a plainer reason:
+# at `info` the binary logs one `serving` line and nothing about a failing
+# collector, so when all nine collectors on the reference instance started failing
+# (A1, 2026-11-24) the pod log had no cause in it. Helm deep-merges mappings, so
+# this partial block leaves listen/shutdownTimeout/createConfigMap at values.yaml's
+# values; only the level is overridden.
+config:
+  logLevel: debug
+
 # --- No persistence (overrides persistence.enabled: true) --------------------
 # R13.6 — the lab install must work on a cluster with no StorageClass. The binary
 # uses its in-memory store here (R11.6); the Deployment drops the volume.

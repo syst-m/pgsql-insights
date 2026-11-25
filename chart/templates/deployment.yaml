@@ -78,6 +78,14 @@ spec:
             {{- end }}
             - --listen={{ .Values.config.listen }}
             - --shutdown-timeout={{ .Values.config.shutdownTimeout }}
+            # R13.7 — level-configurable logging (cmd/pgsi/main.go:329, default info).
+            # `with` rather than a bare render: an empty value would pass
+            # `--log-level=`, which internal/logx rejects at startup (logx_test.go:64
+            # pins that an invalid level fails loudly), so omitting the flag and
+            # letting the binary's own default apply is the only safe empty case.
+            {{- with .Values.config.logLevel }}
+            - --log-level={{ . }}
+            {{- end }}
             # R8.8: cmd/pgsi's own default is --auth=token, so a profile that
             # turns auth off has to say so — omitting the flag would turn auth
             # back on. The chart's default profile ships auth.enabled=false,

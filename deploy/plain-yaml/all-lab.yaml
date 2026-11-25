@@ -33,6 +33,9 @@ data:
   config.yaml: |
     listen: ":8080"
     shutdownTimeout: "10s"
+    # R13.7 — the config-layer half of the level. cmd/pgsi/config.go:151 maps the
+    # flag `log-level` to this key, so the flag and the file carry one value.
+    logLevel: "debug"
 
 ---
 # Source: pgsi/templates/clusterrole.yaml
@@ -169,7 +172,7 @@ metadata:
   annotations:
     # R11.8: a ConfigMap change must roll the pod, since Phase 0's binary reads
     # its configuration at start.
-    checksum/config: aa1fbbb47e60c1d4a298e15cf3768b1d17d70ed67bd84378d8f48af860298a20
+    checksum/config: ef5e23e7f2ce878623d4b7671f6023fccd29ed24729b99d6bc0bfcd7b79993c3
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -191,7 +194,7 @@ spec:
         app.kubernetes.io/version: "0.1.0-dev"
         app.kubernetes.io/part-of: pgsql-insights
       annotations:
-        checksum/config: aa1fbbb47e60c1d4a298e15cf3768b1d17d70ed67bd84378d8f48af860298a20
+        checksum/config: ef5e23e7f2ce878623d4b7671f6023fccd29ed24729b99d6bc0bfcd7b79993c3
     spec:
       serviceAccountName: pgsi
       # R12.7: pod-level securityContext (runAsNonRoot/runAsUser/seccompProfile/fsGroup).
@@ -234,6 +237,12 @@ spec:
             # off there and discovery keeps NamespaceAll.
             - --listen=:8080
             - --shutdown-timeout=10s
+            # R13.7 — level-configurable logging (cmd/pgsi/main.go:329, default info).
+            # `with` rather than a bare render: an empty value would pass
+            # `--log-level=`, which internal/logx rejects at startup (logx_test.go:64
+            # pins that an invalid level fails loudly), so omitting the flag and
+            # letting the binary's own default apply is the only safe empty case.
+            - --log-level=debug
             # R8.8: cmd/pgsi's own default is --auth=token, so a profile that
             # turns auth off has to say so — omitting the flag would turn auth
             # back on. The chart's default profile ships auth.enabled=false,

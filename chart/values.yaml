@@ -69,6 +69,13 @@ config:
   listen: ":8080"
   # R13.8 — graceful-shutdown drain budget. Keep below terminationGracePeriodSeconds.
   shutdownTimeout: 10s
+  # R13.7 — level-configurable logging. cmd/pgsi/main.go:329 declares the flag with
+  # built-in default `info`; the chart names it as a key so a profile can change the
+  # level without reaching for extraArgs, and renders it both as the --log-level flag
+  # and as the config.yaml key (cmd/pgsi/config.go:151 pairs the flag `log-level`
+  # with the config key `logLevel`, so the two layers cannot disagree). `debug` is
+  # R13.7's second clause: the level at which a collector dumps the SQL it executed.
+  logLevel: info
   # Phase 2+ keys, rendered into the ConfigMap so the contract exists early:
   #   store: sqlite            # sqlite | memory (R11.6 lab profile uses memory)
   #   pollInterval: 60s        # R2.1

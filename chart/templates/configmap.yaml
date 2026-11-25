@@ -17,6 +17,9 @@ data:
   config.yaml: |
     listen: {{ .Values.config.listen | quote }}
     shutdownTimeout: {{ .Values.config.shutdownTimeout | quote }}
+    # R13.7 — the config-layer half of the level. cmd/pgsi/config.go:151 maps the
+    # flag `log-level` to this key, so the flag and the file carry one value.
+    logLevel: {{ .Values.config.logLevel | quote }}
     {{- with .Values.config.extra }}
     {{ toYaml . | nindent 4 }}
     {{- end }}
