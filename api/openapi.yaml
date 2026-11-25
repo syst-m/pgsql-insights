@@ -3347,13 +3347,13 @@ components:
       properties:
         metric:
           type: object
-          additionalProperties:
-            type: string
           description: |
             The label set. R9.3's contract is `namespace`, `cluster`, `pod`,
             `instance_role`, plus `datname`/`usename`/`pooler` where the family
             has them; R9.4's aggregate drops `pod` and `instance_role` because an
             aggregate across a cluster's instances has no single instance to name.
+          additionalProperties:
+            type: string
         value:
           allOf:
             - $ref: '#/components/schemas/SamplePair'
@@ -3364,9 +3364,9 @@ components:
             than the absence of one.
         values:
           type: array
+          description: The samples of a matrix result, in time order.
           items:
             $ref: '#/components/schemas/SamplePair'
-          description: The samples of a matrix result, in time order.
 
     SamplePair:
       type: array

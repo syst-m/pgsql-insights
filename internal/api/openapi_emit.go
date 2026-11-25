@@ -27,10 +27,11 @@
 //
 // Every convention below is measured from the committed document rather than
 // invented — the required-list style, the property key order, the wrap width, the
-// inline-vs-block description rule, the bare `$ref` (see propSchema.lines for the
-// one that is a spec rule rather than a style). Where the authored file is
-// inconsistent with itself — it quotes some short descriptions and not others — the
-// emitter applies one rule and the difference is part of what a flip's diff shows.
+// inline-vs-block description rule, the bare `$ref` and its single-member `allOf:`
+// wrapper (see propSchema.lines for the pair that is a spec rule rather than a style).
+// Where the authored file is inconsistent with itself — it quotes some short
+// descriptions and not others — the emitter applies one rule and the difference is part
+// of what a flip's diff shows.
 
 package api
 
@@ -229,15 +230,24 @@ func entryHeader(e openAPISchema) []string {
 	return []string{""}
 }
 
-// entryHasAllOf reports whether an authored entry's body is an allOf composition.
-// QueryDetailView's entry composes QueryView by $ref and adds its own member, which
-// is derivable in Go (the struct embeds it) but not by this emitter yet: the flat
-// renderer would inline the embedded properties instead, changing the entry's shape
-// as well as its prose. Refusing is the honest answer — the entry stays authored
-// until the emitter learns composition.
+// entryHasAllOf reports whether an authored entry's *body* is an allOf composition:
+// the entry-level form, `    Name:` followed by `      allOf:`, which composes other
+// schemas instead of listing properties. QueryDetailView's entry is that form — it
+// composes QueryView by $ref and adds its own members, which is derivable in Go (the
+// struct embeds it) but not by this emitter yet, because the flat renderer would inline
+// the embedded properties instead and change the entry's shape as well as its prose.
+// Refusing is the honest answer: the entry stays authored until the emitter learns
+// composition.
+//
+// The check is scoped to indent 6, and a TrimSpace-only version misses why: `allOf:`
+// also occurs at indent 10 as a *property's* schema, in the single-member wrapper
+// OpenAPI 3.0 requires for attaching a description to a $ref (see propSchema.lines).
+// The flat renderer does support that form, so the unscoped check refused PromQLSeries
+// for a shape it can already render — and a gate that refuses more than it must is a
+// gate nobody audits, because its failures stop being read.
 func entryHasAllOf(e openAPISchema) bool {
 	for _, l := range e.Lines {
-		if strings.TrimSpace(l) == "allOf:" {
+		if indentOf(l) == 6 && strings.TrimSpace(l) == "allOf:" {
 			return true
 		}
 	}
@@ -656,13 +666,42 @@ type propSchema struct {
 func (p propSchema) lines(indent int) []string {
 	pad := strings.Repeat(" ", indent)
 	if p.Ref != "" {
-		// A $ref schema carries no siblings, and that is a spec rule rather than a
-		// style choice: OpenAPI 3.0 ignores every key written beside a $ref, which is
-		// why the document's ref-typed properties (`certificates:`, `error:`) are
-		// bare. So a field's prose is dropped here on purpose — 3.1 would let it
-		// through, 3.0 cannot, and emitting a description the validators discard is a
-		// promise the document cannot keep.
-		return []string{pad + "$ref: '#/components/schemas/" + p.Ref + "'"}
+		// Two forms, and the spec picks which one a property gets. OpenAPI 3.0 ignores
+		// every key written beside a `$ref`, so a ref-typed property with no prose
+		// renders bare (`certificates:`, `error:`) — emitting a description beside that
+		// ref would be a promise the validators discard, and 3.1 is the version that
+		// fixes it. A ref-typed property the entry *did* document cannot keep the prose
+		// beside the ref, so the document wraps the ref in a single-member `allOf:` and
+		// puts the description beside the wrapper (PromQLSeries's `value:`): the wrapper
+		// is a schema that may have siblings, and the ref inside it keeps none. Dropping
+		// the prose instead loses R8.1's input-4 text, so the wrapper is the only form
+		// that neither overpromises the schema nor loses the prose.
+		ref := pad + "  - $ref: '#/components/schemas/" + p.Ref + "'"
+		// Only the *authored* prose triggers the wrapper. Prose derived from the Go
+		// field doc is not enough: an entry that documented a ref-typed property with a
+		// bare `$ref:` and no description said so on purpose (the same rule the flat
+		// branch applies to an entry that documents no description — see
+		// authoredProse.authoredAny), and wrapping it would add an `allOf:` the entry
+		// refused. Measured: seven entries — ClusterView, InstanceView, PromQLQueryResponse,
+		// QueriesResponse, ActiveQueriesResponse, ScorecardView, BlockingChainView — have
+		// a ref-typed property whose Go doc has prose while their entry keeps the bare
+		// `$ref:`; a version of this branch that fell back to the derived description
+		// re-rendered all seven with a wrapper and failed the byte-compare on each.
+		desc := p.RawDesc
+		if len(desc) == 0 {
+			return []string{pad + "$ref: '#/components/schemas/" + p.Ref + "'"}
+		}
+		out := []string{pad + "allOf:", ref}
+		out = append(out, desc...)
+		switch {
+		case len(p.RawExample) > 0:
+			// The same authored-wins rule as the flat branch below: an entry's example
+			// is copied verbatim, the type's `@example` marker is the fallback.
+			out = append(out, p.RawExample...)
+		case p.Example != "":
+			out = append(out, pad+"example: "+inlineScalar(p.Example))
+		}
+		return out
 	}
 	var out []string
 	if p.Type != "" {
@@ -787,7 +826,8 @@ func (c schemaContext) propSchemaForDepth(typeStr, pkg string, binds map[string]
 		return propSchema{Type: "string", Format: "binary"}, nil
 	case strings.HasPrefix(t, "*"):
 		// A pointer is the same schema plus nullable. For a *Struct the nullable is
-		// then dropped by lines() — a $ref has no siblings in 3.0 — which is the
+		// then dropped by lines() — a $ref has no siblings in 3.0, and the allOf
+		// wrapper carries the description rather than the nullable — which is the
 		// documented cost of the reference form, not a bug in this branch.
 		inner, err := c.propSchemaForDepth(t[1:], pkg, binds, depth+1)
 		if err != nil {
