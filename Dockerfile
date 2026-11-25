@@ -24,6 +24,14 @@ RUN go mod download
 
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+# `api/` is a Go package, not only a spec file: api/embed.go embeds openapi.yaml
+# and x-planned-paths.yaml, and internal/api/openapi_gen.go:62 has imported it as
+# `openapipkg "github.com/frankellis/pgsql-insights/api"` since A2's fc8dd45. A
+# host `go build ./...` cannot catch its absence — the host tree always has api/ —
+# so this COPY line is the only place the dependency can be broken, and building an
+# image is the only check that finds it (ci.yml's image job runs on pushes to main
+# and on PRs, so a branch with no PR has no runner).
+COPY api/ ./api/
 # R10.1: the SPA is embedded via go:embed (web/embed.go), so `web/` is part of
 # the Go build's inputs — omitting it breaks `go build ./...` with
 # "pattern all:dist: no matching files found". web/dist is committed, so this
