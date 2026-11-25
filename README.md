@@ -14,17 +14,17 @@ runs no SQL that changes anything, and the single exception the spec allows
 README is the shop window. Its legend (⬜ not started · 🔄 in progress · ✅ done ·
 ⚠️ done with deviations) applies here too:
 
-> **0** ⚠️ done with deviations (§5) · **1a** 🔄 A1 · **1b** ✅ the SPA · **2** 🔄 A1 ·
-> **3** ⬜ A1 · **4** 🔄 A2 (chart half is A4's) · **5** 🔄 A2 · **6a** ⬜ A1 ·
-> **6b** ⬜ A2 · **7** ⬜ A2 · **8** ⬜ A1 · **9** 🔄 A4 docs — this README's refresh
-> is R14.3.
+> **0** ⚠️ A4 (§5) · **1a** 🔄 A1 · **1b** ✅ A4 · **2** 🔄 A1 · **3** ⚠️ A5 · **4** 🔄 A2
+> (chart half A4's) · **5** 🔄 A2 · **6a** ⬜ A1 · **6b** 🔄 A6 · **7** ⬜ A2 · **8** ⬜ A1 ·
+> **9** 🔄 A4 — this README's refresh is R14.3. Every cell is copied from
+> [`IMPLEMENTATION.md` §3](IMPLEMENTATION.md) (:113–:124), which R14.8 makes authoritative.
 
-Two of those rows lag commits that already exist, and the shop-window version says so
-rather than repeating the table: §3 has **Phase 3 ⬜** while `f7b197e` shipped its query
-DTOs and the four `testdata/api` fixtures R16.8 requires with them, and **6b ⬜** while
-`67a299d` shipped the Queries table (R10.6). Both are A1's and A2's rows to move, and
-R14.9 says one entry per owner, so this README reports the gap instead of editing their
-rows.
+The block `0b440df` shipped read **3 ⬜ A1** and **6b ⬜ A2** while §3:117 had moved to
+⚠️ **A5** (the store and query DTOs are A5's, `f7b197e`) and §3:121 to 🔄 **A6**
+(`67a299d`, R10.6) — two stale statuses and two wrong owners. The parity checker cannot
+catch that class of error: it asserts a cited id exists, not that the row citing it names
+the same owner. **Dated 2026-11-25 (A4)** this section is copied from §3 rather than
+restated beside it, which is the R14.8 single-authority rule and the R14.9 one-entry rule.
 
 ![The Fleet page, as rendered by the R16.7 visual suite](web/e2e/__snapshots__/fleet-fleet.png)
 
