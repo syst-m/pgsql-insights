@@ -69,7 +69,7 @@ config:
   listen: ":8080"
   # R13.8 — graceful-shutdown drain budget. Keep below terminationGracePeriodSeconds.
   shutdownTimeout: 10s
-  # R13.7 — level-configurable logging. cmd/pgsi/main.go:329 declares the flag with
+  # R13.7 — level-configurable logging. cmd/pgsi/main.go:342 declares the flag with
   # built-in default `info`; the chart names it as a key so a profile can change the
   # level without reaching for extraArgs, and renders it both as the --log-level flag
   # and as the config.yaml key (cmd/pgsi/config.go:151 pairs the flag `log-level`
