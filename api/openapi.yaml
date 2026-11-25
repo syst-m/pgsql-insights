@@ -2655,7 +2655,7 @@ components:
         `truncated` is false, and the invariant `internal/api/paging.go:276-289`
         implements is `truncated ⟺ nextCursor != ""`. The batched-series
         envelope is the one documented exception — a batch is not a page, so
-        `internal/api/series.go:398-401` sets `truncated` from
+        `internal/api/series.go:355-360` sets `truncated` from
         `len(data) < total` with `nextCursor` always empty, which is R8.4's
         partial case rather than R8.10's paging one.
         It is neither a count of what this response carries nor an "attempted"
