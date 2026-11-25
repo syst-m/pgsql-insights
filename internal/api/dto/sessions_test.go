@@ -25,6 +25,20 @@ func TestActiveQueriesFixtureIsCanonical(t *testing.T) {
 	assertCanonical(t, activeQueriesPath, v)
 }
 
+// The fixture for R4.5's terminate body, added by the same rule and in the same
+// shape: R16.8 wants one JSON file per endpoint under testdata/api/, created by
+// the phase that first serves it, and the canonical test below is what makes a
+// renamed tag on TerminateResponse fail CI instead of passing silently. The
+// sibling comment above this one carries the full argument; repeating it here
+// would be the same mistake R16.8 is arguing against.
+const terminatePath = "../../../testdata/api/sessions-terminate.json"
+
+func TestTerminateFixtureIsCanonical(t *testing.T) {
+	var v TerminateResponse
+	readFixture(t, terminatePath, &v)
+	assertCanonical(t, terminatePath, v)
+}
+
 // TestR41ColumnSetIsComplete is R4.1's acceptance check in the form the sibling
 // TestR32ColumnSetIsComplete sets for R3.2: the requirement names its columns in
 // one sentence — "the exact Cloud SQL columns: `Process ID`, `Query`, `Query

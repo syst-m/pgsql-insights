@@ -1,0 +1,6 @@
+{
+  "pid": 48213,
+  "terminated": true,
+  "actor": "system:serviceaccount:freeidp:pgsi-api",
+  "target": "freeidp/freeidp-pg-r1"
+}

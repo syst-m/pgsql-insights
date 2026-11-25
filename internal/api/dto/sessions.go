@@ -254,3 +254,64 @@ type ActiveQueriesResponse struct {
 	// list routes'.
 	Meta Meta `json:"meta"`
 }
+
+// TerminateResponse is the body of R4.5's POST /api/v1/sessions/{pid}/terminate.
+//
+// R4.5 names the operation and its rules but not its body — "Terminate session:
+// POST /api/v1/sessions/{pid}/terminate → pg_terminate_backend(pid), gated
+// behind --allow-actions=true (default false), requiring a confirmed UI action,
+// audited to a log line with actor and target, and refused on a replica"
+// (requirements.md:330) — so the field set below is closed by that sentence
+// rather than by taste, and each field names the clause it exists for:
+//
+//	pid        — the {pid} in the path. Spelled exactly as SessionView.Pid:56
+//	             spells it, which is what lets the row the UI rendered and the
+//	             action the UI just took agree on the identifier; a second
+//	             spelling of one pid in one package is R16.8's second copy.
+//	terminated — pg_terminate_backend's own boolean. R4.5's action *is* that
+//	             function call, so the answer the caller needs is not "the route
+//	             ran" but "PG said yes": a 200 with terminated:false is a real
+//	             and distinct answer (the backend had already exited), and
+//	             folding it away would make the response report the handler's
+//	             success rather than the action's.
+//	actor      — R4.5's "audited to a log line with actor". The value is
+//	             api.IdentityFrom(r).User (auth.go:126) — `anonymous` under
+//	             --auth=none, the X-Remote-User value under kube-rbac-proxy, the
+//	             token's owner under token auth — read once and written to both
+//	             the log line and this body. Carrying it in the body is the
+//	             one-copy rule applied to an audit: a response that restated the
+//	             actor from a second read of the request could disagree with the
+//	             line the same request logged.
+//	target     — the "target" half of the same clause: the instance the session
+//	             belonged to, as `<namespace>/<cluster>`, the same pair R9.3's
+//	             identity labels use and R4.1's route takes as its two required
+//	             parameters. It is in the body because the path does not carry
+//	             it — the path names a pid, which is unique only per instance, so
+//	             the request must name the instance and the body repeats what the
+//	             action was performed on.
+//
+// WHY NOT AN ENVELOPE. R8.4's Envelope[T] is the shape of a list route: `data
+// []T` plus `meta`. Wrapping a single object in `data` would need a
+// TerminateResponse inside a generic whose two fields are a page and its
+// paging, and R8.4's `meta.truncated` has no meaning for one object. The
+// precedent for a non-list body is api.VersionResponse (server.go:627) — a
+// named struct, no envelope — and ActiveQueriesResponse:236 is the same
+// decision on a list route for a different reason (R4.1's scorecard cannot live
+// in `meta`). This is the third named body that is not the generic, and the
+// three reasons are on the three files.
+type TerminateResponse struct {
+	// Pid is the backend pid the action was performed on, echoed from the path.
+	Pid int `json:"pid"`
+
+	// Terminated is pg_terminate_backend's return value: whether the termination
+	// signal reached the backend. False on a 200 means the session was already
+	// gone, which is a different fact from an error and is why it is a field
+	// rather than folded into the status code.
+	Terminated bool `json:"terminated"`
+
+	// Actor is the authenticated caller R4.5 requires the audit line to name.
+	Actor string `json:"actor"`
+
+	// Target is the `<namespace>/<cluster>` pair whose instance ran the backend.
+	Target string `json:"target"`
+}
