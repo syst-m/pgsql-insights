@@ -158,6 +158,19 @@ func sinkKey(tgt Target, collector string) string {
 // the last is a data-integrity failure of exactly the kind R2.2's last-good rule
 // exists to prevent, and it is the easy bug when the unit of storage is a slice
 // you can truncate.
+//
+// Every exported method begins with `if m == nil`, which is collector.Stats'
+// convention taken whole (8 methods, 8 guards, metrics.go:118-244) rather than a
+// new one. The reason it matters here is the ok-form assertion at
+// cmd/pgsi/main.go:669: `ok` proves the dynamic type implements ProbeReader, not
+// that the pointer is non-nil, so Probes has to answer (nil, false) where an
+// unguarded method would panic on m.mu. A nil receiver's two write methods return
+// a nil error — storing nothing and reporting success, the answer
+// internal/store/perquery.go:278's RenderPerQuery gives with ("", nil) — because
+// the alternative is the package's first error value for a sink that cannot fail
+// for any other reason. putLocked is the one method without the guard: it is
+// unexported and both callers are already guarded, so a third check there is
+// unreachable code.
 type MemSink struct {
 	mu       sync.RWMutex
 	maxBytes int64
@@ -213,6 +226,9 @@ func NewMemSink(maxBytes int64) *MemSink {
 // the other's half, and the scheduler's call order decided whether the queries
 // route could see the fleet.
 func (m *MemSink) Publish(tgt Target, collector string, samples []Sample) error {
+	if m == nil {
+		return nil
+	}
 	key := sinkKey(tgt, collector)
 
 	m.mu.Lock()
@@ -231,6 +247,9 @@ func (m *MemSink) Publish(tgt Target, collector string, samples []Sample) error 
 // method rather than a wider Publish signature, and Publish's docblock for the
 // preservation rule that makes the two safe in either order.
 func (m *MemSink) PublishProbes(tgt Target, collectorName string, probes []ProbeResult) error {
+	if m == nil {
+		return nil
+	}
 	key := sinkKey(tgt, collectorName)
 
 	m.mu.Lock()
@@ -295,6 +314,9 @@ func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult) 
 // slice would otherwise mutate the store's own backing array through the shared
 // slice header.
 func (m *MemSink) Samples(tgt Target, collector string) []Sample {
+	if m == nil {
+		return nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	b, ok := m.byKey[sinkKey(tgt, collector)]
@@ -321,6 +343,9 @@ func (m *MemSink) Samples(tgt Target, collector string) []Sample {
 // arguments come from one Target rather than from two lists a caller keeps in
 // agreement by hand.
 func (m *MemSink) Probes(tgt Target, collectorName string) ([]ProbeResult, bool) {
+	if m == nil {
+		return nil, false
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	b, ok := m.byKey[sinkKey(tgt, collectorName)]
@@ -335,6 +360,9 @@ func (m *MemSink) Probes(tgt Target, collectorName string) ([]ProbeResult, bool)
 // reaching into an unexported field, and it is the same list an R13.4 cardinality
 // assertion would count.
 func (m *MemSink) Keys() []string {
+	if m == nil {
+		return nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]string, 0, len(m.byKey))
@@ -347,6 +375,9 @@ func (m *MemSink) Keys() []string {
 
 // Used returns the bytes currently accounted for.
 func (m *MemSink) Used() int64 {
+	if m == nil {
+		return 0
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.used
@@ -354,6 +385,9 @@ func (m *MemSink) Used() int64 {
 
 // MaxBytes returns the configured ceiling.
 func (m *MemSink) MaxBytes() int64 {
+	if m == nil {
+		return 0
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.maxBytes
@@ -405,6 +439,9 @@ func probesSize(probes []ProbeResult) int64 {
 
 // String renders the sink's occupancy for a debug log line.
 func (m *MemSink) String() string {
+	if m == nil {
+		return "MemSink(nil)"
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return fmt.Sprintf("MemSink{used=%d max=%d buckets=%d}", m.used, m.maxBytes, len(m.byKey))

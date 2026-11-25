@@ -428,3 +428,57 @@ func TestProbesSize(_ *testing.T) {
 		panic(fmt.Sprintf("probesSize of two rows = %d, want %d", got, 2*want))
 	}
 }
+
+// TestMemSinkNilReceiver calls all eight exported methods on a typed nil and pins
+// the documented answer for each — the test half of the rule the type's docblock
+// states, and the same shape as TestNilStats for Stats. It covers every method on
+// purpose rather than only Probes: the failure mode is a guard added to the one
+// method an ok-form assertion makes visible and forgotten on the other seven.
+func TestMemSinkNilReceiver(t *testing.T) {
+	var m *MemSink
+	tgt := Target{Namespace: "ns", Cluster: "pg"}
+
+	// (nil, false), not a panic. This is the method cmd/pgsi/main.go:669's
+	// ok-form assertion can hand a typed nil to — ok proves the dynamic type
+	// implements ProbeReader, not that the pointer is non-nil — and false is what
+	// ProbeReader documents for "no inventory stored".
+	if probes, ok := m.Probes(tgt, CollectorSettings); probes != nil || ok {
+		t.Errorf("(*MemSink)(nil).Probes() = (%v, %v), want (nil, false)", probes, ok)
+	}
+	if got := m.Samples(tgt, CollectorSettings); got != nil {
+		t.Errorf("(*MemSink)(nil).Samples() = %v, want nil", got)
+	}
+	if got := m.Keys(); got != nil {
+		t.Errorf("(*MemSink)(nil).Keys() = %v, want nil", got)
+	}
+	// 0, not DefaultMaxStoreBytes: MaxBytes reports what this receiver was
+	// configured with, and a nil receiver has not been configured — NewMemSink is
+	// the only thing that applies the default and it cannot run on nil.
+	if got := m.MaxBytes(); got != 0 {
+		t.Errorf("(*MemSink)(nil).MaxBytes() = %d, want 0", got)
+	}
+	if got := m.Used(); got != 0 {
+		t.Errorf("(*MemSink)(nil).Used() = %d, want 0", got)
+	}
+	if got := m.String(); got != "MemSink(nil)" {
+		t.Errorf("(*MemSink)(nil).String() = %q, want \"MemSink(nil)\"", got)
+	}
+
+	// The two writers return a nil error: storing nothing and reporting success,
+	// which is the answer internal/store/perquery.go:278's RenderPerQuery gives
+	// with ("", nil) and the alternative to the package's first error value for a
+	// sink that cannot fail for any other reason.
+	if err := m.Publish(tgt, CollectorSettings, []Sample{{Metric: "x"}}); err != nil {
+		t.Errorf("(*MemSink)(nil).Publish() = %v, want nil", err)
+	}
+	if err := m.PublishProbes(tgt, CollectorSettings, []ProbeResult{{Database: "d"}}); err != nil {
+		t.Errorf("(*MemSink)(nil).PublishProbes() = %v, want nil", err)
+	}
+
+	// And the write must not resurrect a bucket through the nil map: a guard that
+	// returned nil *after* writing to m.byKey would panic anyway, and this is the
+	// assertion that says the guard precedes the write rather than following it.
+	if got := m.Keys(); len(got) != 0 {
+		t.Errorf("(*MemSink)(nil).Keys() after two writes = %v, want empty", got)
+	}
+}

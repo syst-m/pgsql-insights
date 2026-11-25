@@ -340,7 +340,7 @@ type Config struct {
 	// PerQueryMetrics is one and HTTPMetrics is not: WithStoreSize's parameter type
 	// is the interface, so naming the interface here names what the call site takes
 	// — and there are two implementations to plan for, collector.MemSink
-	// (collector/sink.go:179, asserted at metrics/store.go:59) and *store.Store
+	// (collector/sink.go:174, asserted at metrics/store.go:59) and *store.Store
 	// (internal/store/retention.go:346, since f634142), which no single concrete
 	// field could hold.
 	//
