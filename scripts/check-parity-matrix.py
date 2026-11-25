@@ -363,6 +363,38 @@ def lines_of(root, rel):
         _lines[rel] = (root / rel).read_text(errors="replace").splitlines()
     return _lines[rel]
 
+# A3's S121: `lines_of` reads the worktree, so a cite whose target another slot has moved but
+# not committed reads as blank -- a state no commit has ever had (observed three times in one
+# hour: openapi_emit.go:163, pgxopener.go:135, database.go:236/240). `target_versions` returns
+# every shippable version of a path -- worktree, index (`git show :path`), HEAD
+# (`git show HEAD:path`) -- and check_paths accepts a cite that resolves in any of them. On a
+# clean checkout the three are byte-identical, so this is a no-op in CI; it only stops a local
+# run from reporting a transient. Called lazily from the content checks, so a cite that passes
+# on the worktree costs no git call and the fast path is exactly as fast as before.
+_git = {}
+def _git_show(root, arg):
+    if arg not in _git:
+        try:
+            out = subprocess.run(["git", "-C", str(root), "show", arg],
+                                 capture_output=True, check=True).stdout
+            _git[arg] = out.decode("utf-8", "replace").splitlines()
+        except Exception:
+            _git[arg] = None
+    return _git[arg]
+
+def target_versions(root, rel):
+    """Every shippable version of a cited path: worktree, index, HEAD. Deduped by content."""
+    vs = []
+    try:
+        vs.append(lines_of(root, rel))
+    except OSError:
+        pass
+    for arg in (f":{rel}", f"HEAD:{rel}"):
+        v = _git_show(root, arg)
+        if v is not None and v not in vs:
+            vs.append(v)
+    return vs
+
 def resolve_path(tracked, tracked_set, citing, path):
     """Exact, then same-directory, then unique suffix. [] = unresolvable, 2+ = ambiguous."""
     if path in tracked_set: return [path]
@@ -406,17 +438,28 @@ def check_paths(root, tracked):
         if len(r) > 1:                       # the cite under-specified a path the repo has 2+ of
             ambiguous.append((rel, n, kind, path, len(r))); continue
         checked += rel.endswith(".md"); code_checked += not rel.endswith(".md")
-        L = lines_of(root, r[0])
-        if e > len(L):
-            bad.append((rel, n, kind, f"{path}:{s}-{e} — {r[0]} has {len(L)} lines")); continue
-        if not L[s - 1].strip():              # A3's S118: a blank line cannot be what a cite names
-            bad.append((rel, n, kind, f"{path}:{s} is blank")); continue
-        if kind == "B":                        # the durable form asserts the heading
-            actual = re.sub(r"^#+\s*", "", L[s - 1]).strip()
-            if not L[s - 1].startswith("#"):
-                bad.append((rel, n, kind, f"{path}:{s} is not a heading ({actual[:48]!r})"))
-            elif actual != head.strip():
-                bad.append((rel, n, kind, f"quotes {head!r}, {path}:{s} reads {actual!r}"))
+        # A3's S121: resolve the target across every shippable version, not just the worktree.
+        vs = target_versions(root, r[0])
+        if not vs:
+            bad.append((rel, n, kind, f"{path}: no readable version")); continue
+        why = ""
+        for v in vs:
+            if e > len(v):
+                why = f"{path}:{s}-{e} — {r[0]} has {len(v)} lines"
+            elif not v[s - 1].strip():         # A3's S118: a blank line cannot be what a cite names
+                why = f"{path}:{s} is blank"
+            elif kind == "B":                  # the durable form asserts the heading
+                actual = re.sub(r"^#+\s*", "", v[s - 1]).strip()
+                if not v[s - 1].startswith("#"):
+                    why = f"{path}:{s} is not a heading ({actual[:48]!r})"
+                elif actual != head.strip():
+                    why = f"quotes {head!r}, {path}:{s} reads {actual!r}"
+                else:
+                    why = ""; break
+            else:
+                why = ""; break
+        if why:
+            bad.append((rel, n, kind, why))
     return checked, code_checked, bad, unresolved, ambiguous, exempt, pairs
 
 # A4's L1, applied to this half too: gate on the file set, not on the per-half count. A repo
@@ -455,6 +498,8 @@ print(f"  non-md path citations (report-only): {code_checked} checked · "
 dump(code_bad, lambda f, n, kind, msg: f"  {f}:{n} [{kind}] {msg}", cap=10)
 dump(unresolved, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
 dump(ambiguous, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
+dump(code_amb, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
+dump(code_unres, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
 dump(path_orphans, lambda k: f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
 
 # --- relative markdown links (A4's docs/README.md find, generalised) ---
