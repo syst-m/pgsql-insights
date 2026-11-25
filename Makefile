@@ -154,6 +154,13 @@ cardinality-check:
 # second copy of the contract it is checking. The wide form's worst case is failing on a
 # comment that mentions the flag, and the fix there is to reword the comment; the narrow
 # form's worst case is a silent miss.
+#
+# Grep dialect, probed 2026-11-24 because a recipe's portability claim has no checker: make
+# runs this under /bin/sh, which resolves `grep` to BSD grep 2.6.0-FreeBSD here (and GNU
+# grep on the ubuntu-latest runner); both honour --include. An interactive zsh on this box
+# resolves `grep` to a shell function from ~/.claude/shell-snapshots wrapping ugrep 7.8.4,
+# which honours it too — probed by grepping a directory holding both a matching .sh and a
+# matching .py, which returned only the .sh under each binary.
 sha-check:
 	@if grep -rn --include='*.sh' 'rev-parse --short' scripts/; then \
 		echo 'FAIL: a script uses git rev-parse --short — D6 forbids a short SHA as a version stamp'; exit 1; fi
