@@ -258,9 +258,9 @@ jobs:
 # (scripts/check-parity-matrix.py:384) fails a cite only when its number exceeds the
 # file's length, so a top insertion would leave all twelve "resolving" while pointing
 # at the wrong lines. That is the ed58452 class named at the top of that script. The four
-# `Makefile:` numbers on that row (:58, :93, :88, :247) are not tokens at all: P at
-# check-parity-matrix.py:327 requires a dot-extension, so an extensionless file is
-# unattachable in form A.
+# `Makefile:` numbers on that row (:58, :93, :88, :247) were invisible to the checker until
+# 8582636 taught P (:327) to alternate over CITE_NAMES -- before that P required a
+# dot-extension, so an extensionless file was unattachable in form A.
 #
 #   run: lines              23   grep -c '^ *run:' .github/workflows/ci.yml
 #   run: make <target>      10   grep -c '^ *run: make ' .github/workflows/ci.yml
