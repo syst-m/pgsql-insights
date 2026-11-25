@@ -140,6 +140,46 @@ def tables_in(html):
     return out
 
 
+# The two index tables monitoring-stats.html publishes — "Dynamic Statistics
+# Views" and "Collected Statistics Views" — list every statistics view the
+# chapter documents, and their description column says outright which ones are
+# copies: "pg_stat_user_tables — Same as pg_stat_all_tables, except that only
+# user tables are shown." The detail tables the parser above reads are titled
+# after the *all_* member of each family only, so without this the matrix holds
+# pg_stat_all_tables and not the user/sys members that share its columns. That is
+# how pg_stat_user_tables — the view R7.2's bloat estimate and R7.4's autovacuum
+# insight both read (requirements.md:613) — was missing from a file whose whole
+# argument is that it is a rendering of the docs.
+INDEX_TABLES = ("Dynamic Statistics Views", "Collected Statistics Views")
+SAME_AS = re.compile(r'Same as\s+(?:<a[^>]*>)?<code class="structname">(\w+)</code>')
+
+
+def aliases_in(html):
+    """{alias view: source view} for the copies the chapter's index tables name.
+
+    Only the "Same as X" wording becomes an alias. "Similar to X, but counts
+    actions taken so far within the current transaction" — the pg_stat_xact_*
+    family — is a *different* column set described in similar words (10 columns
+    against pg_stat_all_tables' 24), and an alias built on that wording would give
+    pg_stat_xact_user_tables a column set the docs never state for it.
+    """
+    out = OrderedDict()
+    for table in INDEX_TABLES:
+        m = re.search(r'<table class="table"[^>]*?summary="%s"[^>]*>(.*?)</table>'
+                      % re.escape(table), html, re.S)
+        if not m:
+            continue
+        for row in re.split(r"<tr[ >]", m.group(1))[1:]:
+            cells = re.findall(r"<td>(.*?)</td>", row, re.S)
+            if len(cells) < 2:
+                continue
+            name = re.search(r'<code class="structname">(\w+)</code>', cells[0])
+            src = SAME_AS.search(cells[1])
+            if name and src:
+                out[name.group(1)] = src.group(1)
+    return out
+
+
 def fetch(major, page, slug, cache):
     if cache:
         with open(os.path.join(cache, (slug % major) + ".html"),
@@ -152,23 +192,56 @@ def fetch(major, page, slug, cache):
 
 
 def collect(cache):
-    """{major: {view: [columns]}} across every page in PAGES."""
+    """(matrix, aliases) across every page in PAGES.
+
+    matrix is {major: {view: [columns]}}. aliases is {copy view: source view}, the
+    union over majors of the aliases_in pairs that were actually merged — the
+    pairs skipped below (source has no columns on that page) are skipped here too,
+    so the map never names a pair the table does not contain. emit renders it as
+    documentedCopies, which is what tells Validate a shared column set is the
+    docs' own statement rather than a hand edit.
+    """
     matrix = {}
+    aliases = OrderedDict()
+
+    def merge(major, view, cols):
+        """Write one (major, view) column set, refusing a disagreement.
+
+        Two pages documenting the same view with different columns. The near-miss
+        that is *not* a conflict is pg_replication_slots (the slot catalog view)
+        vs pg_stat_replication_slots (the logical replication statistics view):
+        different views, different names, so they land on different keys. A real
+        conflict here is a docs change or a parser bug — loud, not silent. It is a
+        closure rather than a second copy of the check because the detail tables
+        and the index-table aliases both write through it, and an alias check
+        written separately from the table check is the point where the two can
+        start disagreeing about what a conflict is.
+        """
+        prev = matrix.setdefault(major, {}).get(view)
+        if prev is not None and prev != cols:
+            raise SystemExit(
+                "pg%d: %s documented twice with different columns (%d vs %d)"
+                % (major, view, len(prev), len(cols)))
+        matrix[major][view] = cols
+
     for major, page, slug in PAGES:
-        for view, cols in tables_in(fetch(major, page, slug, cache)).items():
-            prev = matrix.setdefault(major, {}).get(view)
-            if prev is not None and prev != cols:
-                # Two pages documenting the same view with different columns. The
-                # near-miss that is *not* a conflict is pg_replication_slots (the
-                # slot catalog view) vs pg_stat_replication_slots (the logical
-                # replication statistics view): different views, different names,
-                # so they land on different keys. A real conflict here is a docs
-                # change or a parser bug — loud, not silent.
-                raise SystemExit(
-                    "pg%d: %s documented twice with different columns (%d vs %d)"
-                    % (major, view, len(prev), len(cols)))
-            matrix[major][view] = cols
-    return matrix
+        html = fetch(major, page, slug, cache)
+        tables = tables_in(html)
+        for view, cols in tables.items():
+            merge(major, view, cols)
+        # Documented copies (see aliases_in): the index table says
+        # "pg_stat_user_tables — Same as pg_stat_all_tables", so the copy takes
+        # the source's columns from the same page. An alias whose source has no
+        # columns on this page is skipped, not emitted empty —
+        # pg_stat_xact_all_tables is listed in the index and documented in prose
+        # only, so its two aliases have nothing to inherit here, and an empty
+        # column list is the `SELECT FROM x` that Columns() exists to avoid.
+        for alias, src in aliases_in(html).items():
+            cols = tables.get(src)
+            if cols:
+                merge(major, alias, cols)
+                aliases[alias] = src
+    return matrix, aliases
 
 
 # --- emitting the Go file -----------------------------------------------------------
@@ -242,7 +315,7 @@ def counts(matrix):
     return views, sets, total, per_major
 
 
-def emit(matrix):
+def emit(matrix, aliases):
     out = []
     a = out.append
 
@@ -272,6 +345,13 @@ def emit(matrix):
     a("// shape states the equivalence, so a difference can only exist where the")
     a("// table says it does. matrix_test.go asserts the equivalences and the")
     a("// differences; succession.go carries the rename/move/split cases.")
+    a("//")
+    a("// Views the docs define by reference — the index tables' \"Same as")
+    a("// pg_stat_all_tables, except that only user tables are shown\" family — are")
+    a("// here too, with the source's columns, and documentedCopies at the end of")
+    a("// this file records the pair so Validate can tell a licensed copy from a")
+    a("// hand edit. See the generator's aliases_in for what does and does not")
+    a("// become a copy.")
     a("")
     a("package pgversion")
     a("")
@@ -336,6 +416,31 @@ def emit(matrix):
         a("\t%s:%s {%s}," % (idents[v], " " * (width - len(idents[v])), inner))
     a("}")
     a("")
+
+    # The licensed copies. Same alignment rule as the map above: pad after the
+    # colon to the longest key in *this* block, not to the View const block's
+    # width — gofmt aligns each contiguous run separately and the two differ.
+    if aliases:
+        a("// documentedCopies maps each view the docs define by reference to the view")
+        a("// whose columns it copies: the chapter's index tables state the equivalence")
+        a("// in words (\"pg_stat_user_tables — Same as pg_stat_all_tables, except that")
+        a("// only user tables are shown\") and publish no column list of their own, so")
+        a("// the copy's columns are the source's by the docs' own sentence.")
+        a("//")
+        a("// It exists for Validate. A column-set string under two view names is")
+        a("// otherwise the copy-paste the shape above exists to prevent, and with the")
+        a("// copies in the table that reading is a false positive once per copy; this")
+        a("// map is the data that says which shares are licensed. The pg_stat_xact_*")
+        a("// family is absent because the docs describe it as \"Similar to … but counts")
+        a("// actions taken so far within the current transaction\" — a different column")
+        a("// set in similar words, so there is nothing to copy. See the generator's")
+        a("// aliases_in for the wording rule.")
+        cw = max(len(idents[k]) for k in aliases)
+        a("var documentedCopies = map[View]View{")
+        for k in sorted(aliases):
+            a("\t%s:%s %s," % (idents[k], " " * (cw - len(idents[k])), idents[aliases[k]]))
+        a("}")
+        a("")
     return "\n".join(out)
 
 
@@ -345,7 +450,8 @@ def main():
     ap.add_argument("-o", "--output", help="write here instead of stdout")
     args = ap.parse_args()
 
-    text = emit(collect(args.cache))
+    matrix, aliases = collect(args.cache)
+    text = emit(matrix, aliases)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(text)

@@ -3,7 +3,8 @@ package pgversion
 // matrix_test.go is R16.1's "unit tests for the PG version matrix (R2.4) across
 // all six majors". It was written in the same commit as the table rather than
 // after it, because a table with no tests is a transcription nobody checks — and
-// the file's own argument for existing is that a hand-written 2,189-name table
+// the file's own argument for existing is that a hand-written table the size
+// matrix_data.go's header counts it to be (2,875 column names as of this commit)
 // is exactly where transcription errors live.
 //
 // Three kinds of assertion, each catching a different failure:
@@ -58,12 +59,22 @@ var declaredViews = []View{
 	ViewStatStatementsInfo,
 	ViewStatSubscription,
 	ViewStatSubscriptionStats,
+	ViewStatSysIndexes,
+	ViewStatSysTables,
 	ViewStatUserFunctions,
+	ViewStatUserIndexes,
+	ViewStatUserTables,
 	ViewStatWAL,
 	ViewStatWALReceiver,
 	ViewStatioAllIndexes,
 	ViewStatioAllSequences,
 	ViewStatioAllTables,
+	ViewStatioSysIndexes,
+	ViewStatioSysSequences,
+	ViewStatioSysTables,
+	ViewStatioUserIndexes,
+	ViewStatioUserSequences,
+	ViewStatioUserTables,
 	ViewWaitEvents,
 }
 
@@ -91,18 +102,71 @@ func TestDeclaredViewsMatchTable(t *testing.T) {
 	}
 }
 
+// TestDocumentedCopies covers the ten views the docs define by reference rather
+// than by a detail table (see DocumentedCopies). It is the only place the claim
+// "pg_stat_user_tables has pg_stat_all_tables's columns" is checked: the
+// generator takes that fact from the index tables' "Same as" wording, and a parse
+// that read the wrong column — the pg_stat_xact_* family's "Similar to X, but
+// counts actions taken so far within the current transaction", which is a
+// 10-column set described in similar words — would put that set under a name the
+// docs gave a 24-column set to. The count is a golden for the same reason
+// TestSixMajorCoverage's numbers are: a regeneration that changes which views the
+// docs define by reference has to change it here too.
+func TestDocumentedCopies(t *testing.T) {
+	const wantCopies = 10
+	copies := DocumentedCopies()
+	if len(copies) != wantCopies {
+		t.Errorf("DocumentedCopies() has %d entries, want %d", len(copies), wantCopies)
+	}
+	for view, src := range copies {
+		if view == src {
+			t.Errorf("%s is documented as a copy of itself", view)
+		}
+		// Both halves have to be views the table has. Validate reports this too; the
+		// test names which half is missing rather than only that something is.
+		if _, ok := columnsByMajor[view]; !ok {
+			t.Errorf("documentedCopies: %s has no row in columnsByMajor", view)
+		}
+		if _, ok := columnsByMajor[src]; !ok {
+			t.Errorf("documentedCopies: %s names %s as its source, which has no row", view, src)
+		}
+		// The copy's columns must be the source's, on every major where the copy has
+		// them — and the source must exist on each of those majors, since a copy on a
+		// major its source lacks has no documented set to have come from.
+		for major, cols := range columnsByMajor[view] {
+			srcCols, ok := columnsByMajor[src][major]
+			if !ok {
+				t.Errorf("%s exists at %d but its source %s does not", view, major, src)
+				continue
+			}
+			if cols != srcCols {
+				t.Errorf("%s at %d: %d columns, source %s has %d", view, major, len(cols), src, len(srcCols))
+			}
+		}
+	}
+	// Mutating the returned map must not corrupt the package's copy — the rule
+	// TestMajors asserts for the slice accessors, restated for the map one.
+	for v := range copies {
+		delete(copies, v)
+		break
+	}
+	if len(DocumentedCopies()) != wantCopies {
+		t.Error("mutating the map returned by DocumentedCopies() changed the package's map")
+	}
+}
+
 // TestSixMajorCoverage pins one number pair per major: how many views exist and
 // how many columns they have in total, for each of the six majors R16.1 names.
 func TestSixMajorCoverage(t *testing.T) {
 	cases := []struct {
 		major, views, columns int
 	}{
-		{Major13, 24, 300},
-		{Major14, 27, 331},
-		{Major15, 29, 358},
-		{Major16, 30, 385},
-		{Major17, 32, 402},
-		{Major18, 32, 419},
+		{Major13, 34, 408},
+		{Major14, 37, 439},
+		{Major15, 39, 466},
+		{Major16, 40, 501},
+		{Major17, 42, 518},
+		{Major18, 42, 543},
 	}
 	for _, tc := range cases {
 		if got := Majors(); !containsInt(got, tc.major) {

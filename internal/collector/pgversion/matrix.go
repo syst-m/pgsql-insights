@@ -286,6 +286,48 @@ func StatusOf(major int) (status Status, note string, ok bool) {
 	return cell.status, cell.note, ok
 }
 
+// DocumentedCopies returns the licensed column-set copies: each view the
+// PostgreSQL docs define by reference — "pg_stat_user_tables: Same as
+// pg_stat_all_tables, except that only user tables are shown" — mapped to the view
+// whose columns it copies.
+//
+// The map is generated next to columnsByMajor rather than written here, because
+// the fact lives in the docs and not in Go: the chapter publishes a detail table
+// for pg_stat_all_tables and a one-line reference for its two siblings, so the
+// only way to know the siblings' columns is to read the reference. Ten of the 42
+// views in the table are such copies (the pg_stat_*/pg_statio_* families' user_*
+// and sys_* members); the pg_stat_xact_* family is not, because the docs describe
+// it as "Similar to … but counts actions taken so far within the current
+// transaction" — a different column set in similar words. The generator's
+// aliases_in holds that wording rule; putting the list in Go instead would give
+// Validate an allowlist that can drift from the table it validates.
+//
+// The returned map is a copy, for Columns' reason: a caller that mutates it must
+// not reach the package's table through the map reference.
+func DocumentedCopies() map[View]View {
+	out := make(map[View]View, len(documentedCopies))
+	for view, src := range documentedCopies {
+		out[view] = src
+	}
+	return out
+}
+
+// sourceOf resolves view to the relation its columns were published for: view
+// itself, or, for a documented copy, the view it copies — followed all the way up,
+// so a copy of a copy still resolves to the one detail table the columns came
+// from. ok is false when the chain does not end (documentedCopies containing a
+// cycle), which is a table defect Validate reports rather than an infinite loop.
+func sourceOf(view View) (View, bool) {
+	for i := 0; i <= len(documentedCopies); i++ {
+		src, ok := documentedCopies[view]
+		if !ok {
+			return view, true
+		}
+		view = src
+	}
+	return "", false
+}
+
 // Validate reports every inconsistency it finds in the shipped table.
 //
 // The generated file is machine-written, so most of what Validate checks is
@@ -310,7 +352,11 @@ func validate(table map[View]map[int]string) error {
 	// A column set reused across two different views. The generated file names
 	// each set after one view, so a set string appearing under pg_stat_wal and
 	// pg_stat_bgwriter means one of the two rows was edited by hand — the
-	// copy-paste this file's shape exists to prevent.
+	// copy-paste this file's shape exists to prevent. The one legal way to share a
+	// set across two names is documentedCopies, so the check compares what the two
+	// views resolve to rather than the names themselves: pg_stat_user_tables and
+	// pg_stat_sys_tables both resolve to pg_stat_all_tables, and without the map
+	// the shipped table reads as sixteen copy-paste errors.
 	owners := map[string]View{}
 
 	for view, per := range table {
@@ -339,10 +385,36 @@ func validate(table map[View]map[int]string) error {
 				seen[c] = true
 			}
 			if prev, ok := owners[set]; ok && prev != view {
-				add("%s %d: column set also used by %s (a shared set must be shared "+
-					"between majors of one view, never between two views)", view, major, prev)
+				// Names are not enough here: the docs' own copies share a set with
+				// their source, so the pair is legal when the two views resolve to one
+				// owner. Comparing resolved sources also makes the check order-free —
+				// map iteration decides which of the three pg_stat_all_tables-family
+				// views becomes owners[set], and a name comparison would then flag
+				// user-vs-sys even though both name all_tables as their source.
+				mine, mineOK := sourceOf(view)
+				theirs, theirsOK := sourceOf(prev)
+				if !mineOK || !theirsOK || mine != theirs {
+					add("%s %d: column set also used by %s (a shared set must be shared "+
+						"between majors of one view, never between two views)", view, major, prev)
+				}
 			}
 			owners[set] = view
+		}
+	}
+
+	// Every documented copy has to name two views the table has. The generator
+	// writes the table and the map in one pass, so a pair missing from one of them
+	// means the generated file was edited after the fact — the class of thing this
+	// function exists to catch. It is also what makes sourceOf's ok reachable: a
+	// cycle in the map is two entries pointing at each other with no detail table
+	// behind either.
+	for view, src := range documentedCopies {
+		if _, ok := table[view]; !ok {
+			add("documentedCopies: %s is listed as a copy but has no row in the table", view)
+		}
+		if _, ok := table[src]; !ok {
+			add("documentedCopies: %s names %s as its source, but %s has no row in the table",
+				view, src, src)
 		}
 	}
 
