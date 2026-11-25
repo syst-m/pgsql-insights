@@ -675,7 +675,7 @@ export interface TagView extends LoadColumns {
 
 /** One minute of one fingerprint's series (R8.11).
  *
- *  Mirrors `internal/api/dto/series.go:65` tag-for-tag. All five metric fields are
+ *  Mirrors `internal/api/dto/series.go:65` (`QuerySeriesPoint`) tag-for-tag. All five metric fields are
  *  `number` because Go types them all `float64`, and that is the contract's
  *  reason rather than a default: a per-minute delta derived from a cumulative
  *  counter (R3.3) is not necessarily integral even when the underlying count is,
@@ -726,7 +726,7 @@ export interface QuerySeriesPoint {
 export type QuerySeriesInstanceRole = "primary" | "replica";
 
 /** One requested fingerprint's answer from `GET /api/v1/insights/queries/series`
- *  (R8.11). Mirrors `internal/api/dto/series.go:96` tag-for-tag.
+ *  (R8.11). Mirrors `internal/api/dto/series.go:96` (`QuerySeries`) tag-for-tag.
  *
  *  The vocabulary is R9.3's, not R3.2's: `datname`/`usename` here where
  *  `QueryView` above says `database`/`user`. That is not drift to be fixed.
