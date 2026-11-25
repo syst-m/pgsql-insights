@@ -250,12 +250,17 @@ jobs:
       # R11.4's second number — the SPA's gzipped JS — is printed by the same
       # command now that web/dist exists (scripts/image-size.py reports it as its
       # own section; it never gates, since the size limit applies to the image).
-# R11.11 gate, measured 2026-11-25 at 6c0e003. Appended at EOF on purpose: the same
+# R11.11 gate, measured 2026-11-24 at 6c0e003. Appended at EOF on purpose: the same
 # block at the top would shift every line below it, and IMPLEMENTATION.md:1221 cites
-# eleven ci.yml line numbers -- the checker's form-A rule
+# twelve ci.yml line numbers -- three form-A (:40, :139, :238 spelled with the path) and
+# nine bare form-C (:42, :84, :90, :96, :117, :141, :203, :208, :213) that inherit the
+# path from the line's first citation. The checker's form-A rule
 # (scripts/check-parity-matrix.py:384) fails a cite only when its number exceeds the
-# file's length, so a top insertion would leave all eleven "resolving" while pointing
-# at the wrong lines. That is the ed58452 class named at the top of that script.
+# file's length, so a top insertion would leave all twelve "resolving" while pointing
+# at the wrong lines. That is the ed58452 class named at the top of that script. The four
+# `Makefile:` numbers on that row (:58, :93, :88, :247) are not tokens at all: P at
+# check-parity-matrix.py:327 requires a dot-extension, so an extensionless file is
+# unattachable in form A.
 #
 #   run: lines              23   grep -c '^ *run:' .github/workflows/ci.yml
 #   run: make <target>      10   grep -c '^ *run: make ' .github/workflows/ci.yml
