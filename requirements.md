@@ -205,7 +205,7 @@ Per cluster, on a configurable interval (default **60 s**, matching Cloud SQL's 
 | `pooler` | 60 s | S5 + S6 | Only for clusters with a Pooler |
 | `instance-metrics` | 60 s | S3 (direct or `pods/proxy`) | Parses the `cnpg_*` exposition; the path that needs no SQL credentials |
 | `k8s-events` | watch | `events` in the cluster's namespace | Feeds the events timeline |
-| `bloat` | 5 min | S2 `pg_stat_user_tables`, `pg_stat_user_indexes` | R7.2's two pairs; table size via `pg_total_relation_size`, index size via `pg_relation_size` |
+| `bloat` | 5 min | S2 `pg_stat_user_tables`, `pg_stat_user_indexes` | R7.2's two pairs and R7.4's autovacuum insight; table size via `pg_total_relation_size`, index size via `pg_relation_size` |
 
 Every collector is **independently failure-isolated**: one collector erroring (missing extension,
 view absent on this major, insufficient grant) degrades that collector only, records the error in
