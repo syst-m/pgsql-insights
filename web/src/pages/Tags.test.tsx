@@ -312,7 +312,7 @@ describe("TagsPage — R10.12's named states", () => {
   });
 
   it("renders the contract fixture while the first fetch is in flight", () => {
-    // `?delay=` exists (`client.ts:105-108`) so R16.7 can hold a page in its
+    // `?delay=` exists (`client.ts:112-115`) so R16.7 can hold a page in its
     // pre-response frame. With no `fixtureOverride` and a slow client, the
     // payload on screen is `props.fixtureOverride ?? data.tags ?? FIXTURE_TAGS`
     // (`Tags.tsx:190`), so the frame is the contract fixture and

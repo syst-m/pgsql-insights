@@ -147,7 +147,7 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
   const params = useMemo(() => detailParamsFrom(state), [state]);
   // The page's own extraction, not the hook file's `detailParamsFrom`: the two
   // agree on the required triple, and this one also carries A3's optional
-  // `?db=`/`?user=`, which `client.ts:317`'s `QueryDetailParams` accepts
+  // `?db=`/`?user=`, which `client.ts:381`'s `QueryDetailParams` accepts
   // structurally and the route documents. Importing the hook's version would
   // shadow this exported one and drop the two optionals A3 ruled on.
   const { state: detail } = useQueryDetail(props.cfg, params);
