@@ -177,7 +177,7 @@ export function ClusterTable({
         <tbody>
           {/* The two spacers are what make the scrollbar the right length, and
               they are rows rather than divs because the rows they stand in for
-              are rows — base.css:720 is what stops one rendering as an empty
+              are rows — web/src/styles/base.css:720 is what stops one rendering as an empty
               row in the middle of the table. */}
           {win.padTop > 0 && (
             <tr className="virtual-spacer" aria-hidden="true">

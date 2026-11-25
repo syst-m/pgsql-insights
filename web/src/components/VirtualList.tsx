@@ -50,7 +50,7 @@ export const ROW_HEIGHT: Record<Density, number> = {
 export const DENSITY_ORDER: readonly Density[] = ["compact", "comfortable"];
 
 /** The segmented control R10.18 requires. Reuses the shell's `.segmented`
- *  styling (styles/base.css:310) rather than defining a second one. */
+ *  styling (web/src/styles/base.css:310) rather than defining a second one. */
 export function DensityToggle({
   density,
   onChange,
