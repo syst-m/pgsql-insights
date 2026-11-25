@@ -411,7 +411,7 @@ describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () =
     // order is `search()`'s (`client.ts:193` preserves the object's own key order
     // rather than sorting), so it is part of the claim. The `/terminate` suffix is
     // `client.ts:620`'s and the contract's (`requirements.md:330`,
-    // `internal/api/server.go:230`): this assertion was first written against the
+    // `internal/api/server.go:230` (`Terminate`)): this assertion was first written against the
     // suffix-less URL the fetcher had and tightened to the exact string when A4's
     // `9790fda` added it, which is the pair the api suite asserts too at
     // `client.test.ts:1287-1290` (the URL string at :1288, the method at :1290).
