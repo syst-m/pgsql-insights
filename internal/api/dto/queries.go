@@ -238,11 +238,13 @@ type QueryView struct {
 // named response names the dto type in its signature and keeps no local alias,
 // because the alias would be a second name for one type.
 //
-// testdata/api/queries.json is unchanged by this commit for the same reason:
-// TestQueriesFixtureIsCanonical pins the fixture to `Envelope[QueryView]`, not to
-// this name, so there is nothing here for the byte-for-byte check to re-marshal.
-// The fixture gains `pgStatStatements` in the commit that switches that test's
-// type, and the `-update` run belongs to that commit, not to this one.
+// testdata/api/queries.json now carries this shape's `pgStatStatements` rows. It
+// could not before: TestQueriesFixtureIsCanonical pinned the fixture to
+// `Envelope[QueryView]`, and a field that type does not have cannot appear in a
+// file whose bytes are that type's canonical encoding. a83612b recorded the
+// deferral ("the -update run belongs to that commit, not to this one"); the
+// commit that switched the test's type to this one ended it, and the fixture's
+// four rows are the -update run that belongs to it.
 type QueriesResponse struct {
 	// Data is R3.2's rows — R8.4's `data`, identical in shape to the other four
 	// list routes'. Never null: an empty list marshals to [].

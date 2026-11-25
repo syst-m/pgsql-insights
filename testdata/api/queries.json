@@ -138,5 +138,30 @@
     "total": 7,
     "truncated": false,
     "generatedAt": "2026-11-20T09:12:00Z"
-  }
+  },
+  "pgStatStatements": [
+    {
+      "namespace": "open-webui",
+      "cluster": "open-webui-pg",
+      "database": "openwebui",
+      "installed": true
+    },
+    {
+      "namespace": "ai-api-gateway",
+      "cluster": "rev-proxy-pg",
+      "database": "gateway",
+      "installed": true
+    },
+    {
+      "namespace": "cookbook",
+      "cluster": "cookbook-pg",
+      "database": "cookbook",
+      "installed": false
+    },
+    {
+      "namespace": "freeidp",
+      "cluster": "freeidp-pg",
+      "database": "freeidp"
+    }
+  ]
 }

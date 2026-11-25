@@ -86,8 +86,22 @@ func readFixture(t *testing.T, path string, into any) {
 	}
 }
 
+// TestQueriesFixtureIsCanonical is the commit queries.go's docblock
+// pre-announced: "The fixture gains `pgStatStatements` in the commit that
+// switches that test's type, and the -update run belongs to that commit" — the
+// deferral a83612b recorded when it added QueriesResponse, open for the 74
+// commits between that commit and this one (git rev-list --count a83612b..HEAD).
+//
+// Pinning to the type the route returns, rather than to the generic envelope it
+// stopped returning, is the point. While this test named Envelope[QueryView], a
+// field could exist on the body GET /insights/queries writes — and did, in
+// internal/api/queries.go:211 — and be absent from the fixture with every test in
+// the package green. The fixture has to be the canonical encoding of the response
+// the handler builds, not of a type it no longer builds; the five sibling
+// assertion tests in this file were switched to the same type in this commit for
+// the same reason, so the file has one answer to "what is this fixture's type".
 func TestQueriesFixtureIsCanonical(t *testing.T) {
-	var env Envelope[QueryView]
+	var env QueriesResponse
 	readFixture(t, queriesPath, &env)
 	assertCanonical(t, queriesPath, env)
 }
@@ -231,7 +245,7 @@ func TestLoadColumnsAreSharedByEveryRollup(t *testing.T) {
 // applies to rows R3.6 did not truncate, because a truncated `query` is a prefix
 // of the template and hashing the prefix is not hashing the template.
 func TestQueryFixtureFingerprintsAreTheNormalizers(t *testing.T) {
-	var env Envelope[QueryView]
+	var env QueriesResponse
 	readFixture(t, queriesPath, &env)
 	if len(env.Data) == 0 {
 		t.Fatalf("%s has no rows", queriesPath)
@@ -271,7 +285,7 @@ func TestQueryFixtureFingerprintsAreTheNormalizers(t *testing.T) {
 // totalExecTimeMs to make a row look busier and every derived column in that row
 // becomes a lie. This test is what makes editing one number require editing three.
 func TestQueryFixtureLoadArithmetic(t *testing.T) {
-	var env Envelope[QueryView]
+	var env QueriesResponse
 	readFixture(t, queriesPath, &env)
 
 	for _, row := range env.Data {
@@ -303,7 +317,7 @@ func TestQueryFixtureLoadArithmetic(t *testing.T) {
 // the SPA both derivations in one response — which is the situation the UI has to
 // render and the one a single-cluster fixture would never exercise.
 func TestQueryFixtureCoversBothPGMajors(t *testing.T) {
-	var env Envelope[QueryView]
+	var env QueriesResponse
 	readFixture(t, queriesPath, &env)
 
 	majors := map[int]int{}
@@ -329,7 +343,7 @@ func TestQueryFixtureClustersExistInClustersFixture(t *testing.T) {
 	// parsed form is wanted here.
 	_, clusters := readGolden(t)
 
-	var env Envelope[QueryView]
+	var env QueriesResponse
 	readFixture(t, queriesPath, &env)
 
 	known := map[string]bool{}
@@ -351,7 +365,7 @@ func TestQueryFixtureClustersExistInClustersFixture(t *testing.T) {
 // documenting if the fixture proves it; a fixture of small ids would let someone
 // "simplify" the field to int64 and break the SPA's rendering of real values.
 func TestQueryFixtureQueryIDIsAStringForAReason(t *testing.T) {
-	var env Envelope[QueryView]
+	var env QueriesResponse
 	readFixture(t, queriesPath, &env)
 
 	const maxSafe = int64(1) << 53
@@ -690,5 +704,65 @@ func TestQueriesResponseWireKeys(t *testing.T) {
 	}
 	if tag := f.Tag.Get("json"); tag != "installed,omitempty" {
 		t.Errorf("Installed json tag is %q, want `installed,omitempty` (a nil pointer must be absent from the body, not `null`)", tag)
+	}
+}
+
+// TestQueryFixturePresenceRowsMatchItsRows is the cross-check the presence array
+// needs now that the fixture carries one.
+//
+// A pgStatStatements list that disagrees with the fixture's own data rows is worse
+// than the missing key it replaced: R10.27's "not installed" banner would render
+// over a page full of rows measured from that database. So every
+// (namespace, cluster, database) triple a query row names must have a presence
+// row, every presence row's cluster must exist in clusters.json, and the fixture
+// must exercise all three states of the *bool — a fixture of only `true` values
+// would let the UI's false and unknown branches ship unrendered, which is the
+// defect the presence field exists to make renderable.
+func TestQueryFixturePresenceRowsMatchItsRows(t *testing.T) {
+	_, clusters := readGolden(t)
+
+	var resp QueriesResponse
+	readFixture(t, queriesPath, &resp)
+
+	known := map[string]bool{}
+	for _, c := range clusters.Data {
+		known[c.Namespace+"/"+c.Name] = true
+	}
+
+	present := map[string]bool{}
+	states := map[string]int{}
+	for _, p := range resp.PGStatStatements {
+		if !known[p.Namespace+"/"+p.Cluster] {
+			t.Errorf("presence row %s/%s names a cluster testdata/api/clusters.json does not list",
+				p.Namespace, p.Cluster)
+		}
+		k := p.Namespace + "/" + p.Cluster + "/" + p.Database
+		if present[k] {
+			t.Errorf("duplicate presence row for %s", k)
+		}
+		present[k] = true
+
+		switch {
+		case p.Installed == nil:
+			states["absent"]++
+		case *p.Installed:
+			states["true"]++
+		default:
+			states["false"]++
+		}
+	}
+
+	for _, row := range resp.Data {
+		k := row.Namespace + "/" + row.Cluster + "/" + row.Database
+		if !present[k] {
+			t.Errorf("query row %s is measured from %s, which has no pg_stat_statements presence row",
+				row.Query, k)
+		}
+	}
+
+	for _, want := range []string{"true", "false", "absent"} {
+		if states[want] == 0 {
+			t.Errorf("no presence row exercises installed=%s, so the UI branch that renders it ships unrendered", want)
+		}
 	}
 }
