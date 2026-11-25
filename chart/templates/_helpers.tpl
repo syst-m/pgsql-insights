@@ -68,7 +68,7 @@ With image.digest set the reference is `repository@digest` and image.tag is
 ignored. A digest is the only immutable form of an image reference, so it is the
 only one pullPolicy: IfNotPresent can trust — a mutable tag plus IfNotPresent
 makes a node reuse its cached layer after a new push, which is how the reference
-environment ended up unable to roll out a fresh :dev on 2026-11-25 (the tag it
+environment ended up unable to roll out a fresh :dev on 2026-11-24 (the tag it
 named resolved to the old cached image; only a digest-pinned pod spec deployed
 the new one).
 

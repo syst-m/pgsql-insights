@@ -35,7 +35,7 @@ image:
   # reference, and therefore the only one pullPolicy: IfNotPresent below can
   # actually trust. A mutable tag plus IfNotPresent means a node reuses its
   # cached image after a new push: the reference environment hit exactly that on
-  # 2026-11-25, where a fresh :dev push could not be rolled out until the pod
+  # 2026-11-24, where a fresh :dev push could not be rolled out until the pod
   # spec carried the digest, because the tag it named still resolved to the old
   # cached layer.
   digest: ""
