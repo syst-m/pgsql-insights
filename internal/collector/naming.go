@@ -123,7 +123,7 @@ type exportEntry struct {
 // style choice. Go detects duplicate keys in a map literal only when the keys are
 // constants, so the previous `pgversion.Source` composite-literal keys got no
 // duplicate detection at all: two rows for one (view, column) compiled and one
-// silently won. A string key is a constant, so the compiler now checks all 139.
+// silently won. A string key is a constant, so the compiler now checks all 171.
 // MetricName and MetricTypeOf keep their (view, column) signatures as the typed
 // entry points and build the key with Source.String(); MetricNameFor and
 // MetricTypeFor take the key directly, which is how the dotless populations —
@@ -137,18 +137,25 @@ type exportEntry struct {
 // produced all four would be a per-view exception list wearing a formula's
 // clothes, so the list is written out.
 //
-// Eleven view keys, not the eight this comment used to claim. Eight of them are
-// views the four existing collectors read — all three of database.go's, one of
-// settings.go's three (pg_file_settings; pg_settings and pg_extension have no
-// rows and keep the fallback spelling), both of replication.go's and both of
-// wal.go's. The old wording enumerated "database.go's three, settings.go's three,
-// replication.go's two" and then filed wal.go's two as "inside that eight", which
-// they are not: that list is eight views and pg_stat_wal and pg_stat_archiver are
-// two more. The remaining three keys — pg_stat_statements, pg_stat_bgwriter,
-// pg_stat_checkpointer — belong to collectors that have not landed, so the table
-// is ahead of §3.3's step list there rather than behind it, and those collectors
-// inherit names from rows already here when they do. The other §3.3 collectors
-// contribute their views when they land.
+// Fourteen view keys, and twelve before io.go's landing added pg_stat_io and
+// pg_stat_slru. The paragraph this one replaces said "Eleven view keys, not the
+// eight this comment used to claim", then enumerated eight existing-collector
+// views — "all three of database.go's, one of settings.go's three
+// (pg_file_settings; pg_settings and pg_extension have no rows and keep the
+// fallback spelling), both of replication.go's and both of wal.go's" — plus three
+// unlanded ones (pg_stat_statements, pg_stat_bgwriter, pg_stat_checkpointer).
+// That enumeration is short by one: pg_stat_activity has 25 rows in the section
+// below and is named by neither the eight nor the three, because the sentence
+// counts "the four existing collectors" and activity.go's rows landed after it was
+// written. The count was corrected once (eleven, from eight) and the enumeration
+// was not, which is the failure mode of a prose claim with no checker — so the
+// number is asserted by TestExportNameViewKeyCount from here on and this
+// paragraph's job is only to say which views, not how many.
+//
+// The pg_stat_bgwriter → pg_stat_checkpointer pair is two keys for one source
+// (R2.4's fourth enumerated case), so fourteen keys is thirteen sources; the
+// pair's two rows-per-source shape and why it is not double-counting is the
+// subject of its own section header below.
 var exportNames = map[string]exportEntry{
 	// ---- R9.4's aggregate family: the five members R9.4's own sentence names ----
 	//
@@ -431,7 +438,96 @@ var exportNames = map[string]exportEntry{
 	"pg_stat_checkpointer.restartpoints_timed": {name: "restartpoints_timed_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
 	"pg_stat_checkpointer.restartpoints_req":   {name: "restartpoints_requested_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
 	"pg_stat_checkpointer.restartpoints_done":  {name: "restartpoints_done_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer"},
-	"pg_stat_checkpointer.stats_reset":         {name: "checkpointer_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch"},
+	// The two columns only the PG18 set has (StatCheckpointerPG18 is 11 columns,
+	// StatCheckpointerPG17 is 9). They had no rows before io.go landed, which made
+	// MetricName fall back to the pre-step-4 spelling — pg_stat_checkpointer_num_done —
+	// on PG18 only, and R9.7's rule admits no metric that exists in code and not in
+	// docs. num_done follows the moved pair's shape (num_requested →
+	// checkpoints_requested_total, so num_done → checkpoints_done_total);
+	// slru_written has no R5.2 family word, so it takes the source word the way
+	// bgwriter_buffers_clean_total does.
+	"pg_stat_checkpointer.num_done":     {name: "checkpoints_done_total", typ: TypeCounter, src: "R5.2 checkpoints; catalogue system.checkpoints_* family (PG18 spelling)"},
+	"pg_stat_checkpointer.slru_written": {name: "checkpointer_slru_written_total", typ: TypeCounter, src: "D20's union over pg_stat_checkpointer (PG18-only)"},
+	"pg_stat_checkpointer.stats_reset":  {name: "checkpointer_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch"},
+
+	// ---- R9.7's system family, pg_stat_io and pg_stat_slru ----
+	//
+	// A3's ruling at IMPLEMENTATION.md:766 files these 30 rows under R9.4
+	// (Phase 2's) rather than R9.7 (Phase 7's), because R9.7's own sentence routes
+	// them in — "the export set is therefore the union of R5.2's enumerated
+	// families and the numeric columns R2.4's matrix returns for the target major,
+	// and R9.4's naming function must enumerate that union" (requirements.md:400) —
+	// and because the file had no `pg_stat_io.` or `pg_stat_slru.` key before
+	// io.go, so the rows are a choice R9.4 makes rather than a copy job. The
+	// collector's side of the argument is io.go's docblock; what is here is the
+	// name-by-name choice.
+	//
+	// R5.2 names no io or slru family — requirements.md:340's list is transactions,
+	// tuples, blocks, temp, deadlocks, backends by state and by application name,
+	// database sizes, TXID and MXID age, WAL volume and generation rate, and
+	// checkpoints — so neither view has an R5.2 family word to put where R9.7's
+	// amended rule says to "replace the source prefix with the R5.2 family word
+	// where one exists". With no family word, the source word is the only prefix the
+	// rule leaves, which is the same resolution the bgwriter section's D20's-union
+	// rows reached (bgwriter_buffers_clean_total) and why every name here is `io_`
+	// or `slru_` plus the member.
+	//
+	// op_bytes is the row the table's own canonical example forces. R2.4's third
+	// enumerated case is a 1→3 split (succession.go:132-148) and a split is the one
+	// kind of succession Canonical refuses to walk backwards, because "a 1→3 split
+	// gives each of its three To members its own family … walking a split backwards
+	// would collapse three distinct metrics into one". So op_bytes and its three
+	// PG18 successors are four rows with four names, and io_op_bytes_total is the
+	// pre-18 column's own name rather than a name shared with the sum of the three:
+	// the rule produces the member name, not an aggregate, and naming the old column
+	// after what the new three add up to is the inference the rule exists to refuse.
+	//
+	// pg_stat_io's three identity columns are R9.3's per-family labels rather than
+	// values — the pg_stat_database.datname treatment — and io.go puts them on every
+	// sample its io rows produce, which is the flag in io.go's type doc.
+	"pg_stat_io.backend_type": {name: "", typ: TypeNotExported, src: "R9.3: the backend_type label, not a value"},
+	"pg_stat_io.object":       {name: "", typ: TypeNotExported, src: "R9.3: the object label, not a value"},
+	"pg_stat_io.context":      {name: "", typ: TypeNotExported, src: "R9.3: the context label, not a value"},
+
+	// The fourteen counters the PG16-17 and PG18 column sets share.
+	"pg_stat_io.reads":          {name: "io_reads_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.read_time":      {name: "io_read_time_seconds_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.writes":         {name: "io_writes_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.write_time":     {name: "io_write_time_seconds_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.writebacks":     {name: "io_writebacks_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.writeback_time": {name: "io_writeback_time_seconds_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.extends":        {name: "io_extends_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.extend_time":    {name: "io_extend_time_seconds_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.hits":           {name: "io_hits_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.evictions":      {name: "io_evictions_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.reuses":         {name: "io_reuses_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.fsyncs":         {name: "io_fsyncs_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	"pg_stat_io.fsync_time":     {name: "io_fsync_time_seconds_total", typ: TypeCounter, src: "D20's union over pg_stat_io"},
+	// The fourteenth shared counter is the split's pre-image; see the paragraph
+	// above for why it is not named after what its three successors add up to.
+	"pg_stat_io.op_bytes": {name: "io_op_bytes_total", typ: TypeCounter, src: "D20's union over pg_stat_io; R2.4's 1→3 split pre-image (succession.go:132-148)"},
+
+	// The three PG18-only successors of op_bytes, each its own family because the
+	// split is the one succession Canonical does not walk.
+	"pg_stat_io.read_bytes":   {name: "io_read_bytes_total", typ: TypeCounter, src: "D20's union over pg_stat_io; PG18 half of the op_bytes split"},
+	"pg_stat_io.write_bytes":  {name: "io_write_bytes_total", typ: TypeCounter, src: "D20's union over pg_stat_io; PG18 half of the op_bytes split"},
+	"pg_stat_io.extend_bytes": {name: "io_extend_bytes_total", typ: TypeCounter, src: "D20's union over pg_stat_io; PG18 half of the op_bytes split"},
+
+	"pg_stat_io.stats_reset": {name: "io_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch, exported as the conventional _timestamp_seconds gauge"},
+
+	// pg_stat_slru: the same shape with one identity column instead of three, and
+	// the blks → blocks expansion pg_stat_statements' shared_blks_hit →
+	// query_shared_blocks_hit_total row already set.
+	"pg_stat_slru.name": {name: "", typ: TypeNotExported, src: "R9.3: the name label (the SLRU class), not a value"},
+
+	"pg_stat_slru.blks_zeroed":  {name: "slru_blocks_zeroed_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.blks_hit":     {name: "slru_blocks_hit_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.blks_read":    {name: "slru_blocks_read_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.blks_written": {name: "slru_blocks_written_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.blks_exists":  {name: "slru_blocks_exists_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.flushes":      {name: "slru_flushes_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.truncates":    {name: "slru_truncates_total", typ: TypeCounter, src: "D20's union over pg_stat_slru"},
+	"pg_stat_slru.stats_reset":  {name: "slru_stats_reset_timestamp_seconds", typ: TypeGauge, src: "R3.3 counter epoch, exported as the conventional _timestamp_seconds gauge"},
 
 	// ---- R9.7's system family, the replication views ----
 	//

@@ -2,6 +2,7 @@ package collector
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 // capital in it is a name two collectors will eventually spell two ways.
 var familyNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// TestMetricNameTable pins the names the four existing collectors export.
+// TestMetricNameTable pins the names the SQL collectors export.
 //
 // The table is a table and not a formula — the doc comment on exportNames gives
 // the four counter-examples that rule a formula out — so the only way to hold it
@@ -46,7 +47,13 @@ func TestMetricNameTable(t *testing.T) {
 		{pgversion.ViewStatStatements, "blk_read_time", "query_shared_blk_read_time_seconds_total"},
 		{pgversion.ViewStatStatements, "blk_write_time", "query_shared_blk_write_time_seconds_total"},
 
-		// R9.7's system family, one row per view the four collectors read.
+		// R9.7's system family. The sentence this one replaces scoped itself to
+		// "the four collectors", and activity.go's rows landed without it being
+		// updated — the off-by-one the docblock at naming.go:134 documents, and the
+		// reason a count in prose needs a checker. io.go now adds a fifth SQL
+		// collector and two more view keys; TestExportNameViewKeyCount owns the
+		// numbers, and this list has a case for eight of the fourteen, including
+		// both of the two io.go resolves.
 		{pgversion.ViewStatDatabase, "xact_commit", "db_xact_commit_total"},
 		{pgversion.ViewStatDatabase, "tup_returned", "db_tuples_returned_total"},
 		// The two pg_stat_activity families the catalogue publishes. These are in
@@ -65,6 +72,22 @@ func TestMetricNameTable(t *testing.T) {
 		{pgversion.ViewDatabase, "size", "db_size_bytes"},
 		{pgversion.ViewStatWAL, "wal_bytes", "wal_generated_bytes_total"},
 		{pgversion.ViewStatCheckpointer, "num_timed", "checkpoints_timed_total"},
+		// io.go's two views. The pg_stat_io cases are the shape the table's own
+		// canonical example forces: op_bytes is R2.4's 1→3 split pre-image
+		// (succession.go:132-148), and a split is the one succession Canonical
+		// refuses to walk backwards, so the pre-image and each of its three PG18
+		// successors carry their own name. One case for the pre-image and one for one
+		// successor is the minimum that fails if someone collapses them into a shared
+		// `io_bytes_total`.
+		{pgversion.ViewStatIO, "reads", "io_reads_total"},
+		{pgversion.ViewStatIO, "op_bytes", "io_op_bytes_total"},
+		{pgversion.ViewStatIO, "read_bytes", "io_read_bytes_total"},
+		{pgversion.ViewStatIO, "stats_reset", "io_stats_reset_timestamp_seconds"},
+		// pg_stat_slru's cases pin the blks → blocks expansion, precedented by
+		// query_shared_blocks_hit_total above: the abbreviation is the source's, the
+		// expansion is the naming table's.
+		{pgversion.ViewStatSLRU, "blks_hit", "slru_blocks_hit_total"},
+		{pgversion.ViewStatSLRU, "flushes", "slru_flushes_total"},
 		{pgversion.ViewFileSettings, "count", "file_settings_count"},
 	}
 	for _, tc := range cases {
@@ -102,7 +125,14 @@ func TestMetricNameFallsBackToThePreStep4Formula(t *testing.T) {
 // configurable, so a collector that baked `pgsi_` into Sample.Metric would make
 // that config key a lie. clock.go's Sample.Metric doc is the normative statement
 // ("db_xact_commit_total", not "pgsi_db_xact_commit_total") and
-// this is the assertion that enforces it across all 114 rows at once.
+// this is the assertion that enforces it across every named row at once.
+//
+// The sentence used to end "across all 114 rows at once". Three numbers have stood
+// in those five words — 114, then 139, now 171 — and each went stale on the commit
+// that added rows, which is the same failure the docblock at naming.go:134
+// documents for the view-key count. TestExportNameViewKeyCount owns the numbers
+// now, so this paragraph says "every named row" and lets the test be the
+// measurement rather than restating one that rots.
 func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 	names := ExportedMetricNames()
 	if len(names) == 0 {
@@ -115,6 +145,67 @@ func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 		if strings.HasPrefix(n, DefaultPrefix) {
 			t.Errorf("name %q bakes in the R9.2 prefix %q (the renderer applies it; the base must not)", n, DefaultPrefix)
 		}
+	}
+}
+
+// TestExportNameViewKeyCount is the checker the docblock on exportNames points at.
+//
+// That docblock has corrected its own count once (eight, then eleven) without
+// correcting the enumeration under it — the paragraph at naming.go:134 records how
+// that happened — and a count in prose is only worth anything once something
+// asserts it. This asserts the three numbers the docblock states, and asserts the
+// set of view names rather than only its size, because the recorded defect was a
+// right number over a wrong list.
+//
+// It is also the test that makes io.go's two views visible to the table: a new
+// view's rows landing without a bump here means the rows exist under a view the
+// docblock does not name, which is the shape of every past count bug here.
+func TestExportNameViewKeyCount(t *testing.T) {
+	const (
+		// The 14 dotted view keys, the 171 rows under them, and the 51 dotless
+		// cnpg/pgbouncer keys the R9.4 amendment let in. The bgwriter →
+		// checkpointer pair is two of the 14 keys for one source (R2.4's fourth
+		// enumerated case), which is why 14 keys is 13 sources; the pair's own
+		// section header carries that argument.
+		wantViewKeys = 14
+		wantDotted   = 171
+		wantDotless  = 51
+	)
+	wantViews := []string{
+		"pg_database", "pg_file_settings", "pg_replication_slots",
+		"pg_stat_activity", "pg_stat_archiver", "pg_stat_bgwriter",
+		"pg_stat_checkpointer", "pg_stat_database", "pg_stat_database_conflicts",
+		"pg_stat_io", "pg_stat_replication", "pg_stat_slru",
+		"pg_stat_statements", "pg_stat_wal",
+	}
+
+	got := map[string]int{}
+	var dotted, dotless int
+	for key := range exportNames {
+		if view, _, ok := splitExportKey(key); ok {
+			got[view]++
+			dotted++
+			continue
+		}
+		dotless++
+	}
+
+	var views []string
+	for view := range got {
+		views = append(views, view)
+	}
+	sort.Strings(views)
+	if len(views) != wantViewKeys {
+		t.Errorf("exportNames has %d view keys, want %d\n%s", len(views), wantViewKeys, strings.Join(views, "\n"))
+	}
+	if !slices.Equal(views, wantViews) {
+		t.Errorf("the view keys do not match the set the docblock enumerates\ngot  %v\nwant %v", views, wantViews)
+	}
+	if dotted != wantDotted {
+		t.Errorf("%d dotted rows, want %d (the number naming.go:126 states)", dotted, wantDotted)
+	}
+	if dotless != wantDotless {
+		t.Errorf("%d dotless rows, want %d (the cnpg/pgbouncer population)", dotless, wantDotless)
 	}
 }
 
