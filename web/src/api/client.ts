@@ -423,7 +423,7 @@ export type SeriesRange = "1h" | "6h" | "1d" | "7d" | "30d" | "custom";
 /** `GET /api/v1/insights/queries/series` — R8.11's batch.
  *
  *  `fingerprints` is required — an empty list is `InvalidRequest`, not an empty
- *  page — and capped at `series.go:56`'s `MaxBatchFingerprints` (50). Above the
+ *  page — and capped at `internal/api/series.go:56`'s `MaxBatchFingerprints` (50). Above the
  *  cap the server answers `InvalidRequest` rather than truncating, so this joins
  *  the array and does not slice it to 50: a client that sends 80 and gets 50
  *  cannot tell "30 of them have no data" from "you were cut off", which is
