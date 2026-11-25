@@ -273,6 +273,118 @@ func DefaultCatalogue() *Catalogue {
 		})
 	}
 
+	// R6.3's pooler throughput set: the pgbouncer stats families, on the same
+	// /metrics/system route as the R5.2 set. R9.7's second half is "the parsed
+	// cnpg_* values re-exported under pgsi_", and cnpg_pgbouncer_* is the largest
+	// such family — 123 series on the fixture pooler pod.
+	//
+	// It is a second table rather than rows appended to `systems` above because
+	// that loop hardcodes its `by` clause as `(..., datname)` and a pgbouncer
+	// series has no `datname`. Measured on testdata/cnpg-metrics/ai-api-gateway__
+	// rev-proxy-pg-pooler-86b4bdd84d-n9vlv__9127.txt: all 20
+	// cnpg_pgbouncer_stats_* families carry {database} alone, and the 48
+	// {database,user} series in that file are the 16 cnpg_pgbouncer_pools_*
+	// families, three series each. A row in the first table would aggregate over a
+	// label the series does not have; the pools_* families R6.2 renders are a
+	// third table's problem, not this one's.
+	//
+	// Which fifteen: R6.3 names five totals explicitly (total_query_count,
+	// total_xact_count, total_received, total_sent, total_wait_time) and then
+	// writes "avg_* variants" as a wildcard, so this table is those five totals
+	// plus all ten avg_* families in the naming table. The five totals R6.3 does
+	// not name (bind_count, client_parse_count, query_time, server_parse_count,
+	// xact_time) are absent — its totals are a list, not a wildcard, and minting
+	// the other five would put names on the API surface the spec never asked for.
+	// The asymmetry that follows, ten averages beside five totals, is the spec's
+	// shape, not a gap here.
+	//
+	// The pair's names are not symmetric either: R6.3's `total_received` is
+	// naming.go:625's `pgbouncer_stats_total_received`, whose avg counterpart is
+	// naming.go:615's `pgbouncer_stats_avg_recv` — `avg_recv`, not `avg_received`.
+	// Each side of the pair takes the name the naming table has, which is the only
+	// place either name exists.
+	//
+	// rate() versus the raw gauge: naming.go:577-578 rules that "R6.3's
+	// counter-reset language for the stats_* families is a query-side concern, not
+	// a redeclaration of the type" — the table types every stats_* family
+	// TypeGauge (naming.go:621-630), following the exporter's declared TYPE, and
+	// the R3.3 handling R6.3 asks for lives in the query instead. rate() is that
+	// instrument: Prometheus's rate treats a decrease as a counter reset, which is
+	// the whole of the handling available to a query, and pooler_test.go:380-381
+	// records why there is nothing further to surface — "StatsReset stays zero: no
+	// cnpg_pgbouncer_*reset* family exists, so S5 has no counter epoch to report",
+	// so the stats_reset timestamp R3.3 names has no family behind it on the
+	// pooler side. The avg_* rows are averages by definition, so they get avg
+	// by(...) and no rate(): rate() of an average is a rate of a rate, and sum
+	// by(...) over two pooler pods' averages doubles a per-pod number.
+	//
+	// All fifteen are Implemented: true because all fifteen metrics are in the
+	// collector's naming table (naming.go:611-630). This table carries no
+	// provisional list of its own because there is nothing provisional in it — and
+	// internal/collector/naming_catalogue_test.go's biconditional fails the build
+	// if that claim is wrong, which is what lets the field be a constant here.
+	pgbouncer := []struct {
+		name    string
+		metric  string
+		counter bool
+		desc    string
+	}{
+		{"pgbouncer_stats_total_query_count", "pgsi_pgbouncer_stats_total_query_count", true,
+			"R6.3 throughput: total SQL queries pooled by pgbouncer (cnpg_pgbouncer_stats_total_query_count), as a 5m rate."},
+		{"pgbouncer_stats_total_xact_count", "pgsi_pgbouncer_stats_total_xact_count", true,
+			"R6.3 throughput: total SQL transactions pooled by pgbouncer (cnpg_pgbouncer_stats_total_xact_count), as a 5m rate."},
+		{"pgbouncer_stats_total_received", "pgsi_pgbouncer_stats_total_received", true,
+			"R6.3 throughput: total bytes of network traffic received by pgbouncer (cnpg_pgbouncer_stats_total_received), as a 5m rate."},
+		{"pgbouncer_stats_total_sent", "pgsi_pgbouncer_stats_total_sent", true,
+			"R6.3 throughput: total bytes of network traffic sent by pgbouncer (cnpg_pgbouncer_stats_total_sent), as a 5m rate."},
+		{"pgbouncer_stats_total_wait_time", "pgsi_pgbouncer_stats_total_wait_time", true,
+			"R6.3 throughput: microseconds clients spent waiting for a server (cnpg_pgbouncer_stats_total_wait_time), as a 5m rate."},
+		{"pgbouncer_stats_avg_query_count", "pgsi_pgbouncer_stats_avg_query_count", false,
+			"R6.3 throughput: average queries per second in the last stat period (cnpg_pgbouncer_stats_avg_query_count)."},
+		{"pgbouncer_stats_avg_xact_count", "pgsi_pgbouncer_stats_avg_xact_count", false,
+			"R6.3 throughput: average transactions per second in the last stat period (cnpg_pgbouncer_stats_avg_xact_count)."},
+		{"pgbouncer_stats_avg_recv", "pgsi_pgbouncer_stats_avg_recv", false,
+			"R6.3 throughput: average bytes per second received from clients (cnpg_pgbouncer_stats_avg_recv)."},
+		{"pgbouncer_stats_avg_sent", "pgsi_pgbouncer_stats_avg_sent", false,
+			"R6.3 throughput: average bytes per second sent to clients (cnpg_pgbouncer_stats_avg_sent)."},
+		{"pgbouncer_stats_avg_wait_time", "pgsi_pgbouncer_stats_avg_wait_time", false,
+			"R6.3 throughput: microseconds per second clients spend waiting for a server (cnpg_pgbouncer_stats_avg_wait_time)."},
+		{"pgbouncer_stats_avg_bind_count", "pgsi_pgbouncer_stats_avg_bind_count", false,
+			"R6.3 throughput: average prepared statements readied for execution and forwarded to PostgreSQL (cnpg_pgbouncer_stats_avg_bind_count)."},
+		{"pgbouncer_stats_avg_client_parse_count", "pgsi_pgbouncer_stats_avg_client_parse_count", false,
+			"R6.3 throughput: average prepared statements created by clients (cnpg_pgbouncer_stats_avg_client_parse_count)."},
+		{"pgbouncer_stats_avg_query_time", "pgsi_pgbouncer_stats_avg_query_time", false,
+			"R6.3 throughput: average query duration in microseconds (cnpg_pgbouncer_stats_avg_query_time)."},
+		{"pgbouncer_stats_avg_server_parse_count", "pgsi_pgbouncer_stats_avg_server_parse_count", false,
+			"R6.3 throughput: average prepared statements created by pgbouncer on a server (cnpg_pgbouncer_stats_avg_server_parse_count)."},
+		{"pgbouncer_stats_avg_xact_time", "pgsi_pgbouncer_stats_avg_xact_time", false,
+			"R6.3 throughput: average transaction duration in microseconds (cnpg_pgbouncer_stats_avg_xact_time)."},
+	}
+	for _, pb := range pgbouncer {
+		// The by clause is the pgbouncer label set measured above — the identity
+		// labels ApplyIdentityLabels stamps (pooler_test.go:390-392 names them)
+		// plus `database`, the only label the stats families carry. `pooler` is
+		// not here because PoolerConfig.PoolerName defaults to nil and pooler.go
+		// omits the label for S5 (its field comment lists the three candidates
+		// and ships the one that guesses nothing), so `pod` is the pooler's
+		// identity on the wire and grouping on an absent label would add a
+		// dimension with one value.
+		query := "avg by (namespace, cluster, pod, instance_role, database) (" + pb.metric + ")"
+		if pb.counter {
+			query = "sum by (namespace, cluster, pod, instance_role, database) (rate(" + pb.metric + "[5m]))"
+		}
+		entries = append(entries, CatalogueEntry{
+			Name:        FamilySystem + "." + pb.name,
+			Family:      FamilySystem,
+			Metric:      pb.metric,
+			Query:       query,
+			ResultType:  ResultTypeVector,
+			Endpoint:    SystemMetricsPath,
+			Description: pb.desc,
+			Implemented: true,
+		})
+	}
+
 	// The two derived entries: members of R9.4's list that are expressions over
 	// other metrics, so they have no single Metric to name. The set is also what
 	// TestCatalogueIsWellFormed allows an empty Metric for, which is the
