@@ -167,8 +167,8 @@ export function ExtensionNotInstalled({ cluster, onEnable }: ExtensionNotInstall
           The cost, stated here
         </h3>
         {/* dt/dd as direct grid children, the way `.detail-header`
-            (web/src/styles/base.css:885) does it — not a wrapper div per row. The
-            house note at web/src/styles/base.css:883 says these three grids should become one
+            (`web/src/styles/base.css:885`) does it — not a wrapper div per row. The
+            house note at `web/src/styles/base.css:883` says these three grids should become one
             `.kv-grid`; wrapping each row in a div would add a fourth spelling
             instead of waiting for that consolidation. */}
         <dl className="ext-cost">

@@ -158,7 +158,7 @@ export function ResourceLoadPanel({ cluster, source }: ResourceLoadPanelProps) {
           Sources, in R5.3&apos;s order
         </h3>
         {/* dt/dd as direct grid children, the way `.detail-header`
-            (web/src/styles/base.css:885) does it — one grid, no wrapper per row. */}
+            (`web/src/styles/base.css:885`) does it — one grid, no wrapper per row. */}
         <dl className="rl-grid">
           <dt>S7 · Prometheus</dt>
           <dd>{copy.s7}</dd>
