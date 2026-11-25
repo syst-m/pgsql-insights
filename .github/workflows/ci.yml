@@ -183,7 +183,7 @@ jobs:
       # tests are only reviewable if the captured PNGs survive the run.
       - name: upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: web/e2e/report
