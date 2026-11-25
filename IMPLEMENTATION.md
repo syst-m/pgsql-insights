@@ -1047,11 +1047,25 @@ settings 18/18, pooler 72/72. Two qualifications before the number is used as a 
 pooler-clients have no published pair, so "every collector errors on every attempt" is at present an
 extrapolation from four. **(2) The four named span two data paths, so one upstream Postgres failure
 cannot be the whole cause.** activity, database and settings query Postgres through `pgxopener`;
-`internal/collector/pooler.go:5` says the pooler's sources "have no opener" and it fetches over
-`net/http`, erroring on a non-200 at `internal/collector/pooler.go:187`. A pooler at 72/72 is a
+`internal/collector/pooler.go:1-3` declares it "the package's first non-SQL collector" — the SQL
+collectors reach PostgreSQL through `sql.go`'s `SQLOpener`, the pooler does not — and it fetches over
+`net/http`, erroring on a non-200 at `internal/collector/pooler.go:187`. (The first draft cited
+`pooler.go:5`, which is the line about inventory (S1), instance-metrics (S3) and k8s-events (S4)
+having no opener — a different set; A3's S114.) A pooler at 72/72 is a
 second failure domain — an unreachable pooler inventory — so the honest reading is at least two
 causes, not one shared credential path. The entry therefore records Phase 2's code as reviewed and
 its §8 acceptance as not yet passing live, and does not record a cause it has not isolated.
+
+**Cause, one commit later, and its scope.** `482d82e` fixes the SQL half: `DSN()` rendered
+`sslmode=verify-ca` (`internal/collector/pgxopener/pgxopener.go:223`) while the package handed pgx
+no trust anchors, so pgx's verify-ca branch built `x509.VerifyOptions{Roots: tlsConfig.RootCAs}`
+from a nil `RootCAs` and every round failed; the fix reads the `<cluster>-ca` secret's PEM and
+installs it (`ReadCA`, `internal/collector/pgxopener/pgxopener.go:135`). Filed as **A3's S115**.
+Its scope is the SQL path — nine `Begin` sites (`io.go:211`, `wal.go:165`, `locks.go:298`,
+`activity.go:322`, `database.go:163`, `pooler_clients.go:280`, `settings.go:116`,
+`replication.go:176`, `statements.go:487`) — and not the pooler, whose source is an HTTP inventory
+URL, so the pooler's 72/72 pair is the second domain and the fix leaves it standing. The entry now
+records a cause for the SQL half and still records none for the pooler half.
 
 ### 3.13 Requirement → file → status (Phase 6b, R14.8)
 
