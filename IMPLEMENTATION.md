@@ -1137,10 +1137,16 @@ fresh object; and R10.22's subject key dropped, so navigating `/c/ns/a/tags` to 
 renders cluster a's rows under cluster b's header for the whole in-flight window), A3's S98 against
 `web/src/components/StatePanel.tsx` (four cites one line off plus a short count of the derivations
 that can reach `unavailable`), and A3's S95 against `web/src/api/envelope.ts`, filed earlier and
-closed at `843986b`. S96 and S97 are open; the phase cannot be marked done with two open majors in
-its newest page, and the page's suite cannot see either one — `useTagsFetch` is not exported and the
-468-line test file contains no `vi.mock` and no `toHaveBeenCalledTimes`, so the fetch path the
-component actually runs is untested at every rev this entry covers.
+closed at `843986b`. All three of the new rows closed at `bee6b5f` the same day they were rowed:
+S96 and S97 are one refactor there — the payload and its subject key now share a single `last` ref
+and `load`'s dep list is `[cfg, params]`, the `useActiveQueries.ts:105-160` shape — and the commit
+exports `useTagsFetch` and adds the fetch-count test S96 needed, because the render is byte-identical
+at one fetch and at the measured forty-six, so none of the 26 existing cases could have caught it.
+S98's fifth cite, `routes.ts:259` at `Tags.tsx:313`, resolves at HEAD and A6 left it; the two
+`routes.ts:256-266` range cites in `web/src/pages/Tags.test.tsx` moved to `:257-267` for the same
+`843986b` line shift. The table's `Last commit touching it` cells stay dated at `c5d1772` as the
+scope paragraph says — three of the five files this round read have a newer commit, and rewriting the
+cells to `bee6b5f` would erase the rev the entry actually measured.
 
 **R14.8 rows.** Per R14.9 — one row per requirement per phase, because a second row is how a
 requirement gets two contradictory statuses — this entry adds no requirement table of its own.
