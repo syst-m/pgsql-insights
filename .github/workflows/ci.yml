@@ -250,3 +250,19 @@ jobs:
       # R11.4's second number — the SPA's gzipped JS — is printed by the same
       # command now that web/dist exists (scripts/image-size.py reports it as its
       # own section; it never gates, since the size limit applies to the image).
+# R11.11 gate, measured 2026-11-25 at 6c0e003. Appended at EOF on purpose: the same
+# block at the top would shift every line below it, and IMPLEMENTATION.md:1221 cites
+# eleven ci.yml line numbers -- the checker's form-A rule
+# (scripts/check-parity-matrix.py:384) fails a cite only when its number exceeds the
+# file's length, so a top insertion would leave all eleven "resolving" while pointing
+# at the wrong lines. That is the ed58452 class named at the top of that script.
+#
+#   run: lines              23   grep -c '^ *run:' .github/workflows/ci.yml
+#   run: make <target>      10   grep -c '^ *run: make ' .github/workflows/ci.yml
+#   run: | block scalars     6   grep -c '^ *run: |' .github/workflows/ci.yml
+#   raw single commands      7   :75, :119, :121, :139, :161, :164, :175
+#
+# The ten target names, with their line numbers, are enumerated in IMPLEMENTATION.md's
+# D3 row (:1221); :139 (`go test ./... -count=1`) and :238 (`python3
+# scripts/image-size.py --max-mb 100 dist.oci.tar`) are recorded there as raw-command
+# exceptions -- Makefile:58 and Makefile:247 exist, CI does not call them.
