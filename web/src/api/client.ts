@@ -617,7 +617,7 @@ export async function terminateSession(
   // order the doc lists them. No request body: the route has none, for the
   // reason `postJSON` gives.
   const { pid, ...query } = params;
-  const json = await postJSON(cfg, `/api/v1/sessions/${pid}${search(query)}`, opts);
+  const json = await postJSON(cfg, `/api/v1/sessions/${pid}/terminate${search(query)}`, opts);
   return parseTerminateResponse(json);
 }
 

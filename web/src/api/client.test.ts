@@ -1283,7 +1283,7 @@ describe("terminateSession", () => {
     stub(FIXTURE_TERMINATE_SESSION);
     await terminateSession(http, params);
     expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
-      "/api/v1/sessions/48213?namespace=freeidp&cluster=freeidp-pg&confirm=true",
+      "/api/v1/sessions/48213/terminate?namespace=freeidp&cluster=freeidp-pg&confirm=true",
     );
     expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
   });
