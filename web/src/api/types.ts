@@ -516,8 +516,8 @@ export interface QueryView extends LoadColumns {
  *  with `TestQueriesResponseWireKeys` (`dto/queries_test.go`), which asks
  *  `encoding/json` what the struct emits rather than reading the field list; this
  *  is the copy that has to keep agreeing with the answer. The sha is in the cite
- *  because the line moves under an amend: the same declaration sits at `:268` in
- *  the working tree while A2's alias swap is in flight.
+ *  because the line moves under an amend: re-measured at `e4ea88c` it sits at
+ *  `:270`, and A2's alias swap — the other half of that sentence — has since landed.
  *
  *  `installed` is the tri-state R3.1's two detection sources force, and the `?`
  *  is the third state. The Go field is `*bool` with `omitempty` — asserted
@@ -529,11 +529,11 @@ export interface QueryView extends LoadColumns {
  *  for a database nobody measured is the difference between a gap and a wrong
  *  answer. A plain `boolean` here would collapse the two.
  *
- *  Not yet reachable from a fetcher. `QueryResponse` gains `pgStatStatements` in
- *  the commit that adopts the named wire body (ruled: extend the presentation
- *  type, keep the name — the `FleetResponse` precedent at `:895-903`), so this
- *  type exists one step ahead of the type that names it, which is the state A1
- *  took the Go struct to and dated for the same reason. */
+ *  Reachable from a fetcher as of this commit: `QueryResponse` at `:1002` carries
+ *  it as `pgStatStatements` — the ruling being to extend the presentation type and
+ *  keep the name, the `FleetResponse` precedent at `:977-980` and the published
+ *  `api/openapi.yaml:3596` both saying so. That adoption is what the Go struct's
+ *  docblock dated, and the reason this type came one step ahead of it. */
 export interface ExtensionPresenceView {
   namespace: string;
   cluster: string;
@@ -980,18 +980,32 @@ export interface FleetResponse {
 }
 
 /** What the Queries page renders: the same `Meta` (R8.4's envelope shell is
- *  shared by every list endpoint, R8.2) with `QueryView` rows. Named to match
- *  `FleetResponse` so `client.ts` has one naming pattern per endpoint —
- *  `<Noun>Response` for the presentation payload, `Envelope<Row>` for the wire.
+ *  shared by every list endpoint, R8.2) with `QueryView` rows, plus R3.1's
+ *  presence report. Named to match `FleetResponse` so `client.ts` has one naming
+ *  pattern per endpoint — `<Noun>Response` for the presentation payload, and for
+ *  this route the wire body is `dto.QueriesResponse` (`api/openapi.yaml:3596`,
+ *  `required: [data, meta, pgStatStatements]` at `:3618`), not `Envelope<QueryView>`: the
+ *  document retired that alias because "a route with a named struct has a name
+ *  already, so keeping both would be two names for one body".
  *
  *  No presentation layer of its own (no `QueryRow`): the fleet needed one
  *  because `health` is computed and `observedAt` is denormalised, and neither
  *  exists for a query row — R3.2's columns are all served, and R7.6's
  *  recommendations ride on the row. So the presentation type is the wire type
- *  plus `meta`, which is what `toQueriesResponse()` in envelope.ts builds. */
+ *  plus `meta`, which is what `toQueriesResponse()` in envelope.ts builds.
+ *
+ *  `pgStatStatements` is required here because the schema requires it and the Go
+ *  field carries no `omitempty`. The live route answers `[]` on every request
+ *  today (`internal/api/queries.go:218`), which is requirements.md:306's stated
+ *  reason the R10.27 "not installed" screen stays unreachable from this route
+ *  until real rows arrive — the spec's own consequence, restated, not a new claim. */
 export interface QueryResponse {
   meta: Meta;
   queries: QueryView[];
+  /** R3.1's per-database presence report, one row per database the process knows
+   *  about; `[]` when nothing has been measured. See `ExtensionPresenceView` at
+   *  `:537` for why one row per database and not one boolean per cluster. */
+  pgStatStatements: ExtensionPresenceView[];
 }
 
 /** `namespace/name` — the cluster id used in URLs (R10.16) and table rows.

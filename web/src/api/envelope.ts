@@ -26,6 +26,7 @@ import {
   type Envelope,
   type ErrorDetail,
   type ErrorCode,
+  type ExtensionPresenceView,
   type FleetRow,
   type FleetResponse,
   type Meta,
@@ -737,6 +738,93 @@ export function parseTerminateResponse(raw: unknown): TerminateResponse {
   return { pid, terminated, actor, target };
 }
 
+/** Check one row of R3.1's presence report — `ExtensionPresenceView` at
+ *  types.ts:537, `dto/queries.go:270` as of `e4ea88c`.
+ *
+ *  `installed` is the only place the third state lives, and the reason `null` is a
+ *  contract error here rather than the not-known encoding: the Go field is `*bool`
+ *  with `omitempty`, so a nil pointer is *absent from the body* and `false` is a
+ *  measured answer. requirements.md:306 rules `nullable: true` on this field's
+ *  schema "the defect" for exactly that reason — it "adds a second not-known
+ *  encoding" (`"installed": null`) the Go type cannot emit — and says the TS type
+ *  "must not widen to `boolean | null` when the field is adopted". Accepting `null`
+ *  here would be that widening by the back door, so the check is: `undefined` →
+ *  omit the key, `boolean` → keep it, anything else → throw. */
+export function parseExtensionPresenceView(raw: unknown): ExtensionPresenceView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`expected an ExtensionPresenceView object from the API, got ${typeName(raw)}`);
+  }
+  // Field order is the dto's (`dto/queries.go:270`), so a failure names the
+  // first field the Go side would have written wrong.
+  const { namespace, cluster, database, installed } = raw;
+  if (typeof namespace !== "string") {
+    throw new ContractError(`ExtensionPresenceView.namespace is ${typeName(namespace)}, expected string`);
+  }
+  if (typeof cluster !== "string") {
+    throw new ContractError(`ExtensionPresenceView.cluster is ${typeName(cluster)}, expected string`);
+  }
+  if (typeof database !== "string") {
+    throw new ContractError(`ExtensionPresenceView.database is ${typeName(database)}, expected string`);
+  }
+  if (installed === undefined) {
+    // The not-known arm, and the reason the object is built field by field rather
+    // than spread: `{ ...row, installed: undefined }` would put the key back with a
+    // value the Go type can only express by leaving it out, and `'installed' in row`
+    // would stop meaning what the wire says it means.
+    return { namespace, cluster, database };
+  }
+  if (typeof installed !== "boolean") {
+    throw new ContractError(
+      `ExtensionPresenceView.installed is ${typeName(installed)}, expected boolean or absent`,
+    );
+  }
+  return { namespace, cluster, database, installed };
+}
+
+/** Check the body of `GET /api/v1/insights/queries` — the third named, non-envelope
+ *  body this file validates, after `parseActiveQueriesResponse` at `:671` and
+ *  `parseTerminateResponse` at `:718`. The route's body is `dto.QueriesResponse`
+ *  (`api/openapi.yaml:3596`), which replaced the `QueriesEnvelope` alias over
+ *  `dto.Envelope[dto.QueryView]` because "a route with a named struct has a name
+ *  already, so keeping both would be two names for one body".
+ *
+ *  `parseEnvelope(json, parseQueryView)` — what `fetchQueries` called until this
+ *  commit — validates two of the three keys and drops the third without noticing,
+ *  so the generic could not stay this route's checker. All three keys are required
+ *  (`required: [data, meta, pgStatStatements]`), so each is a check rather than a
+ *  default: a body missing `pgStatStatements` is not a response with an empty
+ *  report, it is a body that is not this contract. That is the argument
+ *  `parseTerminateResponse` makes for its four fields, and the `?? []` failure class
+ *  client.test.ts's header names: a missing key defaulted to a plausible empty is
+ *  the one bug the whole trust boundary exists to catch. The object is built from
+ *  the three checked fields, in the order types.ts declares them, so a fourth key is
+ *  dropped rather than reaching a page as an untyped extra. */
+export function parseQueriesResponse(json: unknown): QueryResponse {
+  if (!isRecord(json)) {
+    throw new ContractError(`expected a QueriesResponse object from the API, got ${typeName(json)}`);
+  }
+  const { data, pgStatStatements } = json;
+  if (!Array.isArray(data)) {
+    // Restated from parseEnvelope's own check for this body: a `queries` key where
+    // the wire says `data`, a bare array, or an error body served with a 200.
+    throw new ContractError(
+      `QueriesResponse.data is ${typeName(data)}, expected array (keys present: ${
+        Object.keys(json).join(", ") || "none"
+      })`,
+    );
+  }
+  if (!Array.isArray(pgStatStatements)) {
+    throw new ContractError(
+      `QueriesResponse.pgStatStatements is ${typeName(pgStatStatements)}, expected array`,
+    );
+  }
+  return {
+    meta: parseMeta(json.meta),
+    queries: data.map(parseQueryView),
+    pgStatStatements: pgStatStatements.map(parseExtensionPresenceView),
+  };
+}
+
 /** Parse an R8.5 error body. Returns null when the body is not one, so the
  *  caller can fall back to the HTTP status line rather than throwing a second
  *  error on top of the first. */
@@ -787,9 +875,21 @@ export function toFleetResponse(env: Envelope<ClusterView>, extras: Record<strin
  *  Queries table sorts by `totalExecTimeMs`, not by freshness). What is left is
  *  the pair A6 asked for — the same 3 lines with `queries` in place of
  *  `clusters` — and that is the point: the envelope is generic, so a new
- *  endpoint costs a row parser and a builder, not a new shape family. */
-export function toQueriesResponse(env: Envelope<QueryView>): QueryResponse {
-  return { meta: env.meta, queries: env.data };
+ *  endpoint costs a row parser and a builder, not a new shape family.
+ *
+ *  `pgStatStatements` is the second parameter for the same reason `toFleetResponse`
+ *  takes `extras`: `Envelope<T>` is `data` + `meta` and "nothing else" (types.ts:156),
+ *  and a per-route key beside `data` belongs to the route, not to the shared shell.
+ *  The default of `[]` keeps the envelope-only call sites — `emptyEnvelope`, the
+ *  fixture before its `-update`, every test that builds a page from an envelope
+ *  alone — compiling and answering `[]`, which is what the live route answers today
+ *  (`internal/api/queries.go:218`); `parseQueriesResponse` above is the arm that
+ *  supplies real rows. */
+export function toQueriesResponse(
+  env: Envelope<QueryView>,
+  pgStatStatements: ExtensionPresenceView[] = [],
+): QueryResponse {
+  return { meta: env.meta, queries: env.data, pgStatStatements };
 }
 
 /** An envelope with no rows, for the R10.12 empty fixture. */

@@ -59,8 +59,8 @@ import {
   parseEnvelope,
   parseErrorBody,
   parseQueryDetailView,
+  parseQueriesResponse,
   parseQuerySeries,
-  parseQueryView,
   parseTagView,
   parseTerminateResponse,
   toFleetResponse,
@@ -349,13 +349,17 @@ export async function fetchQueries(
     // The one query fixture the contract has, and the params are ignored on this
     // arm exactly as `fetchFleet` ignores them when serving a fleet fixture:
     // R10.12's named states are fleet-side, so there is no named set to choose
-    // between here. `toQueriesResponse` is the same builder the route test uses,
-    // so the fixture arm and the http arm return the identical shape.
+    // between here. The two arms now reach `QueryResponse` (types.ts:992) by
+    // different functions — this one builds with `toQueriesResponse`, the http arm
+    // parses with `parseQueriesResponse` — because the wire body has a third key the
+    // generic envelope does not carry. The fixture's is `[]` until the contract's
+    // `-update` lands, which is what the live route answers today
+    // (`internal/api/queries.go:218`).
     await delay(cfg);
     return toQueriesResponse(FIXTURE_QUERIES);
   }
   const json = await getJSON(cfg, `/api/v1/insights/queries${search(params)}`, opts);
-  return toQueriesResponse(parseEnvelope(json, parseQueryView));
+  return parseQueriesResponse(json);
 }
 
 /** `GET /api/v1/insights/queries/{fingerprint}` — R10.7's payload.

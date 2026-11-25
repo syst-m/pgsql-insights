@@ -89,6 +89,9 @@ function pending(): {
 const envelope = (total: number) => ({
   data: [],
   meta: { total, truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+  // Required since `ae9cc86` — `parseQueriesResponse` reads the whole named body,
+  // so a stub with only `data` and `meta` now rejects and `ready` never happens.
+  pgStatStatements: [],
 });
 
 const http: ClientConfig = { source: "http", apiBase: "", fixture: "fleet", delayMs: 0 };
@@ -198,8 +201,9 @@ describe("useQueries refetch behaviour (R10.22)", () => {
 
   it("surfaces a ContractError's own message rather than an empty list", async () => {
     // 200 OK, parseable JSON, and the payload under `queries` instead of `data`
-    // — the exact R16.8 bug class `parseEnvelope` names in its own message
-    // (envelope.ts:97-105). The hook's `err instanceof Error ? err.message :
+    // — the exact R16.8 bug class the parser names in its own message
+    // (envelope.ts:809-814, since the http arm moved from `parseEnvelope` to
+    // `parseQueriesResponse`). The hook's `err instanceof Error ? err.message :
     // String(err)` is what turns that string into the error the panel shows
     // rather than a blank table that looks like an empty result set.
     stub({ generatedAt: FIXTURE_GENERATED_AT, queries: [] });
@@ -208,7 +212,7 @@ describe("useQueries refetch behaviour (R10.22)", () => {
     await waitFor(() => expect(result.current.state.phase).toBe("error"));
     expect(result.current.state.queries).toBeNull();
     expect(result.current.state.error).toBe(
-      "Envelope.data is undefined, expected array (keys present: generatedAt, queries)",
+      "QueriesResponse.data is undefined, expected array (keys present: generatedAt, queries)",
     );
   });
 

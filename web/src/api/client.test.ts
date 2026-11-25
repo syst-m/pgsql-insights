@@ -46,6 +46,8 @@ import {
   parseActiveQueriesResponse,
   parseEnvelope,
   parseErrorBody,
+  parseExtensionPresenceView,
+  parseQueriesResponse,
   parseQuerySeries,
   parseSessionView,
   parseTagView,
@@ -59,6 +61,11 @@ import {
 } from "./envelope";
 import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta, QuerySeries } from "./types";
 import OPENAPI_YAML from "../../../api/openapi.yaml?raw";
+// The fixture's own bytes, imported directly rather than reached through
+// `FIXTURE_QUERIES`: that export is still annotated `Envelope<QueryView>` (the
+// move to `QueryResponse` is the fixture-family commit this one deliberately
+// leaves behind), so the third key `ae9cc86` added is only visible from the json.
+import apiQueriesJson from "../../../testdata/api/queries.json";
 import * as api from "./client";
 
 describe("resolveConfig", () => {
@@ -771,7 +778,13 @@ describe("fetchFleet over http", () => {
 });
 
 describe("fetchQueries", () => {
-  const empty = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
+  // Three keys now, not two: `QueryResponse` requires `pgStatStatements` since
+  // `ae9cc86`, so a body the parser accepts has to carry it even when it is empty.
+  const empty = {
+    data: [],
+    meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+    pgStatStatements: [],
+  };
 
   it("GETs the contract path with the params it was given", async () => {
     stub(empty);
@@ -812,12 +825,22 @@ describe("fetchQueries", () => {
     expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain("limit=5000");
   });
 
-  it("returns the parsed envelope for a valid 200", async () => {
-    stub(FIXTURE_QUERIES);
+  it("returns the parsed response for a valid 200", async () => {
+    // The http arm parses the whole named body now, so the payload it returns is
+    // the fixture's three keys with `data` renamed to the presentation name
+    // `queries` — the mapping `QueryResponse` documents, read off the fixture
+    // rather than retyped here. The fixture arm still goes through
+    // `toQueriesResponse`, which defaults the third key to `[]`; the two arms
+    // agree on `meta` and `queries` and differ on the presence rows until
+    // fixtures.ts moves to the named type, which is the transition this commit
+    // leaves open.
+    stub(apiQueriesJson);
     const out = await fetchQueries(http);
-    // The same builder the fixture arm returns, so the two arms cannot disagree
-    // about the shape the page receives.
-    expect(out).toEqual(toQueriesResponse(FIXTURE_QUERIES));
+    expect(out).toEqual({
+      meta: apiQueriesJson.meta,
+      queries: apiQueriesJson.data,
+      pgStatStatements: apiQueriesJson.pgStatStatements,
+    });
   });
 
   it("throws ContractError on a 200 whose body is not an envelope", async () => {
@@ -827,6 +850,141 @@ describe("fetchQueries", () => {
 
   it("serves the queries fixture on the fixture arm", async () => {
     await expect(fetchQueries(fixture)).resolves.toEqual(toQueriesResponse(FIXTURE_QUERIES));
+  });
+});
+
+describe("parseExtensionPresenceView", () => {
+  /* R3.1's per-database presence row, and the third key `QueryResponse` now
+   * requires. The fixture carries four rows — three with `installed`, one without
+   * — so the omitempty case is tested against the contract's own bytes instead of
+   * a retyped copy of them. */
+  const rows = apiQueriesJson.pgStatStatements;
+
+  it("parses every row the fixture has and keeps their keys identical", () => {
+    expect(rows).toHaveLength(4);
+    expect(rows.map(parseExtensionPresenceView)).toEqual(rows);
+  });
+
+  it("keeps `installed: false` — not-installed is a value, not an absence", () => {
+    // The cookbook row. A falsy check would read it as the freeidp row's absence,
+    // which is the `?? []` failure class one level down from the envelope.
+    const row = rows.find((r) => r.cluster === "cookbook-pg");
+    expect(row).toBeDefined();
+    expect(parseExtensionPresenceView(row).installed).toBe(false);
+  });
+
+  it("leaves `installed` absent when the row has none", () => {
+    // `omitempty *bool`: the collector knows the database but never measured it.
+    // `parseTerminateResponse`'s `terminated: false` case, one type down — a
+    // missing optional field must not become `undefined` rendered as a blank.
+    const row = rows.find((r) => r.cluster === "freeidp-pg");
+    expect(row).toBeDefined();
+    const parsed = parseExtensionPresenceView(row);
+    expect("installed" in parsed).toBe(false);
+    expect(parsed).toEqual({ namespace: "freeidp", cluster: "freeidp-pg", database: "freeidp" });
+  });
+
+  it("rejects a body that is not an object", () => {
+    expect(() => parseExtensionPresenceView([])).toThrow(/ExtensionPresenceView object from the API, got array/);
+    expect(() => parseExtensionPresenceView(null)).toThrow(/got null/);
+    expect(() => parseExtensionPresenceView("openwebui")).toThrow(/got string/);
+  });
+
+  it("names the field whose type broke, for each of the three required", () => {
+    const row = rows[0];
+    expect(row).toBeDefined();
+    expect(() =>
+      parseExtensionPresenceView({ cluster: row?.cluster, database: row?.database }),
+    ).toThrow(/ExtensionPresenceView\.namespace is undefined, expected string/);
+    expect(() =>
+      parseExtensionPresenceView({ namespace: row?.namespace, database: row?.database }),
+    ).toThrow(/ExtensionPresenceView\.cluster is undefined, expected string/);
+    expect(() =>
+      parseExtensionPresenceView({ namespace: row?.namespace, cluster: row?.cluster }),
+    ).toThrow(/ExtensionPresenceView\.database is undefined, expected string/);
+  });
+
+  it("rejects a string installed, the shape a hand-written body drifts to", () => {
+    // `"installed": "true"` is valid JSON and would render as truthy either way,
+    // so only the parser can tell a boolean from a string holding one.
+    expect(() =>
+      parseExtensionPresenceView({
+        namespace: "open-webui",
+        cluster: "open-webui-pg",
+        database: "openwebui",
+        installed: "true",
+      }),
+    ).toThrow(/ExtensionPresenceView\.installed is string, expected boolean or absent/);
+  });
+
+  it("drops a key the contract does not have", () => {
+    // Built from the checked fields, not cast, so an extra key cannot reach a page
+    // as an untyped extra the type never named.
+    expect(
+      Object.keys(
+        parseExtensionPresenceView({
+          namespace: "open-webui",
+          cluster: "open-webui-pg",
+          database: "openwebui",
+          installed: true,
+          extra: 1,
+        }),
+      ),
+    ).toEqual(["namespace", "cluster", "database", "installed"]);
+  });
+});
+
+describe("parseQueriesResponse", () => {
+  /* The named body behind GET /api/v1/insights/queries — `dto.QueriesResponse`,
+   * published as `required: [data, meta, pgStatStatements]` (openapi.yaml:3618).
+   * The fixture is the contract's own bytes, so the happy path below is the
+   * object the Go test marshals, not a second copy of it written here. */
+
+  it("parses the contract fixture and renames `data` to `queries`", () => {
+    expect(parseQueriesResponse(apiQueriesJson)).toEqual({
+      meta: apiQueriesJson.meta,
+      queries: apiQueriesJson.data,
+      pgStatStatements: apiQueriesJson.pgStatStatements,
+    });
+  });
+
+  it("rejects a body that is not an object", () => {
+    expect(() => parseQueriesResponse([])).toThrow(/QueriesResponse object from the API, got array/);
+    expect(() => parseQueriesResponse(null)).toThrow(/got null/);
+    expect(() => parseQueriesResponse("[]")).toThrow(/got string/);
+  });
+
+  it("rejects the two-key body this route used to have", () => {
+    // The R16.8 regression pointing the other way: before `ae9cc86` the body was
+    // `Envelope[QueryView]` — `data` plus `meta` — and a server still answering
+    // that shape has to fail here rather than render a page whose presence column
+    // is silently empty. The `?? []` bug class, in the direction the fixture's own
+    // history provides a fixture for.
+    expect(() =>
+      parseQueriesResponse({ data: apiQueriesJson.data, meta: apiQueriesJson.meta }),
+    ).toThrow(/QueriesResponse\.pgStatStatements is undefined, expected array/);
+  });
+
+  it("names each key the body is missing, and lists the ones it had", () => {
+    // `parseEnvelope` lists the keys it did find, and so does this: a 200 from a
+    // renamed route is diagnosable without opening a network tab.
+    expect(() => parseQueriesResponse({ queries: [], meta: {} })).toThrow(
+      /QueriesResponse\.data is undefined, expected array \(keys present: queries, meta\)/,
+    );
+    expect(() => parseQueriesResponse({ data: [], pgStatStatements: [] })).toThrow(
+      /Envelope\.meta is undefined, expected object/,
+    );
+    expect(() => parseQueriesResponse({ data: {}, meta: apiQueriesJson.meta })).toThrow(
+      /QueriesResponse\.data is object, expected array \(keys present: data, meta\)/,
+    );
+  });
+
+  it("drops a key the contract does not have", () => {
+    expect(Object.keys(parseQueriesResponse({ ...apiQueriesJson, extra: 1 }))).toEqual([
+      "meta",
+      "queries",
+      "pgStatStatements",
+    ]);
   });
 });
 
@@ -1440,6 +1598,11 @@ describe("every fetcher path is a contract path", () => {
   // testdata, and parsing one over http is the bug the split exists for.
   const emptyBody = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
 
+  // `fetchQueries` cannot reuse it: `QueryResponse` requires the third key
+  // `ae9cc86` added, so `parseQueriesResponse` rejects a two-key body and the
+  // path assertion would never reach the URL it is testing.
+  const queriesBody = { ...emptyBody, pgStatStatements: [] };
+
   // `{param}` segments become `[^/]+`. The placeholder is NUL because the
   // escape step below must not touch it and a space could appear in a path.
   const published = (path: string): boolean =>
@@ -1459,7 +1622,7 @@ describe("every fetcher path is a contract path", () => {
     { name: "fetchFleet", body: emptyBody, call: () => fetchFleet(http) },
     {
       name: "fetchQueries",
-      body: emptyBody,
+      body: queriesBody,
       call: () => fetchQueries(http, { namespace: "open-webui", cluster: "open-webui-pg", limit: 50 }),
     },
     {
