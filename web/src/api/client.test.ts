@@ -24,6 +24,7 @@ import {
   FIXTURE_CLUSTERS,
   FIXTURE_GENERATED_AT,
   FIXTURE_TAGS,
+  FIXTURE_TERMINATE_SESSION,
 } from "./fixtures";
 import {
   ApiError,
@@ -35,6 +36,7 @@ import {
   fetchQuerySeries,
   fetchTags,
   resolveConfig,
+  terminateSession,
   type FixtureName,
 } from "./client";
 import {
@@ -47,6 +49,7 @@ import {
   parseQuerySeries,
   parseSessionView,
   parseTagView,
+  parseTerminateResponse,
   partialBanner,
   QUERY_NOUN,
   SESSION_NOUN,
@@ -1177,6 +1180,69 @@ describe("parseActiveQueriesResponse", () => {
   });
 });
 
+describe("parseTerminateResponse", () => {
+  /* The second of the three named, non-envelope bodies (types.ts names all
+   * three). The fixture is the contract's own bytes —
+   * `testdata/api/sessions-terminate.json`, imported by fixtures.ts — so the
+   * happy path here is the same object the Go test marshals, not a second copy
+   * of it written in this file. */
+  const fixtureBody = FIXTURE_TERMINATE_SESSION;
+
+  it("accepts the contract fixture and returns its four fields", () => {
+    expect(parseTerminateResponse(fixtureBody)).toEqual(fixtureBody);
+  });
+
+  it("rejects a body that is not an object", () => {
+    expect(() => parseTerminateResponse([])).toThrow(/TerminateResponse object from the API, got array/);
+    expect(() => parseTerminateResponse(null)).toThrow(/got null/);
+    expect(() => parseTerminateResponse("48213")).toThrow(/got string/);
+  });
+
+  it("names the field whose type broke, for each of the four", () => {
+    // The R16.8 case, at runtime: a json tag renamed in `dto/sessions.go`
+    // without regenerating the fixture is a *missing* field here, and all four
+    // have a check (the dto puts no `omitempty` on any of them), so none of
+    // them can arrive as `undefined` and render as a blank.
+    expect(() =>
+      parseTerminateResponse({ terminated: fixtureBody.terminated, actor: fixtureBody.actor, target: fixtureBody.target }),
+    ).toThrow(/TerminateResponse\.pid is undefined, expected number/);
+    expect(() =>
+      parseTerminateResponse({ pid: fixtureBody.pid, actor: fixtureBody.actor, target: fixtureBody.target }),
+    ).toThrow(/TerminateResponse\.terminated is undefined, expected boolean/);
+    expect(() =>
+      parseTerminateResponse({ pid: fixtureBody.pid, terminated: fixtureBody.terminated, target: fixtureBody.target }),
+    ).toThrow(/TerminateResponse\.actor is undefined, expected string/);
+    expect(() =>
+      parseTerminateResponse({ pid: fixtureBody.pid, terminated: fixtureBody.terminated, actor: fixtureBody.actor }),
+    ).toThrow(/TerminateResponse\.target is undefined, expected string/);
+  });
+
+  it("rejects a string pid, the shape a hand-written body drifts to", () => {
+    // `pid: "48213"` parses as JSON and would render as a number in the UI, so
+    // the only place that can tell the two apart is here.
+    expect(() => parseTerminateResponse({ ...fixtureBody, pid: "48213" })).toThrow(
+      /TerminateResponse\.pid is string, expected number/,
+    );
+  });
+
+  it("keeps `terminated: false` — a 200 that terminated nothing is a value", () => {
+    // The doc's own case: the signal reached no backend. A falsy check would
+    // read it as an absence, which is the `?? []` failure class one type down.
+    expect(parseTerminateResponse({ ...fixtureBody, terminated: false }).terminated).toBe(false);
+  });
+
+  it("drops a key the contract does not have", () => {
+    // The body is built from the four checked fields rather than cast, so an
+    // extra key cannot reach a page as an untyped extra the type never named.
+    expect(Object.keys(parseTerminateResponse({ ...fixtureBody, extra: 1 }))).toEqual([
+      "pid",
+      "terminated",
+      "actor",
+      "target",
+    ]);
+  });
+});
+
 describe("fetchActiveQueries", () => {
   const params = { namespace: "postgres-operator", cluster: "ha-cluster" };
 
@@ -1204,6 +1270,54 @@ describe("fetchActiveQueries", () => {
 
   it("serves the active-queries fixture on the fixture arm", async () => {
     await expect(fetchActiveQueries(fixture, params)).resolves.toEqual(FIXTURE_ACTIVE_QUERIES);
+  });
+});
+
+describe("terminateSession", () => {
+  /* The file's only non-GET fetcher, so the block asserts the verb as well as
+   * the URL: a terminate that silently issued a GET would still return the
+   * fixture on the fixture arm and pass every other test in this file. */
+  const params = { pid: 48213, namespace: "freeidp", cluster: "freeidp-pg", confirm: "true" } as const;
+
+  it("POSTs the contract path with the three required query params", async () => {
+    stub(FIXTURE_TERMINATE_SESSION);
+    await terminateSession(http, params);
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      "/api/v1/sessions/48213?namespace=freeidp&cluster=freeidp-pg&confirm=true",
+    );
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("returns the parsed response for a valid 200", async () => {
+    stub(FIXTURE_TERMINATE_SESSION);
+    await expect(terminateSession(http, params)).resolves.toEqual(FIXTURE_TERMINATE_SESSION);
+  });
+
+  it("throws ContractError on a 200 whose body is the generic envelope", async () => {
+    // `{data, meta}` is not this route's body either — R4.5's answer is a named
+    // struct with four scalars and no meta, which is the case types.ts exists to
+    // keep from being papered over by an `Envelope<T>`.
+    stub({ data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } });
+    await expect(terminateSession(http, params)).rejects.toThrow(
+      /TerminateResponse\.pid is undefined, expected number/,
+    );
+  });
+
+  it("reports R4.5's 403 as a POST, with R8.5's code attached", async () => {
+    // The gate-off refusal (and the replica one) both answer 403 `Unsupported`.
+    // The verb is in the message because a panel that says `GET → 403` under a
+    // button the user just pressed reports the wrong request as refused, and the
+    // code is in the error because `Unsupported` ("feature gated off by config")
+    // is a different fix from `Forbidden` ("your RBAC cannot do this").
+    stub({ error: { code: "Unsupported", message: "--allow-actions is off", details: [] } }, false, 403, "Forbidden");
+    await expect(terminateSession(http, params)).rejects.toThrow(
+      /^POST → 403 Unsupported: --allow-actions is off$/,
+    );
+    await expect(terminateSession(http, params)).rejects.toMatchObject({ status: 403, code: "Unsupported" });
+  });
+
+  it("serves the terminate fixture on the fixture arm", async () => {
+    await expect(terminateSession(fixture, params)).resolves.toEqual(FIXTURE_TERMINATE_SESSION);
   });
 });
 

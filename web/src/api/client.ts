@@ -1,21 +1,26 @@
 /* Where the pages get their data from.
  *
- * Six routes, two sources, one interface (R1.5's contract):
+ * Seven routes, two sources, one interface (R1.5's contract):
  *
- *   http     — GET /api/v1/… on the same origin as the page. Because the Go
- *              binary serves the SPA itself (R10.1), same-origin is the normal
- *              case and no CORS or base-URL config is needed. The six routes
- *              here are six of the twenty-two the contract marks
- *              `x-status: implemented` (`grep -c 'x-status: implemented'
- *              api/openapi.yaml`, 22 as of `62740ed`): `/clusters`,
- *              `/insights/queries`, `/insights/queries/{fp}`,
- *              `/insights/queries/series`, `/insights/tags` (`62740ed`) and
- *              `/active-queries` (`e6a4921`) — one fetcher each, and every one
- *              of them takes its params from the route's own `parameters:` list
+ *   http     — GET /api/v1/… on the same origin as the page, plus the one POST
+ *              (R4.5's terminate, the only route in the contract that changes
+ *              anything). Because the Go binary serves the SPA itself (R10.1),
+ *              same-origin is the normal case and no CORS or base-URL config is
+ *              needed. The seven routes here are seven of the twenty-three the
+ *              contract marks `x-status: implemented`
+ *              (`grep -c 'x-status: implemented' api/openapi.yaml`: 22 at
+ *              `62740ed`, 23 since `db265b6` — the twenty-third is
+ *              `/sessions/{pid}/terminate`, whose entry landed the same day as
+ *              this fetcher and is the reason the count moved): `/clusters`,
+ *              `/insights/queries`,
+ *              `/insights/queries/{fp}`, `/insights/queries/series`,
+ *              `/insights/tags` (`62740ed`), `/active-queries` (`e6a4921`) and
+ *              `/sessions/{pid}/terminate` — one fetcher each, and every one of
+ *              them takes its params from the route's own `parameters:` list
  *              rather than from a shape invented here. The earlier wording here
  *              ("the four routes are the four the contract marks implemented")
  *              was false the moment the fifth fetcher landed, and by two counts:
- *              the document marked twenty-one implemented then and twenty-two
+ *              the document marked twenty-one implemented then and twenty-three
  *              now, most of them Phase 5 and R9 routes with no fetcher yet.
  *   fixture  — web/src/api/fixtures.ts, which is itself generated from
  *              testdata/api/*.json (R16.8), so the two sources serve the
@@ -46,6 +51,7 @@ import {
   FIXTURE_TRUNCATED_PARTIAL,
   FIXTURE_UNAVAILABLE,
   FIXTURE_TAGS,
+  FIXTURE_TERMINATE_SESSION,
 } from "./fixtures";
 import {
   ContractError,
@@ -56,6 +62,7 @@ import {
   parseQuerySeries,
   parseQueryView,
   parseTagView,
+  parseTerminateResponse,
   toFleetResponse,
   toQueriesResponse,
 } from "./envelope";
@@ -68,6 +75,7 @@ import type {
   QueryResponse,
   QuerySeriesEnvelope,
   TagView,
+  TerminateResponse,
 } from "./types";
 
 export type Source = "http" | "fixture";
@@ -216,7 +224,15 @@ function preview(text: string): string {
   return first.length > 80 ? `${first.slice(0, 80)}…` : first;
 }
 
-/** One GET and one failure path, shared by every fetcher in this file.
+/** One request path and one failure path, shared by every fetcher in this file.
+ *
+ *  `request` takes the method; `getJSON` and `postJSON` below are the two named
+ *  entries over it. The file was `getJSON` alone until R4.5's terminate made it
+ *  six GETs and one POST, and the alternative — a second body read and a second
+ *  two-step `ok`/`ApiError` dance, one per verb — is the thing this function's
+ *  existence argues against. The method reaches `describeFailure` with it: the
+ *  message read `GET → 403 …` for every failure in the app, which was true while
+ *  every request was a GET and is a lie about a POST.
  *
  *  The http side used to be inline in `fetchFleet`; one fetcher per route each
  *  repeating the trailing-slash strip, the `accept` header, the body read and the
@@ -234,23 +250,46 @@ function preview(text: string): string {
  *  from a proxy is an `ApiError` carrying 502 rather than a `SyntaxError`. Both
  *  arms then have to say what an unparseable body means for *them*: a failed
  *  request keeps its status line, a successful one is a contract break. */
-async function getJSON(cfg: ClientConfig, pathWithQuery: string, opts: FetchOptions = {}): Promise<unknown> {
+async function request(
+  cfg: ClientConfig,
+  method: "GET" | "POST",
+  pathWithQuery: string,
+  opts: FetchOptions = {},
+): Promise<unknown> {
   const url = `${cfg.apiBase.replace(/\/$/, "")}${pathWithQuery}`;
-  const res = await fetch(url, { signal: opts.signal, headers: { accept: "application/json" } });
+  const res = await fetch(url, { method, signal: opts.signal, headers: { accept: "application/json" } });
   const text = await res.text();
   const json = parseJson(text);
 
   if (!res.ok) {
-    throw new ApiError(res.status, describeFailure(res.status, res.statusText, json), parseErrorBody(json)?.code);
+    throw new ApiError(
+      res.status,
+      describeFailure(method, res.status, res.statusText, json),
+      parseErrorBody(json)?.code,
+    );
   }
   // A 200 whose body is not JSON is the same family of break as a 200 that is
   // JSON but not an envelope. `parseEnvelope` throws ContractError on that one,
   // so this throws it on this one too rather than handing the caller an
   // `undefined` to cast — which is the original bug wearing a different hat.
   if (json === undefined) {
-    throw new ContractError(`GET ${pathWithQuery} → 200 body is not JSON (${preview(text)})`);
+    throw new ContractError(`${method} ${pathWithQuery} → 200 body is not JSON (${preview(text)})`);
   }
   return json;
+}
+
+/** The read verb — every GET route in this file goes through it. */
+async function getJSON(cfg: ClientConfig, pathWithQuery: string, opts: FetchOptions = {}): Promise<unknown> {
+  return request(cfg, "GET", pathWithQuery, opts);
+}
+
+/** The write verb, for the one route in the contract that mutates a Postgres
+ *  instance. It takes no body argument because that route has no `requestBody`:
+ *  the doc's own reason is that one parameter set describes both session routes,
+ *  and a body repeating what the path and query already carry would be a second
+ *  copy inside one request. */
+async function postJSON(cfg: ClientConfig, pathWithQuery: string, opts: FetchOptions = {}): Promise<unknown> {
+  return request(cfg, "POST", pathWithQuery, opts);
 }
 
 /** Fetch the fleet snapshot from the configured source. */
@@ -528,6 +567,60 @@ export async function fetchActiveQueries(
   return parseActiveQueriesResponse(json);
 }
 
+/* ── the sessions route ─────────────────────────────────────────────────────
+ *
+ * R4.5's terminate, and the first write in this file: the six fetchers above are
+ * all GETs. It is named for the route's own `operationId` rather than with the
+ * `fetch` prefix the reads carry, because that prefix marks a read and this call
+ * ends a backend's life. */
+
+/** `POST /api/v1/sessions/{pid}/terminate` — R4.5's Terminate connection, the
+ *  action behind R12.8's `--allow-actions` gate.
+ *
+ *  All four parameters the route publishes are required here, and that is the
+ *  doc's shape rather than one invented on this side: `pid` is the path segment,
+ *  `namespace` and `cluster` are the query pair that makes a pid identify a
+ *  session at all (`pg_stat_activity` is per-instance, so a pid alone is unique
+ *  only within one instance — the same reason R4.1's GET takes the same two), and
+ *  `confirm` is R4.5's "requiring a confirmed UI action" as the client's own
+ *  statement of a dialog R10.8 owns, which the server cannot observe.
+ *
+ *  `confirm` is typed as the literal `"true"` for the same reason `SeriesRange`
+ *  is a union of the route's enum members: the schema is
+ *  `{type: string, enum: ["true"]}` and anything else answers 400
+ *  `InvalidRequest`. Making it optional — or a `boolean`, which is what a UI
+ *  state naturally holds — would let a caller POST without confirming and learn
+ *  about it from the server, which is the class of thing a param type exists to
+ *  prevent. A caller that has not shown the dialog cannot spell the argument. */
+export type TerminateSessionParams = {
+  pid: number;
+  namespace: string;
+  cluster: string;
+  confirm: "true";
+};
+
+export async function terminateSession(
+  cfg: ClientConfig,
+  params: TerminateSessionParams,
+  opts: FetchOptions = {},
+): Promise<TerminateResponse> {
+  if (cfg.source === "fixture") {
+    // Params ignored on this arm, as on the other two fetchers that takes them:
+    // there is one terminate fixture, so there is nothing for the params to
+    // select. It answers with its own pid (48213) rather than the requested one,
+    // which is the fixture arm's general property — the reason the live arm's
+    // echoed `pid` is the field a page should trust over the one it sent.
+    await delay(cfg);
+    return FIXTURE_TERMINATE_SESSION;
+  }
+  // `pid` is the path segment and the other three are the query string, in the
+  // order the doc lists them. No request body: the route has none, for the
+  // reason `postJSON` gives.
+  const { pid, ...query } = params;
+  const json = await postJSON(cfg, `/api/v1/sessions/${pid}${search(query)}`, opts);
+  return parseTerminateResponse(json);
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -545,10 +638,19 @@ export class ApiError extends Error {
 /** One line for the error panel. The R8.5 `code` is what the panel needs to
  *  distinguish `NotReady` ("discovery has not synced yet", retry) from
  *  `Forbidden` ("the ServiceAccount cannot read these namespaces", fix RBAC) —
- *  both are a 4xx with a message, and only one of them is fixed by waiting. */
-function describeFailure(status: number, statusText: string, json: unknown): string {
+ *  both are a 4xx with a message, and only one of them is fixed by waiting.
+ *
+ *  The verb is the line's first word, and it is a parameter rather than a
+ *  literal, because a panel that says `GET → 403` under a Terminate button the
+ *  user just clicked reports the wrong request as the one that was refused. */
+function describeFailure(
+  method: "GET" | "POST",
+  status: number,
+  statusText: string,
+  json: unknown,
+): string {
   const detail = parseErrorBody(json);
-  if (detail === null) return `GET → ${status} ${statusText}`;
+  if (detail === null) return `${method} → ${status} ${statusText}`;
   const extra = detail.details.length > 0 ? ` — ${detail.details.join("; ")}` : "";
-  return `GET → ${status} ${detail.code}: ${detail.message}${extra}`;
+  return `${method} → ${status} ${detail.code}: ${detail.message}${extra}`;
 }

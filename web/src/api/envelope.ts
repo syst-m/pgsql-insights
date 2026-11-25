@@ -36,6 +36,7 @@ import {
   type ScorecardView,
   type SessionView,
   type TagView,
+  type TerminateResponse,
 } from "./types";
 
 /** Thrown when a payload is not shaped like the contract. Distinct from
@@ -695,6 +696,45 @@ export function parseActiveQueriesResponse(json: unknown): ActiveQueriesResponse
     blockingChains: blockingChains.map(parseBlockingChainView),
     meta: parseMeta(json.meta),
   };
+}
+
+/** Check R4.5's terminate answer: the second of the three named, non-envelope
+ *  bodies (types.ts names all three and the reason each one is not an
+ *  `Envelope<T>`; `parseActiveQueriesResponse` above is the first one this file
+ *  validates).
+ *
+ *  The dto puts no `omitempty` on any of the four fields, which is what makes
+ *  each one a required check rather than an optional one: `terminated: false`
+ *  on a 200 is a real answer (the doc's "the signal reached no backend"), so a
+ *  missing `terminated` is not a falsy value, it is a body that is not this
+ *  contract. Same argument for `actor` and `target` — the audit pair the route
+ *  writes to the log line and the body from one read — and for `pid`, which the
+ *  route echoes back so the caller can match the response to the request it
+ *  made. The object is *built* from the four checked fields instead of cast, so
+ *  a fifth key in the body is dropped rather than reaching a page as an untyped
+ *  extra, and a renamed one is the throw rather than `undefined` in a toast that
+ *  says the backend was terminated.
+ */
+export function parseTerminateResponse(raw: unknown): TerminateResponse {
+  if (!isRecord(raw)) {
+    throw new ContractError(`expected a TerminateResponse object from the API, got ${typeName(raw)}`);
+  }
+  // Field order is the dto's (`dto/sessions.go:302`), so a failure names the
+  // first field the Go side would have written wrong.
+  const { pid, terminated, actor, target } = raw;
+  if (typeof pid !== "number") {
+    throw new ContractError(`TerminateResponse.pid is ${typeName(pid)}, expected number`);
+  }
+  if (typeof terminated !== "boolean") {
+    throw new ContractError(`TerminateResponse.terminated is ${typeName(terminated)}, expected boolean`);
+  }
+  if (typeof actor !== "string") {
+    throw new ContractError(`TerminateResponse.actor is ${typeName(actor)}, expected string`);
+  }
+  if (typeof target !== "string") {
+    throw new ContractError(`TerminateResponse.target is ${typeName(target)}, expected string`);
+  }
+  return { pid, terminated, actor, target };
 }
 
 /** Parse an R8.5 error body. Returns null when the body is not one, so the
