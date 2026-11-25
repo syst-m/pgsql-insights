@@ -149,7 +149,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # web/package.json engines is >=22.12.0. Pinned to 22, not to the
           # bleeding edge: vitest 4.x excludes node 25, so a floating "node"
