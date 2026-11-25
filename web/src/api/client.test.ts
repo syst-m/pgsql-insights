@@ -58,6 +58,7 @@ import {
   toQueriesResponse,
 } from "./envelope";
 import type { ClusterView, Envelope, ErrorDetail, FleetResponse, Meta, QuerySeries } from "./types";
+import OPENAPI_YAML from "../../../api/openapi.yaml?raw";
 
 describe("resolveConfig", () => {
   it("defaults to the fixture", () => {
@@ -1378,4 +1379,126 @@ describe("the fixture payload", () => {
     expect(f.scorecard.total).toBe(f.data.length);
     expect(Object.values(f.scorecard.byState).reduce((sum, n) => sum + n, 0)).toBe(f.data.length);
   });
+});
+
+/* R16.8's URL half.
+ *
+ * R16.8 pairs a checked-in JSON fixture per endpoint with the SPA's suite, and
+ * the A3 ruling on it extends the pairing to type *names* (`<Noun>Response` vs
+ * `Envelope<Row>`). Neither half reaches the request line: `efdabb3` shipped
+ * `terminateSession` building `/api/v1/sessions/48213?...` for a route the
+ * contract publishes as `/api/v1/sessions/{pid}/terminate`, and the suite was
+ * green because `client.test.ts:1286` asserted the same suffix-less string the
+ * fetcher built — a fixture pins the body, and the bug was in the URL. A6 found
+ * it from the page three commits later; `9790fda` fixed it.
+ *
+ * So this block compares code against the contract instead of code against
+ * code: it reads the `paths:` keys out of api/openapi.yaml and requires every
+ * path the seven fetchers build to be one of them. The yaml comes in through
+ * vite's `?raw` suffix rather than a parser, so there is no new dependency and
+ * no second copy of the list to drift — the file the Go emitter writes is the
+ * file this test reads.
+ */
+describe("every fetcher path is a contract path", () => {
+  // Keys are the two-space-indented lines under `paths:`, up to the next
+  // top-level key. Anchoring on the indent — not on a leading `/` alone — is
+  // what keeps `/healthz` and `/debug/pprof/trace` in and a schema property out.
+  const contractPaths: string[] = (() => {
+    const keys: string[] = [];
+    let inPaths = false;
+    for (const line of OPENAPI_YAML.split("\n")) {
+      if (/^paths:\s*$/.test(line)) {
+        inPaths = true;
+        continue;
+      }
+      if (!inPaths) continue;
+      if (/^[^\s]/.test(line)) break;
+      const m = /^ {2}(\/[^:]*):/.exec(line);
+      if (m?.[1]) keys.push(m[1]);
+    }
+    return keys;
+  })();
+
+  // The anti-vacuity guard. An extractor that silently returns [] makes every
+  // later assertion pass, so the set is asserted before it is used — this is
+  // the failure A6 named, a first run "quietly allowed into a list".
+  it("extracts the contract's path list", () => {
+    expect(contractPaths.length).toBeGreaterThan(20);
+    expect(contractPaths).toContain("/api/v1/sessions/{pid}/terminate");
+    expect(contractPaths).toContain("/api/v1/clusters");
+  });
+
+  // The http arm parses through `parseEnvelope`, so the stub has to serve the
+  // envelope shape; `FIXTURE_FLEET`/`FIXTURE_QUERIES`/`FIXTURE_TAGS` are the
+  // pre-envelope `{meta, clusters|queries|tags}` form the generator writes for
+  // testdata, and parsing one over http is the bug the split exists for.
+  const emptyBody = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
+
+  // `{param}` segments become `[^/]+`. The placeholder is NUL because the
+  // escape step below must not touch it and a space could appear in a path.
+  const published = (path: string): boolean =>
+    contractPaths.some((key) => {
+      const pattern = key
+        .replace(/\{[^}]+\}/g, "\u0000")
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replaceAll("\u0000", "[^/]+");
+      return new RegExp(`^${pattern}$`).test(path);
+    });
+
+  const cases: ReadonlyArray<{
+    readonly name: string;
+    readonly body: unknown;
+    readonly call: () => Promise<unknown>;
+  }> = [
+    { name: "fetchFleet", body: emptyBody, call: () => fetchFleet(http) },
+    {
+      name: "fetchQueries",
+      body: emptyBody,
+      call: () => fetchQueries(http, { namespace: "open-webui", cluster: "open-webui-pg", limit: 50 }),
+    },
+    {
+      name: "fetchQueryDetail",
+      body: FIXTURE_QUERY_DETAIL,
+      call: () =>
+        fetchQueryDetail(http, {
+          fingerprint: FIXTURE_QUERY_DETAIL.fingerprint,
+          namespace: FIXTURE_QUERY_DETAIL.namespace,
+          cluster: FIXTURE_QUERY_DETAIL.cluster,
+        }),
+    },
+    {
+      name: "fetchQuerySeries",
+      body: FIXTURE_QUERY_SERIES,
+      call: () =>
+        fetchQuerySeries(http, {
+          fingerprints: FIXTURE_QUERY_SERIES.data.map((s) => s.fingerprint),
+          range: "1h",
+        }),
+    },
+    {
+      name: "fetchTags",
+      body: emptyBody,
+      call: () => fetchTags(http, { namespace: "open-webui", limit: 50 }),
+    },
+    {
+      name: "fetchActiveQueries",
+      body: FIXTURE_ACTIVE_QUERIES,
+      call: () => fetchActiveQueries(http, { namespace: "postgres-operator", cluster: "ha-cluster" }),
+    },
+    {
+      name: "terminateSession",
+      body: FIXTURE_TERMINATE_SESSION,
+      call: () => terminateSession(http, { pid: 48213, namespace: "freeidp", cluster: "freeidp-pg", confirm: "true" }),
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name} builds a path the contract publishes`, async () => {
+      stub(c.body);
+      await c.call();
+      const url = String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]);
+      const path = url.split("?")[0] ?? "";
+      expect(published(path), `${c.name} built ${path}, which is not a path in api/openapi.yaml`).toBe(true);
+    });
+  }
 });
