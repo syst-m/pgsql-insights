@@ -1,7 +1,7 @@
 /* R10.8's page shell — the four clauses it has to render, and the one piece of
  * local state that ties them together.
  *
- * The suite is organised by R10.8's own sentence (`requirements.md:419`),
+ * The suite is organised by R10.8's own sentence (`requirements.md:420`),
  * because that is the contract a later reader checks the file against:
  *
  * 1. **the live table (R4.1)** — the shell, the row set, and the column set the
@@ -163,7 +163,7 @@ describe("ActiveQueriesPage — the table (R10.8's first clause)", () => {
   });
 
   it("renders the R4.6 columns when the menu turns them on", () => {
-    // R4.6 (`requirements.md:331`) is satisfied by two columns — the separate
+    // R4.6 (`requirements.md:332`) is satisfied by two columns — the separate
     // transaction age and `backend_type` — not by the Terminate button. They are
     // off by default, so the only way to prove the page can answer R4.6 is to
     // ask the menu for them and read the cells.
@@ -415,7 +415,7 @@ describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () =
     // type, so a page that fired without arming the dialog cannot produce it. The
     // order is `search()`'s (`client.ts:193` preserves the object's own key order
     // rather than sorting), so it is part of the claim. The `/terminate` suffix is
-    // `client.ts:620`'s and the contract's (`requirements.md:330`,
+    // `client.ts:620`'s and the contract's (`requirements.md:331`,
     // `internal/api/server.go:230` (`Terminate`)): this assertion was first written against the
     // suffix-less URL the fetcher had and tightened to the exact string when A4's
     // `9790fda` added it, which is the pair the api suite asserts too at
