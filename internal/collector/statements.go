@@ -37,8 +37,8 @@
 //     store.QuerySource exists at all. `pg_catalog.current_database()` as an
 //     Extra puts it on every row instead, so a round's rows name their own
 //     database and the collector needs no per-database configuration to group
-//     them. When SQLConfig gains A1's `Database` field and the round loop fans
-//     out to N databases per round, this file does not change: each of the N
+//     them. A1's `Database` field shipped in `6e88618` and the round loop fans
+//     out to N databases per round, and the file did not change: each of the N
 //     transactions returns rows that name the database they came from, and the
 //     fan-out shows up as N snapshots and N round-trips, not as a new parameter.
 //   - The typed entry point. activity.go shipped the pattern — `Collect` is a
@@ -71,12 +71,12 @@ const StatementInterval = 60 * time.Second
 
 // statementsViewGroup is R2.7's group name for this collector's SQL.
 //
-// The group is per-database, and that is the one place in the codebase where a
-// collector's view group is not also its whole round: R2.7's rule is one
+// The group is per-database, and this is one of two places where a collector's
+// view group is not also its whole round — the other is the settings
+// collector's `extensions` group (`6e88618`, S119). R2.7's rule is one
 // read-only transaction per *view group*, not per round, so a pod hosting N
-// databases is N transactions and N entries in Result.RoundTrips. R13.1's
-// "<40 SQL round-trips per cluster" is measured from that number, which is why
-// the count is stated here rather than left to be discovered.
+// databases is N transactions and N entries in Result.RoundTrips, the number
+// R13.1's "<40 SQL round-trips per cluster" is measured from.
 const statementsViewGroup = "statements"
 
 // statementViews is the view set this collector reads, and it is the set that
