@@ -200,13 +200,20 @@ func TestUnknownRoutesAndMethods(t *testing.T) {
 	// fingerprint/namespace/cluster triple so the request reaches the gate: the
 	// handler validates parameters first, and a 400 here would prove nothing about
 	// readiness (query_detail_test.go's TestQueryDetailParameterValidation pins
-	// the order).
+	// the order). The pooler pair joins the list for the same reason, and its detail
+	// URL is a concrete namespace/name pair for the same reason the query URL is:
+	// poolers.go's handlePoolerDetail validates the two path params — non-empty,
+	// then not percent-encoded — before it consults the gate, so the pattern-shaped
+	// /api/v1/poolers/{namespace}/{name} answers 400 on the percent-encoding rule
+	// and tells us nothing about readiness.
 	for _, path := range []string{
 		"/api/v1/clusters",
 		"/api/v1/clusters/default/pg1",
 		"/api/v1/insights/queries",
 		"/api/v1/insights/queries/series?fingerprints=" + testFingerprint,
 		"/api/v1/insights/queries/843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3?namespace=open-webui&cluster=open-webui-pg",
+		"/api/v1/poolers",
+		"/api/v1/poolers/default/rev-proxy-pg-pooler",
 	} {
 		if rec := do(t, s, http.MethodGet, path); rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("GET %s = %d, want 503 (registered, not yet ready)", path, rec.Code)

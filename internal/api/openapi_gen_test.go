@@ -163,6 +163,8 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/insights/tags",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
+		"GET /api/v1/poolers",
+		"GET /api/v1/poolers/{namespace}/{name}",
 		"GET /api/v1/version",
 		"GET /debug/pprof/",
 		"GET /debug/pprof/cmdline",
@@ -183,15 +185,15 @@ func TestRouteTable(t *testing.T) {
 	}
 
 	// The constant-resolution case, called out separately because it is the one
-	// a grep-based generator gets wrong. Ten of the twenty-one distinct paths
+	// a grep-based generator gets wrong. Twelve of the twenty-three distinct paths
 	// in `want` are registered as a method concatenated onto a path constant
-	// — eight in server.go (ActiveQueriesPath, SessionsTerminatePath,
+	// — ten in server.go (ActiveQueriesPath, SessionsTerminatePath,
 	// ClusterDetailPath, QueriesPath,
-	// QuerySeriesPath, QueryDetailPath, QueryPlansPath and TagsPath, the R3.12
-	// route this commit registers) and two in promql.go (QueryMetricsPath and
+	// QuerySeriesPath, QueryDetailPath, QueryPlansPath, TagsPath, PoolersPath and
+	// PoolerDetailPath) and two in promql.go (QueryMetricsPath and
 	// SystemMetricsPath, each registered twice, GET and POST) — and this loop names
-	// all nine. The other eleven are plain strings, which the `want` comparison
-	// above already pins; this loop exists for the nine a text-only generator would
+	// all twelve. The other eleven are plain strings, which the `want` comparison
+	// above already pins; this loop exists for the twelve a text-only generator would
 	// read as `"GET "`.
 	//
 	// The comment here used to say "five of these paths", and name
@@ -200,7 +202,12 @@ func TestRouteTable(t *testing.T) {
 	// active-queries was a seventh server.go constant that the five-item list
 	// never named. The count is measured from the registrations rather than kept,
 	// because a count in a comment is a second copy of the list this test generates
-	// — which is the project's own R16.8 argument, turned on the test suite.
+	// — which is the project's own R16.8 argument, turned on the test suite. The
+	// "all nine" that sentence carried was stale in the same way: the loop below it
+	// had ten entries, and the poolers commit's two server.go registrations
+	// (PoolersPath, PoolerDetailPath) make it twelve. Counted with
+	// `grep -o 'mux.HandleFunc("[A-Z]* "+[A-Za-z]*' internal/api/server.go | sort`
+	// rather than carried forward.
 	for _, s := range []string{
 		"GET /api/v1/active-queries",
 		"POST /api/v1/sessions/{pid}/terminate",
@@ -212,6 +219,8 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/insights/tags",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
+		"GET /api/v1/poolers",
+		"GET /api/v1/poolers/{namespace}/{name}",
 	} {
 		found := false
 		for _, r := range routes {

@@ -520,6 +520,15 @@ func (s *Server) Handler() http.Handler {
 	// checkable, and the promotion deletes the line in both files because the
 	// generator re-emits the planned manifest into the document).
 	mux.HandleFunc("GET "+TagsPath, s.handleTags)
+	// R6's pooler pair (poolers.go), promoted from api/x-planned-paths.yaml's
+	// r8.2-catalogue in the same commit that registers them: the two paths move out
+	// of the planned manifest and into `paths` together, because R14.7 counts one
+	// name per route and the disjointness of the two lists is what makes the move
+	// checkable. The paths come from PoolersPath and PoolerDetailPath, the two
+	// constants api/openapi.yaml now carries, so the registration and the document
+	// cannot spell them two ways.
+	mux.HandleFunc("GET "+PoolersPath, s.handlePoolers)
+	mux.HandleFunc("GET "+PoolerDetailPath, s.handlePoolerDetail)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	// R8.3's pair registers four patterns of its own (GET and POST on each of
 	// /api/v1/metrics/query and /api/v1/metrics/system), so it mounts here

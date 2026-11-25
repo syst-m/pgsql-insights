@@ -30,7 +30,7 @@
 # `GET /api/v1/poolers` is a failure rather than a style choice (measured on a copy
 # of the generated document: adding that one line under r8.2-catalogue exits 1 with
 # `'GET /api/v1/poolers' is not a route path`). Set membership is the whole claim; a
-# status field is what rots, so the twelve entries carry their requirement ids in
+# status field is what rots, so the ten entries carry their requirement ids in
 # trailing comments and nothing that can disagree with the code.
 #
 # The assertion, and what enforces it. Per requirement key: that key's entries plus
@@ -127,9 +127,21 @@ x-planned-paths:
   # landed), and internal/store/rollups.go's Tags — whose header predicted this
   # route's signature and whose `var _ api.TagsSource = (*Store)(nil)` assertion
   # lands in the same commit as the interface it names, for the reason that header
-  # gives. Twelve entries remain: the four other R3.7 rollups (databases, users,
-  # client-addresses, and the R4.3 wait-events), the two /insights/system routes,
-  # recommendations, the two poolers routes, events, explain and search.
+  # gives. Twelve entries remained at that commit: the four other R3.7 rollups
+  # (databases, users, client-addresses, and the R4.3 wait-events), the two
+  # /insights/system routes, recommendations, the two poolers routes, events,
+  # explain and search.
+  #
+  # /api/v1/poolers and /api/v1/poolers/{namespace}/{name} (R6; the second is
+  # R8.2's, and the entry's own comment had it right — "PoolerView is already
+  # defined (R8.2 reuses it)") were the seventh and eighth routes from this list to
+  # be written. internal/api/poolers.go implements both and server.go registers
+  # both, so this commit deletes the two entries rather than marking them, same rule
+  # as the six above, and the count in the note above moves from twelve to ten with
+  # them. They land in one commit because both read the same pooler rows of the
+  # discovery inventory and dto.PoolerView already existed for R8.2's reuse: the
+  # handler half was the only thing missing, and a list route and its detail route
+  # that share one source cannot be staged apart.
   r8.2-catalogue:
     - /api/v1/insights/wait-events          # R4.3, R10.9 (was: R4, R10.7)
     - /api/v1/insights/databases            # R3.7, R10.3 (was: R10.8)
@@ -138,8 +150,6 @@ x-planned-paths:
     - /api/v1/insights/system               # R5, R10.10 (was: R5, R10.13)
     - /api/v1/insights/system/{metric}      # R8.2, R10.10 (was: R8.2, R10.13)
     - /api/v1/insights/recommendations      # R8.2
-    - /api/v1/poolers                       # R6; PoolerView is already defined (R8.2 reuses it)
-    - /api/v1/poolers/{namespace}/{name}
     - /api/v1/events                        # R8.2
     - /api/v1/explain                       # R8.2
     - /api/v1/search                        # R8.2 (?q=)
