@@ -220,7 +220,7 @@ describe("TagsPage — R3.12's dimensions (the fixture's three cases)", () => {
   it("renders the tag hash in full", () => {
     // 64 lowercase hex (`types.ts:641-644`), and R8.2's path key. This cell is
     // the one the page returns as an element rather than a string —
-    // `<span className="num trunc" title={…}>` (`Tags.tsx:375-382`) — so the
+    // `<span className="num trunc" title={…}>` (`web/src/pages/Tags.tsx:432-439`) — so the
     // assertion reads the element's props instead of a formatted string, which
     // is also the only way to prove the `title` and the visible text are the same
     // value and that no page-invented shortening sits between them.
@@ -319,9 +319,9 @@ describe("TagsPage — R10.12's named states", () => {
     // `?delay=` exists (`client.ts:112-115`) so R16.7 can hold a page in its
     // pre-response frame. With no `fixtureOverride` and a slow client, the
     // payload on screen is `props.fixtureOverride ?? data.tags ?? FIXTURE_TAGS`
-    // (`Tags.tsx:190`), so the frame is the contract fixture and
+    // (`web/src/pages/Tags.tsx:198`), so the frame is the contract fixture and
     // `deriveTagsPanelState`'s `tags === null → "loading"` arm is unreachable
-    // from the page — the same shape `ActiveQueries.tsx:144` has, and why
+    // from the page — the same shape `web/src/pages/ActiveQueries.tsx:159` has, and why
     // `ActiveQueries.test.tsx` has no loading case either. Asserting the
     // fallback is the honest version of "the loading state": a page never blanks
     // while a fetch is in flight, and the arm that would blank it is the one the
@@ -347,7 +347,7 @@ describe("TagsPage — R10.12's named states", () => {
     expect(panel).not.toBeNull();
     expect(panel?.textContent).toContain("pg_stat_statements is not installed");
     // The prop the page passes is `params.cluster` — the name half of the pair,
-    // not the `namespace/name` string the URL carries (`Tags.tsx:214`) — so that
+    // not the `namespace/name` string the URL carries (`web/src/pages/Tags.tsx:246`) — so that
     // is what the screen names, and asserting the full pair would fail.
     expect(panel?.textContent).toContain("open-webui-pg");
     // R3.15's four steps, from the shared component rather than a copy.
@@ -608,7 +608,7 @@ describe("useTagsFetch — the R10.22 envelope (S96/S97)", () => {
 
   it("holds the rows and flags refreshing when the same subject refetches", async () => {
     // The other half of the key. The caller memoises `params` with
-    // `useMemo(..., [state])` (`Tags.tsx:178`), so patching any *other* URL
+    // `useMemo(..., [state])` (`web/src/pages/Tags.tsx:187`), so patching any *other* URL
     // param hands over a new object for the same cluster; that must refetch
     // without blanking the table.
     const held = holdFetch();

@@ -607,7 +607,7 @@ describe("ActiveQueriesPage — R10.12's named states", () => {
     // the response rather than using ACTIVE_COPY's fixed body, so the served
     // count in the banner is `data.length` (R8.4's rule, enforced by
     // `partialBanner` reading the source, not `meta.total`). The noun is
-    // `SESSION_NOUN`, passed at `ActiveQueries.tsx:160`, so the sentence counts
+    // `SESSION_NOUN`, passed at `web/src/pages/ActiveQueries.tsx:216`, so the sentence counts
     // sessions — the page's own subject — not the clusters the fleet counts.
     const resp: ActiveQueriesResponse = {
       ...FIXTURE_ACTIVE_QUERIES,
