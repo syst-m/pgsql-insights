@@ -101,9 +101,12 @@ auth:
   # R8.8 mode for / and /api/v1/*: none | token | kube-rbac-proxy.
   # Only consulted when enabled=true; the binary's default is token.
   mode: token
-  # R8.9 mode for /metrics, /healthz and /readyz. `none` is the requirement's
-  # own default and the reason auth is per-route-group rather than global:
-  # Prometheus and kubelet cannot present a bearer token.
+  # R8.9 mode for /metrics alone (the grouping f08b6ac fixed in Go): /healthz
+  # and /readyz are never auth-gated under any value of --auth or
+  # --auth-metrics, and /debug/pprof/* follows --auth. `none` is the
+  # requirement's own default and the reason auth is per-route-group rather
+  # than global: Prometheus cannot present a bearer token, and neither can
+  # kubelet's httpGet probes.
   metricsMode: none
   # Secret the pod reads the API token from (key `token`). Required when
   # enabled and mode is not `none`.
