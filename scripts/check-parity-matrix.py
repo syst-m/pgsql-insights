@@ -324,13 +324,13 @@ PATH_EXEMPT = {
         "the dataviz skill bundle's own file; the bundle is cited by absolute path + sha256 in "
         "the same cell (D12), so the relative form there refers outside this repo",
 }
-# The cited-path pattern for form A (:328) and form B (:332), and the link-label token at
-# :486. The dot-less names in CITE_NAMES (:230) -- the table that already decides which
-# extensionless files are scannable at :272 and :1084 -- are folded in as an alternation so
-# one table serves both enumerations. Before this, P required a dot-extension, so no form
-# could cite `Makefile:58`: CITE_NAMES registered the name for scanning but not for citing,
-# and 8 citations across IMPLEMENTATION.md, requirements.md and docs/reviews/finding-index.md
-# counted as nothing while the checker reported the rows that contain them as resolving.
+# The cited-path pattern, consumed by CITE_A and CITE_B below and by the link-label search in
+# check_links; the dot-less names come from CITE_NAMES above, the same table that gates which
+# files cited_tokens and finding_cites scan. Before this, P required a dot-extension, so
+# `Makefile:58` was not citable -- registered for scanning but not for citing -- and the 8
+# such citations in IMPLEMENTATION.md, requirements.md and docs/reviews/finding-index.md
+# counted as nothing while the rows that contain them reported as resolving: A3's S113, whose
+# block cited :328/:332/:486, the pre-edit positions of the three consumers named above.
 P = ("(?:" + r"[A-Za-z0-9_./-]+\.(?:md|go|ya?ml|tsx?|json|sh|py|js|css)"
      + "|" + "|".join(re.escape(n) for n in sorted(CITE_NAMES)) + ")")
 CITE_A = re.compile(r"`(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?`")
