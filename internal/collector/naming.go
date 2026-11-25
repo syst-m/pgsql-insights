@@ -123,7 +123,7 @@ type exportEntry struct {
 // style choice. Go detects duplicate keys in a map literal only when the keys are
 // constants, so the previous `pgversion.Source` composite-literal keys got no
 // duplicate detection at all: two rows for one (view, column) compiled and one
-// silently won. A string key is a constant, so the compiler now checks all 171.
+// silently won. A string key is a constant, so the compiler now checks all 213.
 // MetricName and MetricTypeOf keep their (view, column) signatures as the typed
 // entry points and build the key with Source.String(); MetricNameFor and
 // MetricTypeFor take the key directly, which is how the dotless populations —
@@ -137,8 +137,8 @@ type exportEntry struct {
 // produced all four would be a per-view exception list wearing a formula's
 // clothes, so the list is written out.
 //
-// Fourteen view keys, and twelve before io.go's landing added pg_stat_io and
-// pg_stat_slru. The paragraph this one replaces said "Eleven view keys, not the
+// Sixteen view keys, and fourteen before R7.2's bloat collector added
+// pg_stat_user_tables and pg_stat_user_indexes. The paragraph this one
 // eight this comment used to claim", then enumerated eight existing-collector
 // views — "all three of database.go's, one of settings.go's three
 // (pg_file_settings; pg_settings and pg_extension have no rows and keep the
@@ -153,7 +153,7 @@ type exportEntry struct {
 // paragraph's job is only to say which views, not how many.
 //
 // The pg_stat_bgwriter → pg_stat_checkpointer pair is two keys for one source
-// (R2.4's fourth enumerated case), so fourteen keys is thirteen sources; the
+// (R2.4's fourth enumerated case), so sixteen keys is fifteen sources; the
 // pair's two rows-per-source shape and why it is not double-counting is the
 // subject of its own section header below.
 var exportNames = map[string]exportEntry{
@@ -556,6 +556,90 @@ var exportNames = map[string]exportEntry{
 	"pg_file_settings.count":         {name: "file_settings_count", typ: TypeGauge, src: "R5.2 settings card: lines postgresql.conf sets"},
 	"pg_file_settings.applied_count": {name: "file_settings_applied_count", typ: TypeGauge, src: "R5.2 settings card: lines that applied"},
 	"pg_file_settings.error_count":   {name: "file_settings_error_count", typ: TypeGauge, src: "R5.2 settings card: lines carrying an error (PGSISettingsNotApplied)"},
+	// ---- R7.2's bloat families: table_* and index_* ----
+	//
+	// The two family words are ruled, not derived. requirements.md:366's second ruling on
+	// R7.2 names them alongside the collector name, the interval and the cost class —
+	// "the name is `bloat`, the interval is 5 min, the cost class is `standard`, and the
+	// two families are `table_*` and `index_*`" — and that ruling supersedes the
+	// derivation this file would otherwise have had to make. The derivation is the
+	// no-family-word rule the pg_stat_io section states at :465-473: with no R5.2 family
+	// word for pg_stat_user_tables, the source word is the only prefix the rule leaves,
+	// and the source word is `user_tables`, which would have made the two families
+	// `user_tables_*` and `user_indexes_*`. A ruling in the spec outranks a derivation
+	// from a comment, so the names here are `table_*` and `index_*`.
+	//
+	// The member half is the column name with the two abbreviations this table already
+	// expands (tup -> tuples, the pgsi_db_tuples_returned_total precedent at :134, and
+	// blks -> blocks) and PostgreSQL's `n_` count prefix dropped; the suffix half is
+	// _total for counters, _timestamp_seconds for timestamps
+	// (archiver_last_archived_timestamp_seconds is the precedent), _bytes where the
+	// source declares a unit, and nothing for a plain count gauge.
+	//
+	// 42 rows, and the count is R9.7's union rule (requirements.md:401) applied to
+	// R2.4's matrix rather than a number this file picks: 30 columns is the union of the
+	// three pg_stat_user_tables column sets (23 on 13-15, 26 on 16-17, 30 on 18) plus
+	// bloat.go's two Extras, and 9 is the union of the two pg_stat_user_indexes sets
+	// (8 on 13-15, 9 on 16+) plus its one Extra. The union is over the matrix's column
+	// set for the target major, not PostgreSQL's real one, which is why the PG18-only
+	// total_*_time columns get names on every major and simply return no rows below 18.
+	//
+	// The six last_* rows carry names and emit no sample. parseValue (sql.go:363) parses
+	// numbers and booleans only, so bloat.go classifies them kindText exactly as
+	// wal.go:281-292 classifies archiver_last_archived_time — the name is R9.4's, the
+	// suppression is the collector's, and the pair is documented on the type.
+	//
+	// The two `idx_scan` rows are the reason the two family words had to differ: one name
+	// shared by two views is TestSharedNamesAreSuccessionOnly's failure unless the
+	// sharing is a succession, and pg_stat_user_tables.idx_scan (index scans on a table)
+	// and pg_stat_user_indexes.idx_scan (scans of one index) are two counters no
+	// succession can merge.
+	// pg_stat_user_tables — 32 rows (30 matrix columns + the 2 bloat.go Extras)
+	"pg_stat_user_tables.relid":                  {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
+	"pg_stat_user_tables.schemaname":             {name: "", typ: TypeNotExported, src: "R9.3: the schemaname label, not a value"},
+	"pg_stat_user_tables.relname":                {name: "", typ: TypeNotExported, src: "R9.3: the relname label, not a value"},
+	"pg_stat_user_tables.seq_scan":               {name: "table_seq_scan_total", typ: TypeCounter, src: "R7.2 bloat: sequential scans"},
+	"pg_stat_user_tables.last_seq_scan":          {name: "table_last_seq_scan_timestamp_seconds", typ: TypeGauge, src: "R7.2 bloat: last sequential scan (PG16+)"},
+	"pg_stat_user_tables.seq_tup_read":           {name: "table_seq_tuples_read_total", typ: TypeCounter, src: "R7.2 bloat: tuples read by sequential scan"},
+	"pg_stat_user_tables.idx_scan":               {name: "table_idx_scan_total", typ: TypeCounter, src: "R7.2 bloat: index scans on this table"},
+	"pg_stat_user_tables.last_idx_scan":          {name: "table_last_idx_scan_timestamp_seconds", typ: TypeGauge, src: "R7.2 bloat: last index scan (PG16+)"},
+	"pg_stat_user_tables.idx_tup_fetch":          {name: "table_idx_tuples_fetched_total", typ: TypeCounter, src: "R7.2 bloat: tuples fetched via index"},
+	"pg_stat_user_tables.n_tup_ins":              {name: "table_tuples_inserted_total", typ: TypeCounter, src: "R7.2 bloat: inserted tuples"},
+	"pg_stat_user_tables.n_tup_upd":              {name: "table_tuples_updated_total", typ: TypeCounter, src: "R7.2 bloat: updated tuples"},
+	"pg_stat_user_tables.n_tup_del":              {name: "table_tuples_deleted_total", typ: TypeCounter, src: "R7.2 bloat: deleted tuples"},
+	"pg_stat_user_tables.n_tup_hot_upd":          {name: "table_tuples_hot_updated_total", typ: TypeCounter, src: "R7.2 bloat: HOT-updated tuples"},
+	"pg_stat_user_tables.n_tup_newpage_upd":      {name: "table_tuples_newpage_updated_total", typ: TypeCounter, src: "R7.2 bloat: new-page updates (PG16+)"},
+	"pg_stat_user_tables.n_live_tup":             {name: "table_live_tuples", typ: TypeGauge, src: "R7.2 bloat: the ratio's denominator partner"},
+	"pg_stat_user_tables.n_dead_tup":             {name: "table_dead_tuples", typ: TypeGauge, src: "R7.2 bloat: the ratio's numerator"},
+	"pg_stat_user_tables.n_mod_since_analyze":    {name: "table_modifications_since_analyze", typ: TypeGauge, src: "R7.2/R7.4: modifications since last analyze"},
+	"pg_stat_user_tables.n_ins_since_vacuum":     {name: "table_inserts_since_vacuum", typ: TypeGauge, src: "R7.2/R7.4: inserts since last vacuum"},
+	"pg_stat_user_tables.last_vacuum":            {name: "table_last_vacuum_timestamp_seconds", typ: TypeGauge, src: "R7.4 next-vacuum estimate inputs"},
+	"pg_stat_user_tables.last_autovacuum":        {name: "table_last_autovacuum_timestamp_seconds", typ: TypeGauge, src: "R7.4 next-vacuum estimate inputs"},
+	"pg_stat_user_tables.last_analyze":           {name: "table_last_analyze_timestamp_seconds", typ: TypeGauge, src: "R7.4 next-vacuum estimate inputs"},
+	"pg_stat_user_tables.last_autoanalyze":       {name: "table_last_autoanalyze_timestamp_seconds", typ: TypeGauge, src: "R7.4 next-vacuum estimate inputs"},
+	"pg_stat_user_tables.vacuum_count":           {name: "table_vacuum_count_total", typ: TypeCounter, src: "R7.4: manual VACUUM runs"},
+	"pg_stat_user_tables.autovacuum_count":       {name: "table_autovacuum_count_total", typ: TypeCounter, src: "R7.4: autovacuum runs"},
+	"pg_stat_user_tables.analyze_count":          {name: "table_analyze_count_total", typ: TypeCounter, src: "R7.4: manual ANALYZE runs"},
+	"pg_stat_user_tables.autoanalyze_count":      {name: "table_autoanalyze_count_total", typ: TypeCounter, src: "R7.4: autoanalyze runs"},
+	"pg_stat_user_tables.total_vacuum_time":      {name: "table_total_vacuum_time_seconds_total", typ: TypeCounter, src: "R7.4 (PG18): time spent in VACUUM"},
+	"pg_stat_user_tables.total_autovacuum_time":  {name: "table_total_autovacuum_time_seconds_total", typ: TypeCounter, src: "R7.4 (PG18): time spent in autovacuum"},
+	"pg_stat_user_tables.total_analyze_time":     {name: "table_total_analyze_time_seconds_total", typ: TypeCounter, src: "R7.4 (PG18): time spent in ANALYZE"},
+	"pg_stat_user_tables.total_autoanalyze_time": {name: "table_total_autoanalyze_time_seconds_total", typ: TypeCounter, src: "R7.4 (PG18): time spent in autoanalyze"},
+	"pg_stat_user_tables.total_bytes":            {name: "table_total_bytes", typ: TypeGauge, src: "R7.2 size half: pg_total_relation_size(relid)"},
+	"pg_stat_user_tables.dead_ratio":             {name: "table_dead_ratio", typ: TypeGauge, src: "R7.2 ratio half: n_dead_tup / (n_live_tup + n_dead_tup)"},
+
+	// pg_stat_user_indexes — 10 rows (9 matrix columns + the 1 bloat.go Extra)
+	"pg_stat_user_indexes.relid":         {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
+	"pg_stat_user_indexes.indexrelid":    {name: "", typ: TypeNotExported, src: "R9.1: identifier"},
+	"pg_stat_user_indexes.schemaname":    {name: "", typ: TypeNotExported, src: "R9.3: the schemaname label, not a value"},
+	"pg_stat_user_indexes.relname":       {name: "", typ: TypeNotExported, src: "R9.3: the relname label, not a value"},
+	"pg_stat_user_indexes.indexrelname":  {name: "", typ: TypeNotExported, src: "R9.3: the indexrelname label, not a value"},
+	"pg_stat_user_indexes.idx_scan":      {name: "index_idx_scan_total", typ: TypeCounter, src: "R7.2 unused-index detection"},
+	"pg_stat_user_indexes.last_idx_scan": {name: "index_last_idx_scan_timestamp_seconds", typ: TypeGauge, src: "R7.2 (PG16+): last index scan time"},
+	"pg_stat_user_indexes.idx_tup_read":  {name: "index_tuples_read_total", typ: TypeCounter, src: "R7.2 bloat: tuples read from this index"},
+	"pg_stat_user_indexes.idx_tup_fetch": {name: "index_tuples_fetched_total", typ: TypeCounter, src: "R7.2 bloat: tuples fetched via this index"},
+	"pg_stat_user_indexes.size":          {name: "index_size_bytes", typ: TypeGauge, src: "R7.2 index size: pg_relation_size(indexrelid)"},
+
 	// ---- R6's pgbouncer families, re-exported under R9.7's rename rule ----
 	//
 	// The 51 cnpg_pgbouncer_* families internal/collector/cnpgmetrics/registry.go

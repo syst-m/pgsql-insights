@@ -57,6 +57,7 @@ func TestNewRegistryShapes(t *testing.T) {
 
 	wantSQL := []string{
 		collector.CollectorActivity,
+		collector.CollectorBloat,
 		collector.CollectorDatabase,
 		collector.CollectorIO,
 		collector.CollectorLocks,
@@ -89,7 +90,7 @@ func TestNewRegistryShapes(t *testing.T) {
 		}
 	})
 
-	// Shape 2: an opener. All ten — the eight §3.3 SQL collectors plus the two
+	// Shape 2: an opener. All eleven — the nine §3.3 SQL collectors plus the two
 	// pooler names, because pooler-clients needs an opener (SHOW CLIENTS is a
 	// psql round-trip) and so belongs to this shape rather than to shape 1.
 	t.Run("with opener", func(t *testing.T) {

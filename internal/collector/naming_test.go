@@ -49,11 +49,11 @@ func TestMetricNameTable(t *testing.T) {
 
 		// R9.7's system family. The sentence this one replaces scoped itself to
 		// "the four collectors", and activity.go's rows landed without it being
-		// updated — the off-by-one the docblock at naming.go:134 documents, and the
+		// updated — the off-by-one the docblock at naming.go:140-149 documents, and the
 		// reason a count in prose needs a checker. io.go now adds a fifth SQL
 		// collector and two more view keys; TestExportNameViewKeyCount owns the
-		// numbers, and this list has a case for eight of the fourteen, including
-		// both of the two io.go resolves.
+		// numbers, and this list has a case for ten of the sixteen, including both
+		// of the two io.go resolves and both of the two bloat.go adds.
 		{pgversion.ViewStatDatabase, "xact_commit", "db_xact_commit_total"},
 		{pgversion.ViewStatDatabase, "tup_returned", "db_tuples_returned_total"},
 		// The two pg_stat_activity families the catalogue publishes. These are in
@@ -89,6 +89,15 @@ func TestMetricNameTable(t *testing.T) {
 		{pgversion.ViewStatSLRU, "blks_hit", "slru_blocks_hit_total"},
 		{pgversion.ViewStatSLRU, "flushes", "slru_flushes_total"},
 		{pgversion.ViewFileSettings, "count", "file_settings_count"},
+		// R7.2's bloat families. The two views' 42 rows are ruled names
+		// (requirements.md:366); these five are the two names bloat.go's Extras mint
+		// (total_bytes, size), the ratio, the counter R7.2's unused-index detection
+		// reads, and the ratio's numerator.
+		{pgversion.ViewStatUserTables, "n_dead_tup", "table_dead_tuples"},
+		{pgversion.ViewStatUserTables, "total_bytes", "table_total_bytes"},
+		{pgversion.ViewStatUserTables, "dead_ratio", "table_dead_ratio"},
+		{pgversion.ViewStatUserIndexes, "idx_scan", "index_idx_scan_total"},
+		{pgversion.ViewStatUserIndexes, "size", "index_size_bytes"},
 	}
 	for _, tc := range cases {
 		if got := MetricName(tc.view, tc.column); got != tc.want {
@@ -127,12 +136,12 @@ func TestMetricNameFallsBackToThePreStep4Formula(t *testing.T) {
 // ("db_xact_commit_total", not "pgsi_db_xact_commit_total") and
 // this is the assertion that enforces it across every named row at once.
 //
-// The sentence used to end "across all 114 rows at once". Three numbers have stood
-// in those five words — 114, then 139, now 171 — and each went stale on the commit
-// that added rows, which is the same failure the docblock at naming.go:134
-// documents for the view-key count. TestExportNameViewKeyCount owns the numbers
-// now, so this paragraph says "every named row" and lets the test be the
-// measurement rather than restating one that rots.
+// The sentence used to end "across all 114 rows at once". Four numbers have
+// those five words — 114, then 139, then 171, now 213 — and each went stale on the
+// commit that added rows, which is the same failure the docblock at
+// naming.go:140-149 documents for the view-key count. TestExportNameViewKeyCount
+// owns the numbers now, so this paragraph says "every named row" and lets the test be
+// the measurement rather than restating one that rots.
 func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 	names := ExportedMetricNames()
 	if len(names) == 0 {
@@ -162,13 +171,13 @@ func TestExportedMetricNamesAreWellFormed(t *testing.T) {
 // docblock does not name, which is the shape of every past count bug here.
 func TestExportNameViewKeyCount(t *testing.T) {
 	const (
-		// The 14 dotted view keys, the 171 rows under them, and the 51 dotless
+		// The 16 dotted view keys, the 213 rows under them, and the 51 dotless
 		// cnpg/pgbouncer keys the R9.4 amendment let in. The bgwriter →
-		// checkpointer pair is two of the 14 keys for one source (R2.4's fourth
-		// enumerated case), which is why 14 keys is 13 sources; the pair's own
+		// checkpointer pair is two of the 16 keys for one source (R2.4's fourth
+		// enumerated case), which is why 16 keys is 15 sources; the pair's own
 		// section header carries that argument.
-		wantViewKeys = 14
-		wantDotted   = 171
+		wantViewKeys = 16
+		wantDotted   = 213
 		wantDotless  = 51
 	)
 	wantViews := []string{
@@ -176,7 +185,7 @@ func TestExportNameViewKeyCount(t *testing.T) {
 		"pg_stat_activity", "pg_stat_archiver", "pg_stat_bgwriter",
 		"pg_stat_checkpointer", "pg_stat_database", "pg_stat_database_conflicts",
 		"pg_stat_io", "pg_stat_replication", "pg_stat_slru",
-		"pg_stat_statements", "pg_stat_wal",
+		"pg_stat_statements", "pg_stat_user_indexes", "pg_stat_user_tables", "pg_stat_wal",
 	}
 
 	got := map[string]int{}

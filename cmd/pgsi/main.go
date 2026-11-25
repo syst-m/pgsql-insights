@@ -966,12 +966,12 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 	}
 	collectors := []collector.Collector{pooler}
 
-	// The eight §3.3 SQL collectors plus pooler-clients ride the opener — nine
+	// The nine §3.3 SQL collectors plus pooler-clients ride the opener — ten
 	// constructors in the append below — and the nil check is the reason the
-	// signature has an opener parameter at all. Each of the nine constructors is
+	// signature has an opener parameter at all. Each of the ten constructors is
 	// `func NewXCollector(opener SQLOpener, cfg SQLConfig) *XCollector` — one
 	// return value, no error — so each accepts a nil opener at construction and
-	// only fails when Collect runs. Registering nine collectors that cannot
+	// only fails when Collect runs. Registering ten collectors that cannot
 	// collect would turn a wiring gap into nine error logs per round on a healthy
 	// /metrics endpoint, which is R8.7's shape (a process that answers 200 and is
 	// not actually working) reproduced inside the registry. Gating here makes the
@@ -988,6 +988,7 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 		collectors = append(collectors,
 			collector.NewPoolerClientsCollector(opener, cfg),
 			collector.NewActivityCollector(opener, cfg),
+			collector.NewBloatCollector(opener, cfg),
 			collector.NewDatabaseCollector(opener, cfg),
 			collector.NewIOCollector(opener, cfg),
 			collector.NewLocksCollector(opener, cfg),
