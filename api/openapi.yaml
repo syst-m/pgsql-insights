@@ -2747,11 +2747,10 @@ components:
         lastSuccessTime:
           type: string
           format: date-time
-          nullable: true
           description: |
             When this namespace last synced successfully, so the UI can say
-            "stale since 09:12" rather than only "failed". Null means it has
-            never synced — the Go field is a `*time.Time` because encoding/json's
+            "stale since 09:12" rather than only "failed". The key is absent
+            when it has never synced; the Go field is a `*time.Time` because
             `omitempty` never fires on a struct value, and a bare `time.Time`
             would emit `0001-01-01T00:00:00Z` for "never" instead of omitting it.
 
@@ -2990,8 +2989,7 @@ components:
         startedAt:
           type: string
           format: date-time
-          nullable: true
-          description: The pod's `startTime`; null while Pending.
+          description: The pod's `startTime`; omitted while Pending.
         endpoints:
           $ref: '#/components/schemas/InstanceEndpoints'
 

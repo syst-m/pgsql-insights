@@ -292,9 +292,15 @@ type authoredProse struct {
 	// which the type table cannot know because the field is not a time.Time.
 	//
 	// Nullable is here because pointer-ness turned out not to be the document's rule.
-	// Three properties in the whole document are nullable — NamespaceFailure's
-	// lastSuccessTime, ClusterView's pgMajor, InstanceView's startedAt, all of them
-	// pointers — and the emitter used to derive the key from `*T`, which rendered it
+	// The key belongs to a pointer that *emits* null — a `*T` with no `omitempty` —
+	// and not to one that omits the key, because `nullable: true` on an `omitempty`
+	// field documents a JSON null the encoder cannot produce. R3.1 ruled it for
+	// `installed` (c4e714e) and A3's S100 generalised the ruling to NamespaceFailure's
+	// lastSuccessTime and InstanceView's startedAt, both `*time.Time` with `omitempty`
+	// and both now stripped here. What the document keeps is three: ClusterView's
+	// pgMajor (`*int`, dto/clusters.go:165) and QuerySeriesPoint's lockTimeSeconds and
+	// ioTimeSeconds (`*float64`, dto/series.go:75-76) — none of the three carries
+	// `omitempty`. The emitter used to derive the key from `*T`, which rendered it
 	// onto LatencyView's three `*float64` percentiles as well. Their own entry
 	// description says why not: `omitempty` already spells "no p95" as an absent
 	// field, so marking them nullable would be a second, contradicting answer to a
