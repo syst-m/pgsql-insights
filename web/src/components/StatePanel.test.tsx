@@ -108,14 +108,18 @@ describe("deriveQueryPanelState", () => {
     // The API has no `partial` field; the banner is derived from
     // meta.failed / meta.loading. A query payload with a failed namespace is
     // therefore partial even though its rows are complete for what synced.
+    // Spread, not re-typed: the rows and R3.1's presence report are the fixture's
+    // and only `meta` differs here — the form the truncation case at `:130` uses.
+    // Naming `queries` and `pgStatStatements` by hand would be a second copy of
+    // the contract, and the copy that goes stale when the fixture is regenerated.
     const failed: QueryResponse = {
+      ...POPULATED_QUERIES,
       meta: {
         total: 40,
         truncated: false,
         generatedAt: FIXTURE_GENERATED_AT,
         failed: [{ namespace: "analytics", code: "Unavailable", message: "watch errored" }],
       },
-      queries: POPULATED_QUERIES.queries,
     };
     expect(deriveQueryPanelState({ phase: "ready", queries: failed })).toBe("partial");
     // Truncation alone is paging (R8.10), so the same rows with a truncated,

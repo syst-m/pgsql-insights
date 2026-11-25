@@ -344,7 +344,12 @@ describe("the page's states (R10.12, in the queries' nouns)", () => {
   });
 
   it("a partial payload renders as a banner over the rows it has", () => {
+    // `pgStatStatements` comes from `EMPTY` by spread rather than being written
+    // out: this test's subject is the banner's composition from `meta`, and a
+    // hand-typed presence array here would be a second copy of a contract the
+    // fixture already states — the `[]` the live route answers today.
     const partial: QueryResponse = {
+      ...EMPTY,
       meta: {
         total: 7,
         truncated: false,
