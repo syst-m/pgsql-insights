@@ -110,6 +110,15 @@ type Scheduler struct {
 	stats *Stats
 	sink  Sink
 
+	// errLog is the rate limiter for the line that accompanies a failed collector
+	// round. R13.7 makes logging structured and R2.2 makes every failure increment
+	// a counter, and neither bounds how much the scheduler *says* about one
+	// failure; errlog.go holds the policy and the reason a 15 s collector that
+	// fails every round needs a gate at all. Built in NewScheduler from cfg.Now so
+	// a test can advance the window without sleeping, the same reason Config.Now
+	// exists.
+	errLog *errLogGate
+
 	// up is R9.12's pgsi_up tracker: one series per discovered instance, 1 when
 	// that instance's last round succeeded and 0 otherwise. It is not part of
 	// Stats — Stats' families are keyed (collector, cluster, namespace) and
@@ -164,6 +173,7 @@ func NewScheduler(cfg Config, reg *Registry, log *slog.Logger, sink Sink, stats 
 		log:       log,
 		stats:     stats,
 		sink:      sink,
+		errLog:    newErrLogGate(cfg.Now),
 		up:        NewUpTracker(),
 		metrics:   NewSchedulerMetrics(cfg.SchedulerQueueDepth),
 		sqlSlots:  make(chan struct{}, cfg.MaxConcurrentSQL),
@@ -617,6 +627,7 @@ func (s *Scheduler) runOne(ctx context.Context, tgt Target, e Entry) roundOutcom
 
 	if err != nil {
 		s.stats.IncError(name, tgt.Cluster, tgt.Namespace)
+		s.logCollectorError(name, tgt, err)
 		// And nothing is published. That non-publish *is* R2.2's "a failed
 		// collector leaves its last-good data served and marks it with an age": the
 		// sink still holds the previous round's samples because this round wrote

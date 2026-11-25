@@ -1,9 +1,12 @@
 package collector
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -911,4 +914,140 @@ func TestShedAccountingMatchesTheMetric(t *testing.T) {
 	if got := s.Up().Render(""); !strings.Contains(got, `pgsi_up{cluster="pg",instance_role="primary",namespace="db",pod="pg-1"} 0`) {
 		t.Errorf("a shed target still reports pgsi_up 1:\n%s", got)
 	}
+}
+
+// TestSchedulerErrorLogRateLimit pins the gate at runOne's error branch: one
+// failing collector, one target, five rounds, three log lines.
+//
+// The five rounds are the gate's cases and nothing else — unseen, suppressed
+// twice, window elapsed, message changed — and the clock is the injected
+// Config.Now rather than a sleep, so the window boundary is exercised at exactly
+// DefaultErrorLogWindow. errlog_test.go tests the rules; this tests that runOne
+// actually consults them, which is the half a gate-only test cannot cover: a
+// scheduler that logs directly, bypassing its own gate, passes every test in
+// errlog_test.go.
+//
+// The last assertion is the one the change exists for. Five failures in
+// pgsi_collector_errors_total and three lines in the log have to reconcile, and
+// they do only because the gate's key is the counter's key and the suppressed
+// count rides on the next line: 1 logged + (1 logged carrying 2 suppressed) + 1
+// logged = 5 errors. A gate that suppressed without counting would leave 5 in the
+// counter and 3 lines with no way to account for the difference.
+func TestSchedulerErrorLogRateLimit(t *testing.T) {
+	at := time.Unix(1_800_000_000, 0)
+	var msg atomic.Value
+	msg.Store("connection refused")
+	col := newFake("wal", func(context.Context, Target) (Result, error) {
+		return Result{RoundTrips: 1}, errors.New(msg.Load().(string))
+	})
+
+	var buf bytes.Buffer
+	stats := NewStats()
+	s := NewScheduler(
+		Config{Now: func() time.Time { return at }},
+		mustRegistry(t, col),
+		slog.New(slog.NewJSONHandler(&buf, nil)),
+		NewMemSink(0),
+		stats,
+	)
+	targets := []Target{tgtPG("pg", "pg-1", "primary")}
+
+	// Round 1 — unseen key.
+	if rr := s.RunOnce(context.Background(), targets); rr.Errors != 1 {
+		t.Fatalf("round 1 errors = %d, want 1", rr.Errors)
+	}
+	lines := decodeLogLines(t, &buf)
+	if len(lines) != 1 {
+		t.Fatalf("after round 1: %d log lines, want 1:\n%s", len(lines), buf.String())
+	}
+	if lines[0]["msg"] != "collector round failed" {
+		t.Errorf("msg = %v, want %q", lines[0]["msg"], "collector round failed")
+	}
+	// The attribute set is the counter's key plus the error string, and asserting
+	// it here is what keeps R13.7's log labels and R2.2's metric labels from
+	// drifting apart. A rename on one side fails this test.
+	for k, want := range map[string]string{
+		"collector": "wal", "cluster": "pg", "namespace": "db",
+		"error": "connection refused",
+	} {
+		if got := lines[0][k]; got != want {
+			t.Errorf("log attr %s = %v, want %q", k, got, want)
+		}
+	}
+	if _, ok := lines[0]["repeated"]; ok {
+		t.Errorf("first line carries repeated=%v, want the attr absent (nothing has been suppressed yet)", lines[0]["repeated"])
+	}
+
+	// Rounds 2 and 3 — same clock, same error, both suppressed.
+	for i := 2; i <= 3; i++ {
+		if rr := s.RunOnce(context.Background(), targets); rr.Errors != 1 {
+			t.Fatalf("round %d errors = %d, want 1", i, rr.Errors)
+		}
+	}
+	if lines = decodeLogLines(t, &buf); len(lines) != 1 {
+		t.Fatalf("after three identical rounds: %d log lines, want 1 (the gate suppressed two):\n%s",
+			len(lines), buf.String())
+	}
+
+	// Round 4 — the window elapses, and the line that follows carries the count of
+	// the lines that did not get written.
+	at = at.Add(DefaultErrorLogWindow)
+	if rr := s.RunOnce(context.Background(), targets); rr.Errors != 1 {
+		t.Fatalf("round 4 errors = %d, want 1", rr.Errors)
+	}
+	lines = decodeLogLines(t, &buf)
+	if len(lines) != 2 {
+		t.Fatalf("after the window elapsed: %d log lines, want 2:\n%s", len(lines), buf.String())
+	}
+	if got := lines[1]["repeated"]; got != float64(2) {
+		t.Errorf("repeated = %v, want 2 (JSON numbers decode to float64)", got)
+	}
+
+	// Round 5 — a different error string, inside the new window. A new failure mode
+	// is news, so it logs immediately with a fresh count rather than hiding behind
+	// the error it replaced.
+	msg.Store("SSL error: certificate has expired")
+	if rr := s.RunOnce(context.Background(), targets); rr.Errors != 1 {
+		t.Fatalf("round 5 errors = %d, want 1", rr.Errors)
+	}
+	lines = decodeLogLines(t, &buf)
+	if len(lines) != 3 {
+		t.Fatalf("after a changed error: %d log lines, want 3:\n%s", len(lines), buf.String())
+	}
+	if lines[2]["error"] != "SSL error: certificate has expired" {
+		t.Errorf("error = %v, want the new message logged immediately, not suppressed", lines[2]["error"])
+	}
+	if _, ok := lines[2]["repeated"]; ok {
+		t.Errorf("the changed error carries repeated=%v, want it absent (the old count belongs to the message it replaced)",
+			lines[2]["repeated"])
+	}
+
+	// The reconciliation. Five rounds failed, five are counted, three lines were
+	// written, and the middle line says so.
+	if got := stats.RenderErrors(); !strings.Contains(got,
+		`pgsi_collector_errors_total{cluster="pg",collector="wal",namespace="db"} 5`) {
+		t.Errorf("errors render = %q, want a wal/pg/db count of 5", got)
+	}
+}
+
+// decodeLogLines parses buf as one JSON object per line and returns them in
+// order.
+//
+// Parsing is not incidental to the count: R13.7's first word is "Structured
+// logging (JSON…)", and a handler that stopped emitting one object per line would
+// fail here even in a test whose only assertion is how many lines there are.
+func decodeLogLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.Trim(buf.String(), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("log line is not JSON: %v\n%s", err, line)
+		}
+		out = append(out, m)
+	}
+	return out
 }
