@@ -325,6 +325,12 @@ func TestApplyWritesThroughToThePointers(t *testing.T) {
 		"PGSI_QPS":               "12.5",
 		"PGSI_BURST":             "80",
 		"PGSI_REQUEST_TIMEOUT":   "30s",
+		// The three store-side flags. PGSI_STORE's row was missing from this list
+		// when --store itself landed; the two R3.13 rows are new with the flags,
+		// and all three are here because runServe dereferences all three.
+		"PGSI_STORE":                  "sqlite",
+		"PGSI_RECORD_CLIENT_ADDRESS":  "true",
+		"PGSI_APPLICATION_TAG_SOURCE": "query_comment",
 	})
 	if _, err := applyFlags(sf.FlagSet, env); err != nil {
 		t.Fatalf("applyFlags: %v", err)
@@ -354,6 +360,12 @@ func TestApplyWritesThroughToThePointers(t *testing.T) {
 		{"qps", floatString(*sf.qps), "12.5"},
 		{"burst", intString(*sf.burst), "80"},
 		{"request-timeout", sf.reqTimeout.String(), "30s"},
+		// The store trio: the profile string and R3.13's two. These are the exact
+		// three pointers runServe's openSink call reads, so a value that resolves
+		// but does not land here is a flag the dump reports and the server ignores.
+		{"store", *sf.store, "sqlite"},
+		{"record-client-address", boolString(*sf.recordClientAddress), "true"},
+		{"application-tag-source", *sf.applicationTagSource, "query_comment"},
 	}
 	for _, g := range got {
 		if g.s != g.want {

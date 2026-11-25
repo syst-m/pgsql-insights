@@ -162,7 +162,7 @@ func sinkKey(tgt Target, collector string) string {
 // Every exported method begins with `if m == nil`, which is collector.Stats'
 // convention taken whole (8 methods, 8 guards, metrics.go:118-244) rather than a
 // new one. The reason it matters here is the ok-form assertion at
-// cmd/pgsi/main.go:669: `ok` proves the dynamic type implements ProbeReader, not
+// cmd/pgsi/main.go:708: `ok` proves the dynamic type implements ProbeReader, not
 // that the pointer is non-nil, so Probes has to answer (nil, false) where an
 // unguarded method would panic on m.mu. A nil receiver's two write methods return
 // a nil error — storing nothing and reporting success, the answer

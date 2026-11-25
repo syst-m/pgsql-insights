@@ -438,7 +438,7 @@ func TestMemSinkNilReceiver(t *testing.T) {
 	var m *MemSink
 	tgt := Target{Namespace: "ns", Cluster: "pg"}
 
-	// (nil, false), not a panic. This is the method cmd/pgsi/main.go:669's
+	// (nil, false), not a panic. This is the method cmd/pgsi/main.go:708's
 	// ok-form assertion can hand a typed nil to — ok proves the dynamic type
 	// implements ProbeReader, not that the pointer is non-nil — and false is what
 	// ProbeReader documents for "no inventory stored".

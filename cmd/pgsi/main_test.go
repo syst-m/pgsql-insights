@@ -4,11 +4,13 @@ import (
 	"context"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/frankellis/pgsql-insights/internal/collector"
 	"github.com/frankellis/pgsql-insights/internal/kube"
+	"github.com/frankellis/pgsql-insights/internal/store"
 )
 
 // fakeSQLOpener is a collector.SQLOpener that exists. It never gets called by
@@ -182,7 +184,7 @@ func TestNewRegistryOverrideNamesAnUnregisteredCollector(t *testing.T) {
 // next field added to api.Config from being the next one nobody notices.
 func TestOpenSinkProfiles(t *testing.T) {
 	t.Run("memory", func(t *testing.T) {
-		b, err := openSink(defaultStoreProfile)
+		b, err := openSink(defaultStoreProfile, store.Config{})
 		if err != nil {
 			t.Fatalf("openSink(%q) = %v, want nil", defaultStoreProfile, err)
 		}
@@ -220,7 +222,7 @@ func TestOpenSinkProfiles(t *testing.T) {
 	})
 
 	t.Run("explicit path", func(t *testing.T) {
-		b, err := openStoreFile(filepath.Join(t.TempDir(), "store.db"))
+		b, err := openStoreFile(filepath.Join(t.TempDir(), "store.db"), store.Config{})
 		if err != nil {
 			t.Fatalf("openStoreFile = %v, want nil", err)
 		}
@@ -255,10 +257,77 @@ func TestOpenSinkProfiles(t *testing.T) {
 	})
 
 	t.Run("unopenable path fails at startup", func(t *testing.T) {
-		if _, err := openStoreFile(filepath.Join(t.TempDir(), "missing", "store.db")); err == nil {
+		if _, err := openStoreFile(filepath.Join(t.TempDir(), "missing", "store.db"), store.Config{}); err == nil {
 			t.Error("openStoreFile in a missing directory = nil error, want one (fail at startup, not one round later in Publish)")
 		}
 	})
+
+	// The R3.13 pair has to reach store.Open, not just reach openStoreFile's
+	// signature. Store.cfg is unexported and cmd/pgsi is a different package, so
+	// the value can't be read back; what can be observed is that Open validates
+	// the tag source (store.go:289, before the file is even opened), so a Config
+	// the caller passed and a Config the function built for itself are
+	// distinguishable by error. Before the pair existed, openStoreFile built
+	// `store.Config{Path: path}` internally and this subtest's bogus value would
+	// have been silently dropped — which is the shape this assertion exists to
+	// rule out, not a restatement of the two lines above.
+	t.Run("the caller's Config is the one store.Open sees", func(t *testing.T) {
+		_, err := openStoreFile(filepath.Join(t.TempDir(), "store.db"), store.Config{
+			ApplicationTagSource: "application", // R3.12's key name, not R3.13's flag value
+		})
+		if err == nil {
+			t.Fatal("openStoreFile with ApplicationTagSource \"application\" = nil error, want store.Open's rejection")
+		}
+		if !strings.Contains(err.Error(), "application_tag_source") {
+			t.Errorf("error = %v, want the unknown application_tag_source error", err)
+		}
+	})
+}
+
+// TestStoreRecordingFlags pins R3.13's two CLI halves to the store's own answers.
+// The bool's default is false because store.go:145-149 documents Off as the
+// default ("the store writes no client_address dimension rows"), and a flag
+// defaulting to true would make the documented default unreachable from the flag
+// that exists to expose it. The string's default is taken from
+// store.DefaultApplicationTagSource rather than retyped here, so the flag and
+// store.Config cannot disagree about what "no flag given" means — and the value it
+// yields is run through store.ValidApplicationTagSource, because a default the
+// store rejects is a default configuration that fails at Open. TestTableCoversEveryFlag
+// proves the rows exist; this proves the two pointers carry values, which is what
+// runServe's dereferences and openSink's Config both read.
+func TestStoreRecordingFlags(t *testing.T) {
+	sf := newServeFlags(prescan{})
+	if err := sf.Parse(nil); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if sf.recordClientAddress == nil || sf.applicationTagSource == nil {
+		t.Fatalf("recordClientAddress=%v applicationTagSource=%v, want both set by newServeFlags",
+			sf.recordClientAddress, sf.applicationTagSource)
+	}
+	if *sf.recordClientAddress {
+		t.Error("--record-client-address defaults to true, want false (R3.13 makes recording opt-in)")
+	}
+	if got := *sf.applicationTagSource; got != store.DefaultApplicationTagSource {
+		t.Errorf("--application-tag-source defaults to %q, want store.DefaultApplicationTagSource's %q",
+			got, store.DefaultApplicationTagSource)
+	}
+	if !store.ValidApplicationTagSource(*sf.applicationTagSource) {
+		t.Errorf("flag default %q is not a value store.ValidApplicationTagSource accepts",
+			*sf.applicationTagSource)
+	}
+
+	// The other shape runServe can get: both set on the command line.
+	sf2 := newServeFlags(prescan{})
+	if err := sf2.Parse([]string{"--record-client-address", "--application-tag-source=query_comment"}); err != nil {
+		t.Fatalf("Parse(--record-client-address --application-tag-source=query_comment): %v", err)
+	}
+	if !*sf2.recordClientAddress {
+		t.Error("--record-client-address did not parse to true")
+	}
+	if *sf2.applicationTagSource != store.ApplicationTagFromQueryComment {
+		t.Errorf("--application-tag-source = %q, want %q",
+			*sf2.applicationTagSource, store.ApplicationTagFromQueryComment)
+	}
 }
 
 // TestScanArgs pins the composed pre-scan that R2.3's cmd/pgsi half and R13.7's

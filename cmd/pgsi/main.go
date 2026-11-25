@@ -208,6 +208,19 @@ type serveFlags struct {
 	// five-character name joined to that block re-pads all three", was never true
 	// of store.
 	store *string
+
+	// R3.13's two write-side flags (requirements.md:318), which the store has
+	// had since Phase 3 and the CLI has not: internal/store/store.go:149 and
+	// :164 declare RecordClientAddress and ApplicationTagSource on Config, and
+	// openStoreFile is now the caller that fills them from these two pointers
+	// rather than leaving both at their zero values on every SQLite open. A bool
+	// and a string, not two bools, because R3.12 gives the application dimension
+	// two sources and R3.13 has to name which one is recorded:
+	// store.ValidApplicationTagSource is the gate on the value and
+	// store.DefaultApplicationTagSource its default, both referenced here rather
+	// than restated, so the flag's value set and the Config's cannot drift apart.
+	recordClientAddress  *bool
+	applicationTagSource *string
 }
 
 // prescan is everything argv holds that the serve FlagSet cannot declare.
@@ -408,6 +421,24 @@ func newServeFlags(pre prescan) *serveFlags {
 	// what the binary ran on before this flag existed and what R11.6's lab
 	// profile ships.
 	sf.store = fs.String("store", defaultStoreProfile, "query store (R11.6's two profiles, §3.4:218-219): memory (R13.5's ring buffers) | sqlite (the "+defaultStoreFile+" file) | an explicit SQLite path")
+
+	// --- R3.13 client address and application tags ---------------------------
+	// requirements.md:318 names both flags in one row, and internal/store has
+	// implemented both since Phase 3; this is the CLI half that was missing. The
+	// bool defaults to false because that is what store.go:145-149 documents
+	// ("Off — the default — the store writes no client_address dimension rows"),
+	// and a flag defaulting to true would make the documented default unreachable
+	// from the flag that exists to expose it — R3.13's whole point being the team
+	// that turns addresses off without losing the rest. The string takes
+	// store.DefaultApplicationTagSource as its default rather than the literal
+	// "application_name", so the flag and store.Config cannot disagree about what
+	// "no flag given" means; store.ValidApplicationTagSource is what rejects a
+	// fourth spelling at Open, which is the check the bool never needs.
+	sf.recordClientAddress = fs.Bool("record-client-address", false,
+		"record the client_address dimension (R3.13): off by default, so IP-privacy teams turn the address off and keep the other dimensions")
+	sf.applicationTagSource = fs.String("application-tag-source", store.DefaultApplicationTagSource,
+		"source for the application tag dimension (R3.13, R3.12's two sources plus off): application_name | query_comment | off")
+
 	return sf
 }
 
@@ -600,7 +631,15 @@ func runServe(args []string) int {
 		// into NewScheduler and assigning the same variable to cfg.Metrics is
 		// equally correct; reading it back makes the equality structural instead of
 		// a thing to remember.
-		bundle, err := openSink(*sf.store)
+		// The two R3.13 fields ride along here rather than being re-read inside
+		// openStoreFile: runServe is where the flags exist, and the Config is what
+		// carries them to the one place that consumes them. For the memory profile
+		// they are inert — a MemSink takes no Config — which is the same answer
+		// R3.13 gives for every other field the store has and the ring buffers lack.
+		bundle, err := openSink(*sf.store, store.Config{
+			RecordClientAddress:  *sf.recordClientAddress,
+			ApplicationTagSource: *sf.applicationTagSource,
+		})
 		if err != nil {
 			log.Error("store", "error", err.Error(), "store", *sf.store)
 			return 2
@@ -828,15 +867,23 @@ type sinkBundle struct {
 // The sqlite arms open eagerly and hand back the handle's Close, so a bad path
 // fails `pgsi serve` at startup with the path in the error rather than one
 // collection round later inside a Publish.
-func openSink(spec string) (sinkBundle, error) {
+//
+// cfg is the store.Config the SQLite arms open with — the R3.13 pair, carried in
+// from serveFlags rather than rebuilt inside openStoreFile, because the profile
+// switch and the Config are two halves of the same answer and runServe is the one
+// place that has both. The memory arm ignores it: R13.5's ring buffers have no
+// store.Config to fill (their knob is NewMemSink's maxBytes), so the fields the
+// two flags set exist only where a SQLite store exists, which is exactly what
+// store.Config's docblocks say they are.
+func openSink(spec string, cfg store.Config) (sinkBundle, error) {
 	switch strings.ToLower(strings.TrimSpace(spec)) {
 	case defaultStoreProfile:
 		sink := collector.NewMemSink(0)
 		return sinkBundle{sink: sink, storeSize: sink}, nil
 	case "sqlite", "sqlite:":
-		return openStoreFile(defaultStoreFile)
+		return openStoreFile(defaultStoreFile, cfg)
 	default:
-		return openStoreFile(spec)
+		return openStoreFile(spec, cfg)
 	}
 }
 
@@ -847,8 +894,15 @@ func openSink(spec string) (sinkBundle, error) {
 // scheduler fills and a second store the routes read — is the shape the struct's
 // docblock refuses, and it is the shape the four read fields had before this
 // function filled them: the store existed, the assignment did not.
-func openStoreFile(path string) (sinkBundle, error) {
-	st, err := store.Open(store.Config{Path: path})
+//
+// cfg arrives complete except for Path. Path is set here rather than by the
+// caller because resolving "sqlite" to defaultStoreFile is openSink's job, and
+// letting the caller pass a Config with a Path in it would give two places an
+// answer to "which file"; every other field — R3.13's two above all — is the
+// caller's, because the flags that set them are read in runServe.
+func openStoreFile(path string, cfg store.Config) (sinkBundle, error) {
+	cfg.Path = path
+	st, err := store.Open(cfg)
 	if err != nil {
 		return sinkBundle{}, err
 	}

@@ -207,6 +207,19 @@ var settings = []setting{
 	// requirement — the profile pair is. It sits last because that is where
 	// newServeFlags now declares it, after the R2.9 block.
 	{Flag: "store", Req: "R11.6"},
+
+	// R3.13 — the two write-side recording flags. requirements.md:318 names both
+	// in one row ("so teams with IP-privacy requirements can turn addresses off
+	// without losing the rest") and internal/store has honoured both since Phase 3
+	// (store.go:149, :164); these are the CLI half that row has been waiting on.
+	// Two rows because the requirement spells two flags, and one row cannot hold
+	// both: R3.12's two tag sources make --application-tag-source an enum where
+	// --record-client-address is a bool, so no single flag can answer both halves.
+	// They sit after R11.6's for the same reason R2.3's sits after R2.9's — the
+	// table's order follows newServeFlags' declaration order, and
+	// TestTableCoversEveryFlag is the seam that keeps the two lists from parting.
+	{Flag: "record-client-address", Req: "R3.13"},
+	{Flag: "application-tag-source", Req: "R3.13"},
 }
 
 // EnvVar is R11.8's `PGSI_*` naming rule, stated as a function rather than as
