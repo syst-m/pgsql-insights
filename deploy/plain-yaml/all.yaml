@@ -89,8 +89,17 @@ rules:
     - clusterimages
   verbs: ["get", "list", "watch"]
 # --- Workloads the product reads to map a cluster to its pods (R1.2, R5.x) --
+# persistentvolumeclaims is not in R12.1's enumerated list (requirements.md:466),
+# but internal/discovery/discovery.go's nsStore watches it (discovery.go:370 at
+# 8dbe8a1) and build.go's buildPVCs renders it into the cluster row's PVCs field,
+# so a Role without it fails R8.4's namespace read — the same failure shape as the
+# poolers comment above: a missing verb looks like a broken cluster, not a missing
+# permission. Added here rather than via rbac.extraRules so the namespaced Role
+# and the ClusterRole get it from the one helper role.yaml:17 and
+# clusterrole.yaml:16 both include.
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "events", "secrets"]
+  resources: ["pods", "services", "configmaps", "events", "secrets",
+              "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
 # --- R5.10: full Postgres logs. Inert while --log-source=off (R12.1). -----
 - apiGroups: [""]
