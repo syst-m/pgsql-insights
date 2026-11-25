@@ -24,6 +24,11 @@
  *    arm, no network) and the POST it fires (`client.ts:602`, A4's `efdabb3`),
  *    and only the second one needs a `fetch` stub.
  *
+ * A sixth block covers R10.18's two halves on this page — the density toggle and
+ * the `data-density` the table carries from the same value, and the spacer rows
+ * that keep a 500-row payload's scrollbar the length of the payload rather than
+ * of the 39 rows the window mounts.
+ *
  * The URL half (`activeParamsFrom`) is A4's function with its own suite in
  * `state/useActiveQueries.test.ts`; what this file owns is its render half — the
  * no-cluster frame — because a page that renders the fixture for an
@@ -635,5 +640,80 @@ describe("ActiveQueriesPage — R10.12's named states", () => {
     const { container } = renderPage({ fixtureOverride: resp });
     expect(container.querySelector(".banner")).toBeNull();
     expect(container.querySelector('[data-testid="active-table"]')).not.toBeNull();
+  });
+});
+
+/* ── 6. R10.18's windowing and density ─────────────────────────────────────── */
+
+describe("ActiveQueriesPage — R10.18's windowing and density", () => {
+  /** A payload of `n` rows built by re-labelling the fixture's first row, for
+   *  the windowing cases the three-row fixture cannot show. Re-labelled rather
+   *  than written out, for the reason `rowWith` exists: a row built by hand
+   *  passes while the real type gains a field. */
+  function rowsFor(n: number): SessionView[] {
+    return Array.from({ length: n }, (_, i) => rowWith(ROW_41288, { pid: 50000 + i }));
+  }
+
+  it("offers the toggle and marks the table with the density it holds", () => {
+    const { container } = renderPage();
+    const toggle = container.querySelector('.segmented[aria-label="Row density"]');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.querySelectorAll("button[aria-pressed]")).toHaveLength(2);
+    // The two halves of R10.18 are one value here: the primitive owns row height
+    // and the table renders the density the control reports, so a toggle that
+    // paints compact over a comfortable table cannot pass this test.
+    expect(toggle?.querySelector('button[aria-pressed="true"]')?.textContent).toBe("Compact");
+    expect(container.querySelector('[data-testid="active-table"]')?.getAttribute("data-density")).toBe(
+      "compact",
+    );
+  });
+
+  it("moves the table's density when the toggle changes", () => {
+    const { container } = renderPage();
+    const comfortable = screen.getByRole("button", { name: "Comfortable" });
+    fireEvent.click(comfortable);
+    expect(comfortable.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('[data-testid="active-table"]')?.getAttribute("data-density")).toBe(
+      "comfortable",
+    );
+  });
+
+  it("windows an R8.10-sized payload and keeps the scrollbar the right length", () => {
+    // 500 rows is R8.10's max page. At compact (24px) in the 640px viewport the
+    // window is 27 visible rows plus 6 of overscan, so 39 mount and the
+    // padBottom spacer carries the other 461 * 24 = 11064px. The spacer is the
+    // half of R10.18 a plain `<table>` loses: without it the scrollbar measures
+    // the mounted rows, and the page reads as 39 sessions.
+    const rows = rowsFor(500);
+    const { container } = renderPage({ fixtureOverride: respWith(rows) });
+    const dataRows = container.querySelectorAll("tbody tr[data-pid]");
+    expect(dataRows).toHaveLength(39);
+    expect(dataRows.length).toBeLessThan(rows.length);
+    // padTop is 0 at the top of the list, so only the bottom spacer renders, and
+    // it spans every column — 9 visible plus the expand column, the same count
+    // the header row renders.
+    const spacers = container.querySelectorAll("tbody tr.virtual-spacer");
+    expect(spacers).toHaveLength(1);
+    const cell = spacers[0]?.querySelector("td");
+    expect(cell?.getAttribute("colspan")).toBe("10");
+    expect(cell?.getAttribute("style")).toContain("height: 11064px");
+  });
+
+  it("re-windows when the scroll container moves", () => {
+    // The window's other input is `scrollTop`, and it is state for the reason
+    // the page's header gives: a scroll that never reaches React leaves the
+    // slice where it was. 240px is 10 rows, minus the 6-row overscan the window
+    // starts at row 4 — which is what the first mounted row has to be.
+    const rows = rowsFor(500);
+    const { container } = renderPage({ fixtureOverride: respWith(rows) });
+    const scroller = container.querySelector('[data-testid="active-table-scroll"]') as HTMLElement;
+    expect(scroller).not.toBeNull();
+    act(() => {
+      fireEvent.scroll(scroller, { target: { scrollTop: 240 } });
+    });
+    expect(container.querySelector("tbody tr[data-pid]")?.getAttribute("data-pid")).toBe("50004");
+    expect(container.querySelector("tbody tr.virtual-spacer td")?.getAttribute("style")).toContain(
+      "height: 96px",
+    );
   });
 });

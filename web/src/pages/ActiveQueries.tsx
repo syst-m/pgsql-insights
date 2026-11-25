@@ -66,7 +66,7 @@
  * the rendered number and the actual interval one value with two uses.
  */
 
-import { useMemo, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 
 import { terminateSession } from "../api/client";
 import { SESSION_NOUN } from "../api/envelope";
@@ -80,6 +80,7 @@ import { buildPath, type PageProps } from "../routes";
 import { activeParamsFrom, useActiveQueries } from "../state/useActiveQueries";
 import { formatDurationMs, formatTimestamp, utcTitle, NULL_VALUE } from "../lib/format";
 import { ColumnMenu, type ColumnDef, useColumnVisibility } from "../components/ColumnMenu";
+import { DensityToggle, ROW_HEIGHT, useVirtualWindow, type Density } from "../components/VirtualList";
 import {
   ACTIVE_COPY,
   StatePanel,
@@ -91,6 +92,14 @@ import {
 /** R10.8's interval, in ms — the number the header prints and the number the
  *  hook polls at, from one declaration. */
 const POLL_MS = 15_000;
+
+/** Height of the table's scroll viewport, in px. A number rather than a
+ *  measurement, for the reason `web/src/components/VirtualList.tsx:162-165`
+ *  gives (a ResizeObserver's first frame is 0, which is the empty-table flash
+ *  R10.22's skeleton exists to prevent) and the same value
+ *  `web/src/components/QueryTable.tsx:326` defaults its `viewportHeight` prop
+ *  to — the app's two windowed tables window against one height. */
+const VIEWPORT_HEIGHT = 640;
 
 /** `active_queries.go:89` — the only value that renders an enabled control. */
 const ACTION_TERMINATE = "terminate";
@@ -151,9 +160,10 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
   const phase: FetchPhase = props.fixtureOverride !== undefined ? "ready" : data.phase;
   const columns = useColumnVisibility({ viewId: "active-queries", columns: ACTIVE_COLUMNS });
 
-  // The three pieces of local state the page owns, and the reason all three sit
-  // above the early return rather than where two of them used to: `confirmPid`
-  // and `useColumnVisibility` were both below it, so a render that turned a
+  // The five pieces of local state the page owns — three for R4.5's action, two
+  // for R10.18's windowing — and the reason all five sit above the early return
+  // rather than where two of them used to: `confirmPid` and
+  // `useColumnVisibility` were both below it, so a render that turned a
   // malformed URL into a valid one rendered more hooks than the render before it
   // and threw. R10.16's URL has no slot for any of them either, which is the
   // second reason they are here:
@@ -168,9 +178,28 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
   //   · `actionError` — the message from the last POST that failed. A failed
   //     mutation never reaches the read's error state, so without this slot the
   //     only feedback for a refused terminate is a row that quietly stays.
+  //   · `density` — R10.18's compact/comfortable choice, held as page state
+  //     exactly as `web/src/pages/Queries.tsx:386` holds it and passed to the
+  //     table the same way. The primitive owns row height, which is why a table
+  //     that skips the primitive cannot offer the toggle either.
+  //   · `scrollTop` — the window's other input. It has to be state:
+  //     `useVirtualWindow` derives the rendered slice from it, so a scroll that
+  //     never reaches React leaves the slice where it was.
   const [confirmPid, setConfirmPid] = useState<number | null>(null);
   const [pendingPid, setPendingPid] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [density, setDensity] = useState<Density>("compact");
+  const [scrollTop, setScrollTop] = useState(0);
+  const onScroll = useCallback((e: { currentTarget: EventTarget | null }) => {
+    const target = e.currentTarget as { scrollTop?: number } | null;
+    if (target && typeof target.scrollTop === "number") setScrollTop(target.scrollTop);
+  }, []);
+  const win = useVirtualWindow({
+    count: resp.data.length,
+    rowHeight: ROW_HEIGHT[density],
+    viewportHeight: VIEWPORT_HEIGHT,
+    scrollTop,
+  });
 
   // Every hook is above this line. `activeParamsFrom` returns `null` for a URL
   // with no cluster (or a malformed pair), and the route is `scope: "cluster"`
@@ -253,42 +282,70 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
           <h2 className="card-title">Active queries</h2>
           <div className="card-actions">
             <span className="card-meta num">{resp.data.length} sessions</span>
+            <DensityToggle density={density} onChange={setDensity} />
             <ColumnMenu columns={ACTIVE_COLUMNS} visible={columns.visible} onChange={columns.setVisible} />
           </div>
         </div>
 
-        <table className="data" data-testid="active-table">
-          <caption className="sr-only">
-            Sessions reported by pg_stat_activity for {params.namespace}/{params.cluster}
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col" className="expand-col">
-                <span className="sr-only">Blocking chain</span>
-              </th>
-              {columns.visible.map((key) => (
-                <th key={key} scope="col" className={numericCol(key) ? "num" : undefined}>
-                  {labelFor(key)}
+        {/* R10.18: the scroll container is the viewport the window is computed
+            against, and the two spacer rows inside `<tbody>` are what keep the
+            scrollbar the length of all N sessions rather than the handful that
+            are mounted. The table is the page's own — `SessionRow` needs props
+            the generic div renderer cannot pass — which is why this page takes
+            the hook and renders its own `<table>`, the way
+            `web/src/components/QueryTable.tsx:345` does. */}
+        <div
+          className="table-wrap"
+          onScroll={onScroll}
+          style={{ height: VIEWPORT_HEIGHT, overflowY: "auto" }}
+          data-testid="active-table-scroll"
+        >
+          <table className="data" data-testid="active-table" data-density={density}>
+            <caption className="sr-only">
+              Sessions reported by pg_stat_activity for {params.namespace}/{params.cluster}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" className="expand-col">
+                  <span className="sr-only">Blocking chain</span>
                 </th>
+                {columns.visible.map((key) => (
+                  <th key={key} scope="col" className={numericCol(key) ? "num" : undefined}>
+                    {labelFor(key)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {win.padTop > 0 && (
+                <tr className="virtual-spacer" aria-hidden="true">
+                  <td colSpan={columns.visible.length + 1} style={{ height: win.padTop, padding: 0 }} />
+                </tr>
+              )}
+              {resp.data.slice(win.start, win.end).map((row) => (
+                <SessionRow
+                  key={row.pid}
+                  row={row}
+                  columns={columns.visible}
+                  chain={chainFor(resp.blockingChains, row.pid)}
+                  confirming={confirmPid === row.pid}
+                  terminating={pendingPid === row.pid}
+                  onConfirm={() => setConfirmPid(row.pid)}
+                  onCancel={() => setConfirmPid(null)}
+                  onConfirmed={() => terminate(row.pid)}
+                />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {resp.data.map((row) => (
-              <SessionRow
-                key={row.pid}
-                row={row}
-                columns={columns.visible}
-                chain={chainFor(resp.blockingChains, row.pid)}
-                confirming={confirmPid === row.pid}
-                terminating={pendingPid === row.pid}
-                onConfirm={() => setConfirmPid(row.pid)}
-                onCancel={() => setConfirmPid(null)}
-                onConfirmed={() => terminate(row.pid)}
-              />
-            ))}
-          </tbody>
-        </table>
+              {win.padBottom > 0 && (
+                <tr className="virtual-spacer" aria-hidden="true">
+                  <td
+                    colSpan={columns.visible.length + 1}
+                    style={{ height: win.padBottom, padding: 0 }}
+                  />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

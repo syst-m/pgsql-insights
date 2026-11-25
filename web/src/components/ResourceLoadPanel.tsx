@@ -63,11 +63,35 @@
  * sentence, and when the DTO lands the union moves to `types.ts` and this file
  * imports it rather than keeping its own copy.
  *
- * ── R10.23's table twin ─────────────────────────────────────────────────────
+ * ── R10.19 for this surface ────────────────────────────────────────────────
  *
- * "charts need a table twin" applies to charts. This renders no chart, so there
- * is nothing to twin; the requirement's table arrives with Phase 7's graph and
- * belongs to it, not to a panel that has no rows to print.
+ * R10.19 states the contract per chart type rather than once for the app, and
+ * this panel is not a chart yet — so the contract has two halves, and stating
+ * only the future one would leave the shipped surface unspecified.
+ *
+ *   - **hover (what ships here)**: `resourceLoadTip` below — the headline and
+ *     the detail, concatenated — on the empty frame and on each source row. It
+ *     is exported so the test asserts the function instead of re-typing a
+ *     string that is already on screen, and it is *derived from* `COPY` rather
+ *     than written beside it: a tooltip with its own strings is a second copy
+ *     of the answer, which is the class of defect R16.8 mints rows from.
+ *   - **hover (what Phase 7's graph inherits)**: two series — CPU capacity vs
+ *     usage, and memory working set — so the multi-series rule applies: a
+ *     crosshair plus one tooltip listing *every* drawn series at that x, the
+ *     shape `web/src/components/QueryLoadArea.tsx:125` already states for its
+ *     own area. Stating it before the graph exists is what lets the chart's
+ *     commit fill this frame instead of inventing an interaction with it.
+ *   - **legend**: always present for ≥ 2 series, naming both measures so
+ *     identity is never colour-alone (R10.23), click-to-isolate on each entry.
+ *     Today the two `.rl-sources` rows are the legend: they name both sources
+ *     in text, and neither is a button because there is no series to hide —
+ *     stated rather than shipped as a disabled control, same ruling as the
+ *     area's degenerate isolate arm.
+ *   - **click-through**: none. The panel has no row to open and the cluster it
+ *     belongs to is already the page in the breadcrumb, so the frame is not a
+ *     link.
+ *   - **table twin** (R10.23): the `.rl-sources` grid is the twin of the two
+ *     source rows; the chart's twin arrives with the chart.
  */
 
 import { NULL_VALUE } from "../lib/format";
@@ -130,12 +154,28 @@ const COPY: Record<
   },
 };
 
+/** R10.19's hover contents, derived from `COPY` rather than written beside it: a
+ *  tooltip with its own strings is a second copy of the answer, and the frame's
+ *  visible text is the first. Exported so the test asserts the function instead
+ *  of re-typing a sentence that lives in this file — the same reason
+ *  `web/src/components/LatencyHistogram.tsx:85` exports `SAMPLED_LABEL`. */
+export function resourceLoadTip(source: OsMetricsSource | null): string {
+  const copy = COPY[source === null ? "not-asked" : source];
+  return `${copy.headline} ${copy.detail}`;
+}
+
 export function ResourceLoadPanel({ cluster, source }: ResourceLoadPanelProps) {
   const clusterLabel = cluster === null || cluster === "" ? NULL_VALUE : cluster;
   const copy = COPY[source === null ? "not-asked" : source];
+  const tip = resourceLoadTip(source);
 
   return (
-    <section className="card rl-panel" data-state="unavailable" aria-labelledby="rl-title">
+    <section
+      className="card rl-panel"
+      data-state="unavailable"
+      aria-labelledby="rl-title"
+      title={tip}
+    >
       <div className="card-head">
         <h2 className="card-title" id="rl-title">
           Resource load
@@ -159,11 +199,16 @@ export function ResourceLoadPanel({ cluster, source }: ResourceLoadPanelProps) {
         </h3>
         {/* dt/dd as direct grid children, the way `.detail-header`
             (`web/src/styles/base.css:885`) does it — one grid, no wrapper per row. */}
+        {/* Each row's tooltip is the panel's whole answer, not a per-row
+            sentence: the value is already on screen, so the only thing hover can
+            add is the cause — and the cause is one string per source, already in
+            `COPY`. Two tooltips with their own wording would be two places to
+            update the same fact. */}
         <dl className="rl-grid">
           <dt>S7 · Prometheus</dt>
-          <dd>{copy.s7}</dd>
+          <dd title={tip}>{copy.s7}</dd>
           <dt>metrics.k8s.io</dt>
-          <dd>{copy.metricsServer}</dd>
+          <dd title={tip}>{copy.metricsServer}</dd>
         </dl>
       </section>
     </section>

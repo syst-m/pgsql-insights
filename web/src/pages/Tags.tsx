@@ -113,7 +113,16 @@ import type { Phase } from "../state/useFleet";
 import { formatDurationMs, formatNumber, formatPercent, formatTimestamp, NULL_VALUE } from "../lib/format";
 import { ColumnMenu, type ColumnDef, useColumnVisibility } from "../components/ColumnMenu";
 import { ExtensionNotInstalled } from "../components/ExtensionNotInstalled";
+import { DensityToggle, ROW_HEIGHT, useVirtualWindow, type Density } from "../components/VirtualList";
 import { StatePanel, TAGS_COPY, copyFor, deriveTagsPanelState, type FetchPhase } from "../components/StatePanel";
+
+/** Height of the table's scroll viewport, in px. A number rather than a
+ *  measurement, for the reason `web/src/components/VirtualList.tsx:162-165`
+ *  gives (a ResizeObserver's first frame is 0, which is the empty-table flash
+ *  R10.22's skeleton exists to prevent) and the same value
+ *  `web/src/components/QueryTable.tsx:326` defaults its `viewportHeight` prop
+ *  to — the app's windowed tables all window against one height. */
+const VIEWPORT_HEIGHT = 640;
 
 // The subject's noun for R10.22's banner comes from `api/envelope.ts:800`
 // (A4's `cdf81c9`, 2026-11-24) — a value import, not the `import type` this
@@ -176,19 +185,43 @@ export function TagsPage(props: TagsPageProps): ReactElement {
   // loop, not merely an extra request. `Fleet.tsx:45-47` states it; every page
   // since has memoised for the same reason.
   const params = useMemo(() => tagsParamsFrom(state), [state]);
+  const { state: data, refresh } = useTagsFetch(props.cfg, params);
+
+  // The prop still wins over the fetched payload, so the visual suite renders a
+  // named fixture without a fetch; before the first response lands the contract
+  // fixture is what is on screen, as on every other page. These two are plain
+  // consts, not hooks, but they moved up with `useColumnVisibility` for the
+  // reason `web/src/pages/ActiveQueries.tsx:163-168` gives for its own file: the
+  // comment below claims every hook sits above the early return, and `columns`
+  // did not — a render that turned a malformed URL into a valid one rendered
+  // more hooks than the render before it and threw.
+  const resp: Envelope<TagView> = props.fixtureOverride ?? data.tags ?? FIXTURE_TAGS;
+  const phase: FetchPhase = props.fixtureOverride !== undefined ? "ready" : data.phase;
+  const columns = useColumnVisibility({ viewId: "tags", columns: TAG_COLUMNS });
+
+  // R10.18's two halves, from the one primitive the requirement is satisfied
+  // through elsewhere: `web/src/pages/Queries.tsx:386` holds `density` as page
+  // state and hands it to `QueryTable`, and `web/src/pages/ActiveQueries.tsx:191`
+  // does the same. `useVirtualWindow` is a hook, so it belongs above the early
+  // return with the rest of them; `density` and `scrollTop` are its two inputs
+  // and `onScroll` is how the scroll container feeds the second one.
+  const [density, setDensity] = useState<Density>("compact");
+  const [scrollTop, setScrollTop] = useState(0);
+  const onScroll = useCallback((e: { currentTarget: EventTarget | null }) => {
+    const target = e.currentTarget as { scrollTop?: number } | null;
+    if (target && typeof target.scrollTop === "number") setScrollTop(target.scrollTop);
+  }, []);
+  const win = useVirtualWindow({
+    count: resp.data.length,
+    rowHeight: ROW_HEIGHT[density],
+    viewportHeight: VIEWPORT_HEIGHT,
+    scrollTop,
+  });
 
   // Every hook is above this line, because `tagsParamsFrom` can return `null`
   // and the early return below has to come after them — the rule
   // `Fleet.tsx:64-65` states and `QueryDetail.tsx`'s no-such-query frame follows.
-  const { state: data, refresh } = useTagsFetch(props.cfg, params);
-
   if (params === null) return <NoCluster {...props} />;
-
-  // The prop still wins over the fetched payload, so the visual suite renders a
-  // named fixture without a fetch; before the first response lands the contract
-  // fixture is what is on screen, as on every other page.
-  const resp: Envelope<TagView> = props.fixtureOverride ?? data.tags ?? FIXTURE_TAGS;
-  const phase: FetchPhase = props.fixtureOverride !== undefined ? "ready" : data.phase;
 
   const panel = deriveTagsPanelState({
     phase,
@@ -196,7 +229,6 @@ export function TagsPage(props: TagsPageProps): ReactElement {
     error: data.error ?? undefined,
     extensionInstalled: props.extensionInstalled,
   });
-  const columns = useColumnVisibility({ viewId: "tags", columns: TAG_COLUMNS });
   // R10.22's wording is composed from the payload rather than written here: the
   // rollup that served 17 of 23 tags has to name the six, which is what
   // `copyFor`'s `source` argument does and a fixed sentence cannot.
@@ -246,29 +278,54 @@ export function TagsPage(props: TagsPageProps): ReactElement {
           <h2 className="card-title">Tags</h2>
           <div className="card-actions">
             <span className="card-meta num">{resp.data.length} tags</span>
+            <DensityToggle density={density} onChange={setDensity} />
             <ColumnMenu columns={TAG_COLUMNS} visible={columns.visible} onChange={columns.setVisible} />
           </div>
         </div>
 
-        <table className="data" data-testid="tags-table">
-          <caption className="sr-only">
-            Tags reported for {params.namespace}/{params.cluster}
-          </caption>
-          <thead>
-            <tr>
-              {columns.visible.map((key) => (
-                <th key={key} scope="col" className={numericCol(key) ? "num" : undefined}>
-                  {labelFor(key)}
-                </th>
+        {/* R10.18: the scroll container is the viewport the window is computed
+            against, and the two spacer rows inside `<tbody>` are what keep the
+            scrollbar the length of all N tags rather than the handful that are
+            mounted. The table is the page's own — `TagRow` needs props the
+            generic div renderer cannot pass — which is why this page takes the
+            hook and renders its own `<table>`, the way
+            `web/src/components/QueryTable.tsx:345` does. */}
+        <div
+          className="table-wrap"
+          onScroll={onScroll}
+          style={{ height: VIEWPORT_HEIGHT, overflowY: "auto" }}
+          data-testid="tags-table-scroll"
+        >
+          <table className="data" data-testid="tags-table" data-density={density}>
+            <caption className="sr-only">
+              Tags reported for {params.namespace}/{params.cluster}
+            </caption>
+            <thead>
+              <tr>
+                {columns.visible.map((key) => (
+                  <th key={key} scope="col" className={numericCol(key) ? "num" : undefined}>
+                    {labelFor(key)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {win.padTop > 0 && (
+                <tr className="virtual-spacer" aria-hidden="true">
+                  <td colSpan={columns.visible.length} style={{ height: win.padTop, padding: 0 }} />
+                </tr>
+              )}
+              {resp.data.slice(win.start, win.end).map((row) => (
+                <TagRow key={row.tagHash} row={row} columns={columns.visible} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {resp.data.map((row) => (
-              <TagRow key={row.tagHash} row={row} columns={columns.visible} />
-            ))}
-          </tbody>
-        </table>
+              {win.padBottom > 0 && (
+                <tr className="virtual-spacer" aria-hidden="true">
+                  <td colSpan={columns.visible.length} style={{ height: win.padBottom, padding: 0 }} />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

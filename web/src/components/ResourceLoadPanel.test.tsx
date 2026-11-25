@@ -8,16 +8,18 @@
  * nothing configured) — are asserted against each other so a future edit cannot
  * collapse them into one string.
  *
- * Plus the two rules that apply to any component here: R10.12's state naming
- * (`data-state="unavailable"`, which is how R16.7's suite keys a screen) and
+ * Plus the three rules that apply to any component here: R10.12's state naming
+ * (`data-state="unavailable"`, which is how R16.7's suite keys a screen),
  * R10.23's untrusted-label rule (the cluster id comes from the URL bar and must
- * be text, never markup).
+ * be text, never markup), and R10.19's per-surface hover contract — asserted as
+ * `resourceLoadTip`'s own value rather than as a literal, which is the only way
+ * the assertion can catch a tooltip that disagrees with the frame.
  */
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ResourceLoadPanel, type OsMetricsSource } from "./ResourceLoadPanel";
+import { ResourceLoadPanel, resourceLoadTip, type OsMetricsSource } from "./ResourceLoadPanel";
 
 const CLUSTER = "open-webui/open-webui-pg";
 
@@ -119,5 +121,32 @@ describe("ResourceLoadPanel (R10.5b)", () => {
       const { container } = render(<ResourceLoadPanel cluster={cluster} source={null} />);
       expect(container.querySelector(".mono")?.textContent).toBe("—");
     }
+  });
+
+  it("states R10.19's hover contents from the strings it already renders", () => {
+    // R10.19's contract is per surface, and this surface has no marks to hover:
+    // the tooltip is the headline plus the cause, taken from `resourceLoadTip`
+    // rather than re-typed here, so the test pins the function and the render
+    // to the same value instead of to two literals that can drift.
+    const { panel } = panelFor("none");
+    const tip = panel.getAttribute("title") ?? "";
+    expect(tip).toBe(resourceLoadTip("none"));
+    expect(tip).toContain("No OS-metrics source is configured");
+    expect(tip).toContain("degraded-with-a-note");
+    // Both source rows carry the same answer: hovering a row cannot state a
+    // different fact from reading the frame it sits in.
+    const dds = Array.from(panel.querySelectorAll(".rl-grid dd"));
+    expect(dds).toHaveLength(2);
+    for (const dd of dds) expect(dd.getAttribute("title")).toBe(tip);
+  });
+
+  it("keeps four tooltips for four states", () => {
+    // The copy matrix is four answers; the tooltip is a function of the source,
+    // so collapsing two states into one string would show up here even if the
+    // visible-text test above were edited to allow it.
+    const tips = [null, "none", "prometheus", "metrics-server"].map((s) =>
+      resourceLoadTip(s as OsMetricsSource | null),
+    );
+    expect(new Set(tips).size).toBe(4);
   });
 });

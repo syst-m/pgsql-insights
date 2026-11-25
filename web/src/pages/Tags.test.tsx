@@ -16,6 +16,10 @@
  *    query table does not.
  * 3. **R10.12's named states** — via `StatePanel`/`TAGS_COPY`, including the
  *    R10.27 branch and the `truncated`-is-not-a-warning case R8.10 defines.
+ * 4. **R10.18's windowing and density** — the toggle and the `data-density` the
+ *    table carries from the same value, and the spacer rows that keep a
+ *    500-tag payload's scrollbar the length of the payload rather than of the
+ *    39 rows the window mounts.
  *
  * `tagsParamsFrom` is tested here because it lives here: the other pages'
  * params functions are A4's in `state/` with their own suites
@@ -641,5 +645,77 @@ describe("useTagsFetch — the R10.22 envelope (S96/S97)", () => {
     expect(result.current.state.tags?.data[0]?.tagHash).toBe(TAG_NO_COMMENT.tagHash);
     expect(result.current.state.error).not.toBeNull();
     expect(result.current.state.refreshing).toBe(false);
+  });
+});
+
+/* ── 7. R10.18's windowing and density ─────────────────────────────────────── */
+
+describe("TagsPage — R10.18's windowing and density", () => {
+  /** A payload of `n` tags built by re-labelling the fixture's full-comment
+   *  row. Re-labelled rather than written out, for the reason the fixture
+   *  constants above are spreads of `FIXTURE_TAGS.data`: a row built by hand
+   *  passes while the real type gains a field. */
+  function rowsFor(n: number): TagView[] {
+    return Array.from({ length: n }, (_, i) => ({ ...TAG_FULL_COMMENT, tagHash: `tag-${i}` }));
+  }
+
+  it("offers the toggle and marks the table with the density it holds", () => {
+    const { container } = renderPage();
+    const toggle = container.querySelector('.segmented[aria-label="Row density"]');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.querySelectorAll("button[aria-pressed]")).toHaveLength(2);
+    expect(toggle?.querySelector('button[aria-pressed="true"]')?.textContent).toBe("Compact");
+    expect(container.querySelector('[data-testid="tags-table"]')?.getAttribute("data-density")).toBe(
+      "compact",
+    );
+  });
+
+  it("moves the table's density when the toggle changes", () => {
+    const { container } = renderPage();
+    const comfortable = screen.getByRole("button", { name: "Comfortable" });
+    fireEvent.click(comfortable);
+    expect(comfortable.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('[data-testid="tags-table"]')?.getAttribute("data-density")).toBe(
+      "comfortable",
+    );
+  });
+
+  it("windows an R8.10-sized payload and keeps the scrollbar the right length", () => {
+    // 500 tags is R8.10's max page; the shipped fixture's three rows fit in the
+    // window and prove nothing about it. At compact (24px) in the 640px viewport
+    // the window is 27 visible plus 6 overscan, so 39 mount and the padBottom
+    // spacer carries the other 461 * 24 = 11064px — the half of R10.18 a plain
+    // `<table>` loses, because without it the scrollbar measures the mounted
+    // rows and the page reads as 39 tags.
+    const rows = rowsFor(500);
+    const { container } = renderPage({ fixtureOverride: envelopeWith(rows) });
+    const dataRows = container.querySelectorAll("tbody tr[data-tag-hash]");
+    expect(dataRows).toHaveLength(39);
+    expect(dataRows.length).toBeLessThan(rows.length);
+    const spacers = container.querySelectorAll("tbody tr.virtual-spacer");
+    expect(spacers).toHaveLength(1);
+    const spacerCell = spacers[0]?.querySelector("td");
+    // The spacer spans every rendered column — the eight visible ones, the same
+    // count the header row renders — which is why the page builds it from
+    // `columns.visible.length` rather than a literal.
+    expect(spacerCell?.getAttribute("colspan")).toBe("8");
+    expect(spacerCell?.getAttribute("style")).toContain("height: 11064px");
+  });
+
+  it("re-windows when the scroll container moves", () => {
+    // 240px is 10 rows, minus the 6-row overscan the window starts at row 4.
+    const rows = rowsFor(500);
+    const { container } = renderPage({ fixtureOverride: envelopeWith(rows) });
+    const scroller = container.querySelector('[data-testid="tags-table-scroll"]') as HTMLElement;
+    expect(scroller).not.toBeNull();
+    act(() => {
+      fireEvent.scroll(scroller, { target: { scrollTop: 240 } });
+    });
+    expect(container.querySelector("tbody tr[data-tag-hash]")?.getAttribute("data-tag-hash")).toBe(
+      "tag-4",
+    );
+    expect(container.querySelector("tbody tr.virtual-spacer td")?.getAttribute("style")).toContain(
+      "height: 96px",
+    );
   });
 });
