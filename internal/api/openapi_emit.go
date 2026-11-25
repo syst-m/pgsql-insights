@@ -198,12 +198,15 @@ func (c schemaContext) linesFor(e openAPISchema) ([]string, error) {
 		return nil, fmt.Errorf("schema %s (Go %s): the type has no doc comment — the per-type migration keeps an entry authored until its Go type carries prose (R8.1 input 2)",
 			e.Name, e.Go)
 	}
+	// Two body shapes, and the entry itself says which one it is (see entryHasAllOf):
+	// the flat `type: object`, and the entry-level `allOf:` composition.
+	var body []string
+	var err error
 	if entryHasAllOf(e) {
-		return nil, fmt.Errorf("schema %s (Go %s): the entry is composed with allOf and the emitter generates flat object schemas only — keep the entry authored",
-			e.Name, e.Go)
+		body, err = c.composedBody(e, s, pkg, typeArgs(ref, s), authoredProseFor(e))
+	} else {
+		body, err = c.objectBody(s, pkg, typeArgs(ref, s), authoredProseFor(e))
 	}
-
-	body, err := c.objectBody(s, pkg, typeArgs(ref, s), authoredProseFor(e))
 	if err != nil {
 		return nil, fmt.Errorf("schema %s: %w", e.Name, err)
 	}
@@ -341,15 +344,47 @@ func (p authoredProse) authoredAny() bool {
 		len(p.OneOf) > 0 || p.Format != "" || p.Nullable != ""
 }
 
-// authoredProseFor indexes one entry's authored prose by owner.
+// authoredProseFor indexes one entry's authored prose by owner, picking the indent
+// model from the entry's own shape.
+func authoredProseFor(e openAPISchema) map[string]authoredProse {
+	if entryHasAllOf(e) {
+		return authoredProseForShape(e, composedShape)
+	}
+	return authoredProseForShape(e, flatShape)
+}
+
+// proseShape is the pair of indents authoredProseForShape reads owners from. A flat
+// entry puts its own keys at 6 and its property keys at 8; an entry composed with
+// `allOf` keeps its own keys at 6 and gains two levels before its properties — the
+// sequence dash at 8, `type: object` at 10 — so its property keys sit at 12 and their
+// schemas at 14. The pair is derived from the entry's shape rather than a second parser
+// written for the second shape, because "which prose belongs to which owner" is one
+// contract and two parsers over it is this file's recurring failure (R16.8): the
+// first version of this function recognised property keys at indent 8 only, so every
+// property of a composed entry parsed as "inside a nested block", and flipping such an
+// entry would have rendered its properties from the Go doc while the entry's own
+// curated text sat uncaptured.
+type proseShape struct {
+	schemaKeys int // indent of the schema's own keys (`description:`, `allOf:`)
+	propKeys   int // indent of a property key line (`user:`)
+}
+
+var (
+	flatShape     = proseShape{schemaKeys: 6, propKeys: 8}
+	composedShape = proseShape{schemaKeys: 6, propKeys: 12}
+)
+
+// authoredProseForShape is the parser; authoredProseFor is the one caller that decides
+// which shape an entry is.
 //
 // The owner is read from the indentation, which is the only place the information
-// lives: at indent 4 is the schema key, at indent 6 the schema's own keys
-// (type/description/required/properties/example), at indent 8 a property key, at
-// indent 10 that property's schema. A block at indent 12 belongs to a nested
-// items: block rather than to the property, and the first capture for an owner wins,
-// which is the property's own — the nested one comes after it in the entry.
-func authoredProseFor(e openAPISchema) map[string]authoredProse {
+// lives: at indent 4 is the schema key, at sp.schemaKeys the schema's own keys
+// (type/description/required/properties/example), at sp.propKeys a property key, and
+// deeper than that the property's own schema. A block deeper than a property's own
+// keys belongs to a nested items: block rather than to the property, and the first
+// capture for an owner wins, which is the property's own — the nested one comes after
+// it in the entry.
+func authoredProseForShape(e openAPISchema, sp proseShape) map[string]authoredProse {
 	out := map[string]authoredProse{}
 	owner := ""
 	for i := 0; i < len(e.Lines); i++ {
@@ -363,9 +398,9 @@ func authoredProseFor(e openAPISchema) map[string]authoredProse {
 		case ind <= 4:
 			owner = ""
 			continue
-		case ind == 6:
+		case ind == sp.schemaKeys:
 			owner = ""
-		case ind == 8:
+		case ind == sp.propKeys:
 			if !strings.HasSuffix(trimmed, ":") {
 				continue
 			}
@@ -498,8 +533,6 @@ func deeperAfter(lines []string, k, ind int) bool {
 // typeArgs); a carries the entry's authored prose, which the emitter copies rather
 // than re-renders.
 func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]string, a map[string]authoredProse) ([]string, error) {
-	prose, _, _ := splitMarkers(s.DocLines)
-	out := []string{"      type: object"}
 	// Prose comes from the entry (R8.1's input 4); the Go doc is the fallback only for
 	// an entry that carries no authored prose at all, which is the fresh-entry case
 	// the per-type migration rule is written for. An entry with a description but no
@@ -511,35 +544,61 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 	// have property prose — so "the entry authored anything anywhere" is what separates
 	// an authored entry from a fresh one, and rendering the Go doc into their empty slot
 	// adds a line the document deliberately omits.
+	return c.objectCore(flattenFields(s, pkg, c.pkgs), pkg, binds, a, schemaDesc(s, a, 6), a[""].Example, 6)
+}
+
+// schemaDesc resolves the schema-level description an entry renders: the authored block
+// if it wrote one, the Go doc if it authored nothing at all, nothing if it authored
+// something else and left this slot empty. objectBody and composedBody both need it and
+// both pass indent 6, because in both shapes the description sits at the entry's own
+// level — a composed entry's `type: object` member gets no description of its own, which
+// is why objectCore takes the prose as an argument rather than deriving it from `a`.
+func schemaDesc(s goStruct, a map[string]authoredProse, indent int) []string {
 	self := a[""]
 	switch {
 	case len(self.Desc) > 0:
-		out = append(out, self.Desc...)
+		return self.Desc
 	case len(a) == 0:
 		// The entry authored nothing at all, so this is the fresh-entry case and the Go
 		// doc is the only prose available.
-		out = append(out, descLines(prose, 6)...)
+		prose, _, _ := splitMarkers(s.DocLines)
+		return descLines(prose, indent)
 	}
+	return nil
+}
 
-	fields := flattenFields(s, pkg, c.pkgs)
+// objectCore renders an object schema's keys — type, description, required, properties
+// and example — at `indent`, from an explicit field list. objectBody is the flat caller
+// (flatten the Go struct, derive the prose the entry left empty, indent 6); composedBody
+// is the composed caller (one allOf member's fields, the entry's prose already resolved,
+// indent 10 under the member's dash). Splitting the render from the field discovery is
+// what keeps the property loop — the authored-wins rules, the flow-vs-block required
+// line, the empty-inner rule, the example-last placement — in one place. A second copy
+// of that loop is this file's recurring failure (R16.8), and a second caller is what
+// would have forced one.
+func (c schemaContext) objectCore(fields []goFieldRef, pkg string, binds map[string]string, a map[string]authoredProse, desc, example []string, indent int) ([]string, error) {
+	pad := strings.Repeat(" ", indent)
+	out := []string{pad + "type: object"}
+	out = append(out, desc...)
 	if req := requiredNames(fields); len(req) > 0 {
 		// Flow style (`required: [a, b]`) when the list fits the line, block style
 		// (one `- name` per line) when it does not. Measured: the document uses flow
 		// 26 times and block 3 times, and the three block cases are exactly the
 		// entries whose flow form exceeds maxLineWidth — so the file has one rule and
-		// the emitter follows it rather than picking a style.
-		flow := "      required: [" + strings.Join(req, ", ") + "]"
+		// the emitter follows it rather than picking a style. The rule is on the whole
+		// rendered line, so an indented caller's list trips it two columns sooner.
+		flow := pad + "required: [" + strings.Join(req, ", ") + "]"
 		if len(flow) <= maxLineWidth {
 			out = append(out, flow)
 		} else {
-			out = append(out, "      required:")
+			out = append(out, pad+"required:")
 			for _, r := range req {
-				out = append(out, "        - "+r)
+				out = append(out, pad+"  - "+r)
 			}
 		}
 	}
 
-	out = append(out, "      properties:")
+	out = append(out, pad+"properties:")
 	for _, fr := range fields {
 		ps, err := c.propSchemaFor(fr.Field.TypeStr, fr.Pkg, binds)
 		if err != nil {
@@ -578,8 +637,8 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 				ps.Nullable = false
 			}
 		}
-		out = append(out, "        "+fr.Field.PropertyName()+":")
-		inner := ps.lines(10)
+		out = append(out, pad+"  "+fr.Field.PropertyName()+":")
+		inner := ps.lines(indent + 4)
 		if len(inner) == 0 {
 			// A schema with nothing to say (a type-less, description-less field) still
 			// needs the key line to exist on its own, which the line above provides.
@@ -588,11 +647,105 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 		out = append(out, inner...)
 	}
 	// The schema's own example, last: the document's flat entries put it after
-	// `properties:`, which is why propSchema keeps it apart from the description.
-	if ex := a[""].Example; len(ex) > 0 {
-		out = append(out, ex...)
+	// `properties:`, which is why propSchema keeps it apart from the description. The
+	// lines are the entry's own, so their indentation is the author's and the caller
+	// passes them only when that indentation is the one it renders at — which is why
+	// composedBody refuses an example rather than re-indenting one.
+	if len(example) > 0 {
+		out = append(out, example...)
 	}
 	return out, nil
+}
+
+// composedBody renders everything under the `    Name:` line for an entry whose shape is
+// the entry-level `allOf:`: the description, then one `$ref` member per embedded type
+// that has its own schema entry, then one `type: object` member holding the fields the
+// composition leaves over. It is objectCore's second caller, and the reason
+// entryHasAllOf's refusal used to be the honest answer — inlining a documented type's
+// fields into its parent changes the parent's shape as well as its prose, and the
+// document composes instead because R16.8 says the field list belongs to the entry that
+// owns it.
+func (c schemaContext) composedBody(e openAPISchema, s goStruct, pkg string, binds map[string]string, a map[string]authoredProse) ([]string, error) {
+	refs, own, ok := c.composition(s, pkg)
+	if !ok {
+		return nil, fmt.Errorf("entry is authored with allOf but Go %s embeds no type a schema entry names, so there is nothing to compose", e.Go)
+	}
+	if len(a[""].Example) > 0 {
+		// The document's one composed entry documents no example, and its own prose says
+		// why: the row half is the fixture's and is already shown on `QueryView`. An
+		// authored example block carries the entry's own indent, so placing it inside a
+		// member at indent 10 needs a re-indent no measured case authorises, and
+		// inventing one is this slot's characteristic failure. Refusing is the honest
+		// answer until a composed entry with an example exists to copy.
+		return nil, fmt.Errorf("composed entry has an authored example and no measured placement for it inside a member")
+	}
+	out := append([]string{}, schemaDesc(s, a, 6)...)
+	out = append(out, "      allOf:")
+	for _, r := range refs {
+		out = append(out, "        - $ref: '#/components/schemas/"+r+"'")
+	}
+	if len(own) == 0 {
+		return out, nil
+	}
+	member, err := c.objectCore(own, pkg, binds, a, nil, nil, 10)
+	if err != nil {
+		return nil, err
+	}
+	// The member is a sequence item, so its first line is `- type: object` at indent 8
+	// rather than `type: object` at indent 10 — the text stays in the same column and the
+	// two leading spaces become the dash. Every line after it is already indented from
+	// objectCore's own pad.
+	member[0] = "        - " + strings.TrimLeft(member[0], " ")
+	return append(out, member...), nil
+}
+
+// composition splits a struct the way a composed entry composes it: the embedded types
+// that have their own schema entries become `$ref` members, and everything else — the
+// named fields, plus the fields of any embedded type with no entry to point at — is the
+// `type: object` member's field list. The second half is the `LoadColumns` case the
+// document's own prose names: not a response type on any route, so nothing exists to
+// `$ref` and inlining was the only way to document it.
+//
+// ok is false when the struct has no embedded type with an entry, which is the
+// contradiction linesFor routes here from entryHasAllOf: an entry authored with allOf
+// whose Go type has nothing to compose.
+func (c schemaContext) composition(s goStruct, pkg string) (refs []string, own []goFieldRef, ok bool) {
+	seen := map[string]bool{}
+	add := func(fr goFieldRef) {
+		n := fr.Field.PropertyName()
+		if n == "" || n == "-" || seen[n] {
+			return // the same dedupe flattenFields applies, so a shadowed name appears once
+		}
+		seen[n] = true
+		own = append(own, fr)
+	}
+	for _, f := range s.Fields {
+		if f.Name != "" {
+			add(goFieldRef{Field: f, Pkg: pkg})
+			continue
+		}
+		// Embedded. The star is stripped and the generic split before the lookup for the
+		// same reason flattenFields does it: `*CycleB` embeds a pointer, but the embedded
+		// type is still named CycleB.
+		embed := strings.TrimPrefix(strings.TrimSpace(f.TypeStr), "*")
+		if base, _, ok := splitGeneric(embed); ok {
+			embed = base
+		}
+		ref, ok := canonicalRef(embed, pkg, c.pkgs, c.aliases)
+		if !ok {
+			continue // unresolvable: contributes nothing, as flattenFields also contributes nothing
+		}
+		if name, ok := c.names[ref]; ok {
+			refs = append(refs, name)
+			continue
+		}
+		if es, ok := resolveGoRef(ref, c.pkgs, c.aliases); ok {
+			for _, fr := range flattenFields(es, pkgOf(ref), c.pkgs) {
+				add(fr)
+			}
+		}
+	}
+	return refs, own, len(refs) > 0
 }
 
 // requiredNames is every field that is not `omitempty`, in declaration order.

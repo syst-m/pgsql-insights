@@ -4128,6 +4128,7 @@ var openAPISchemas = []openAPISchema{
 			"              items:",
 			"                $ref: '#/components/schemas/PlanChangeView'",
 		},
+		Generated: true,
 	},
 	{
 		Name: "LatencyView",
