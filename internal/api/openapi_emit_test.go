@@ -1,7 +1,7 @@
 // The emitter's own tests (openapi_emit.go): the block splitter, the per-entry
 // render, and the gate-2 comparison helper that TestGeneratedOpenAPI uses.
 //
-// Four tests, each pinning a different way this code fails:
+// Five tests, each pinning a different way this code fails:
 //
 //   - TestSchemaBlocksRealDocument — schemaBlocks() recovers exactly the entries the
 //     table declares, and for an authored entry the recovered block is byte-for-byte
@@ -20,6 +20,11 @@
 //   - TestChangedSchemas — the gate-2 helper's fixture cases, including the two
 //     directions a schema can change (body differs, name present on one side only),
 //     which the real document pair cannot show at once.
+//   - TestNamesIndex — the Go-reference index's precedence: an entry's authored
+//     reference maps to that entry, and every other key is a canonical form some entry
+//     derives, naming an entry that derives it. The render tests only see entries the
+//     table already renders, so a name reassigned by table order is invisible there
+//     and visible here.
 
 package api
 
@@ -298,4 +303,59 @@ func TestChangedSchemas(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNamesIndex pins the precedence indexNames documents: every entry's authored
+// reference maps to that entry, and every other key in the index is a canonical form
+// that some entry derives, mapping back to an entry that derives it. The render tests
+// exercise entries the table already renders, so this is the only place the index
+// itself is checked — which makes it the place a reassigned name shows up before a
+// field starts resolving to the wrong schema.
+func TestNamesIndex(t *testing.T) {
+	c, err := newSchemaContext(".", "dto", openAPISchemas)
+	if err != nil {
+		t.Fatalf("newSchemaContext: %v", err)
+	}
+
+	authored := map[string]string{}
+	derivers := 0
+	derivedBy := map[string]map[string]bool{} // canonical ref -> every entry that derives it
+	for _, e := range openAPISchemas {
+		if e.Go == "" {
+			continue
+		}
+		authored[e.Go] = e.Name
+		if got := c.names[e.Go]; got != e.Name {
+			t.Errorf("names[%q] = %q, want %q: an entry's own reference must map to itself", e.Go, got, e.Name)
+		}
+		canon, ok := canonicalRef(e.Go, pkgOf(e.Go), c.pkgs, c.aliases)
+		if !ok || canon == e.Go {
+			continue
+		}
+		derivers++
+		if derivedBy[canon] == nil {
+			derivedBy[canon] = map[string]bool{}
+		}
+		derivedBy[canon][e.Name] = true
+	}
+
+	// Every key that is not an authored reference has to be a derived one, and it has
+	// to name an entry that derives it. A key nothing derives is a name the indexer
+	// invented; a derived key naming an entry that never derived it is a claim left
+	// over from a table order, which is what the two-pass split removes.
+	for ref, name := range c.names {
+		if _, ok := authored[ref]; ok {
+			continue
+		}
+		if !derivedBy[ref][name] {
+			t.Errorf("names[%q] = %q, but no entry derives %q from %q", ref, name, name, ref)
+		}
+	}
+
+	// The counts are logged, not asserted: how many entries carry a second name moves
+	// whenever the table gains an alias, and an assertion here would be a second copy
+	// of the table. The command that reproduces them is in the commit body of the
+	// change that split the index into two passes.
+	t.Logf("%d entries author %d distinct references; %d of them derive a second name; the index has %d keys",
+		len(authored), len(authored), derivers, len(c.names))
 }

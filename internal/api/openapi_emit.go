@@ -85,26 +85,63 @@ func newSchemaContext(apiDir, dtoDir string, entries []openAPISchema) (schemaCon
 	if err != nil {
 		return schemaContext{}, err
 	}
+	names, err := indexNames(entries, pkgs, aliases)
+	if err != nil {
+		return schemaContext{}, err
+	}
+	return schemaContext{entries: entries, pkgs: pkgs, aliases: aliases, names: names}, nil
+}
+
+// indexNames builds the Go-reference → schema-name index.
+//
+// The authored `Go:` string is not the only name a type has. `api.X = dto.X` aliases
+// (five of the 41 entries that name a Go type: series.go's QuerySeriesEnvelope,
+// QuerySeriesPoint and QuerySeries, tags.go's TagsEnvelope, query_plans.go's
+// QueryPlansEnvelope) mean a field can name the same type two ways, and a table
+// keyed only by the authored spelling makes the other one look undocumented:
+// `dto.QuerySeries` has a field of type `QuerySeriesPoint`, which resolves to
+// `dto.QuerySeriesPoint`, while the entry that documents it is written
+// `api.QuerySeriesPoint`. Registering the canonical form as well is what lets the
+// reference resolve.
+//
+// It takes two passes because the two kinds of claim have different precedence, and
+// one interleaved loop lets table order pick which rule applies. A direct claim is
+// an entry speaking for itself; a derived claim is the emitter inferring a second
+// name for it. Interleaved, a later entry's direct assignment overwrote an earlier
+// entry's derived registration (right, but only because that assignment was
+// unguarded), while two derived claims resolved first-come — i.e. by table order.
+// Split, the precedence is a property of the code:
+//
+//   - pass one claims every entry's authored reference, and a reference two entries
+//     both author is a table defect, reported rather than silently reassigned (R8.4's
+//     one-schema-per-type, checked at the index instead of left to the byte-compare);
+//   - pass two adds derived references only where nothing already claimed them, so a
+//     direct claim from any entry always beats a derived claim from any other.
+func indexNames(entries []openAPISchema, pkgs map[string]map[string]goStruct, aliases map[string]map[string]string) (map[string]string, error) {
 	names := make(map[string]string, len(entries))
 	for _, e := range entries {
 		if e.Go == "" {
 			continue
 		}
-		names[e.Go] = e.Name
-		// The authored `Go:` string is not the only name a type has. `api.X =
-		// dto.X` aliases (three of the 32 entries) mean a field can name the same
-		// type two ways, and a table keyed only by the authored spelling makes the
-		// other one look undocumented: `dto.QuerySeries` has a field of type
-		// `QuerySeriesPoint`, which resolves to `dto.QuerySeriesPoint`, while the
-		// entry that documents it is written `api.QuerySeriesPoint`. Registering the
-		// canonical form as well is what lets the reference resolve.
-		if canon, ok := canonicalRef(e.Go, pkgOf(e.Go), pkgs, aliases); ok && canon != e.Go {
-			if _, exists := names[canon]; !exists {
-				names[canon] = e.Name
-			}
+		if prev, exists := names[e.Go]; exists {
+			return nil, fmt.Errorf("schema entries %q and %q both author Go type %q (R16.8)", prev, e.Name, e.Go)
 		}
+		names[e.Go] = e.Name
 	}
-	return schemaContext{entries: entries, pkgs: pkgs, aliases: aliases, names: names}, nil
+	for _, e := range entries {
+		if e.Go == "" {
+			continue
+		}
+		canon, ok := canonicalRef(e.Go, pkgOf(e.Go), pkgs, aliases)
+		if !ok || canon == e.Go {
+			continue
+		}
+		if _, exists := names[canon]; exists {
+			continue
+		}
+		names[canon] = e.Name
+	}
+	return names, nil
 }
 
 // pkgOf is the package half of a qualified reference, and "" for an unqualified one
