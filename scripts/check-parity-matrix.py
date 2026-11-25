@@ -1024,6 +1024,39 @@ def check_phase_and_milestone_status(root):
 
 # --- §3's validation-entry headings vs §3's phase table ----------------------------------
 #
+# `## N.` section numbers are addresses: the README cites `IMPLEMENTATION.md §5-D14`, §3's
+# phase rows cite §3.N headings, and R14.2's entries live under §3. Nothing asserted the
+# heading set, so `97bd168` deleted `## 4. Decisions log` -- its insert site replaced the
+# heading line -- and the file ran 1,2,3,5,6,7 for two commits with every gate green
+# (A3's S129; A2 restored the line in `63e05bc`). The `§4 defines 177 ids` line reads
+# requirements.md's §4, not this file's, which is why the deletion was invisible: the only
+# §4 the tool parses is in the other file. The rule is contiguity from 1 -- the sorted
+# numbers must be exactly 1..len(nums) -- which fires on a deletion (1,2,3,5 -> expected
+# 1..4), on a duplicate, and on a renumbering, without hardcoding the count of sections.
+H2_SECTIONS_RE = re.compile(r"^##\s+(\d+)\.")
+
+
+def check_h2_sections(root):
+    """(numbers, gaps) for IMPLEMENTATION.md's `## N.` headings.
+
+    numbers -- every `## N.` section number in document order
+    gaps    -- one (sorted numbers found, sequence expected) pair when the set is not
+               exactly 1..len(numbers); empty when it is
+    """
+    nums = [int(m.group(1)) for line in lines_of(root, "IMPLEMENTATION.md")
+            if (m := H2_SECTIONS_RE.match(line.strip()))]
+    if not nums:
+        print("GUARD: 0 `## N.` headings parsed in IMPLEMENTATION.md -- the heading shape "
+              "moved, not a pass")
+        sys.exit(2)
+    gaps = []
+    want = list(range(1, len(nums) + 1))
+    if sorted(nums) != want:
+        gaps.append((sorted(nums), want))
+    return nums, gaps
+
+
+#
 # R14.2 makes a validation entry a phase's artifact and R14.9 splits it per owner, but
 # nothing tied the entries to the table that is supposed to point at them. §3's phase table
 # has a `Validation entry` column and the only rule ever written against its cells was the
@@ -1044,6 +1077,12 @@ def check_phase_and_milestone_status(root):
 #               The shared-entry case is R14.9's: a heading that says `Phase 1` is named by
 #               the `1a` and `1b` rows, so a row token starting with the heading's phase
 #               token counts as that phase, not as a mismatch.
+#   address  -- a cell that has an address must have one that is a validation entry: the
+#               cell's first §ref must name a `Phase X validation entry (R14.2)` heading,
+#               not merely a heading (S127's rule 1, unblocked by A2's `63e05bc` writing
+#               §3.16). Its sibling -- a non-⬜ row must have an address at all, which fires
+#               on rows 1a and 9 -- is staged with the Phase 1a and Phase 9 entries and is
+#               not implemented here, so a ⬜-or-empty cell like row 6a's is not reported.
 # Both directions are needed and neither subsumes the other: the dangling rule is silent on
 # §3.10-vs-§3.12 (both headings exist), and the orphan rule is silent on a cell citing a
 # heading that was deleted. Zero headings parsed is a GUARD exit, not a pass.
@@ -1054,12 +1093,14 @@ SEC_REF_RE = re.compile(r"\u00a7(\d+\.\d+)")
 
 
 def check_validation_entries(root):
-    """(headings, entries, rows, dangling, orphans).
+    """(headings, entries, rows, dangling, orphans, misaddressed).
 
     headings  -- every `### N.N <title>` in IMPLEMENTATION.md, {section: title}
     entries   -- the subset that are R14.2 validation entries, {section: phase token}
     rows      -- phase-table rows with a full six cells, counted
     dangling  -- (phase token, §ref) for a cell citing a section with no heading
+    misaddressed -- (phase token, §ref, title) for a cell whose *address* is a heading that
+               exists but is not an R14.2 validation entry (S127's rule 1)
     orphans   -- (section, phase, why) for an entry its phase row fails to name
     """
     headings, entries = {}, {}
@@ -1084,7 +1125,7 @@ def check_validation_entries(root):
     # so treating every §ref in the cell as a claim about the entry produced two false
     # orphans on a file with nothing wrong with them. The address is the cell's first ref;
     # the existence rule still applies to all of them.
-    primary, rows, dangling = {}, 0, []
+    primary, rows, dangling, misaddressed = {}, 0, [], []
     for cells in table_rows(root, PHASE_TABLE_RE):
         m = PHASE_TOKEN_RE.match(cells[0])
         if not m or len(cells) < 6:
@@ -1093,6 +1134,15 @@ def check_validation_entries(root):
         refs = SEC_REF_RE.findall(cells[5])
         if refs:
             primary.setdefault(refs[0], set()).add(m.group(1))
+            # S127's rule 1: the cell's address must be a validation-entry heading, not
+            # merely an existing heading. Neither shipped rule can see this case -- the
+            # dangling rule is satisfied because the heading exists, and the orphan rule
+            # iterates entries, and a requirement table is not one. Phase 5's row was the
+            # instance: it addressed §3.7, `Requirement -> file -> status (Phase 5, ...)`.
+            # The phase-mismatch half (row 5 addressing Phase 4's entry) stays the orphan
+            # rule's, so this fires only on the heading-kind gap and never double-reports.
+            if refs[0] in headings and refs[0] not in entries:
+                misaddressed.append((m.group(1), refs[0], headings[refs[0]]))
         for ref in refs:
             if ref not in headings:
                 dangling.append((m.group(1), ref))
@@ -1107,8 +1157,14 @@ def check_validation_entries(root):
             orphans.append((sec, phase,
                             "named as the Validation entry of row **%s**, which is phase %s"
                             % (t, phase)))
-    return len(headings), len(entries), rows, dangling, orphans
+    return len(headings), len(entries), rows, dangling, orphans, misaddressed
 
+
+h2_nums, h2_gaps = check_h2_sections(root)
+print(f"h2 sections: {len(h2_nums)} `## N.` headings \u00b7 {len(h2_gaps)} non-contiguous "
+      f"numbering")
+dump(h2_gaps, lambda found, want:
+     f"  IMPLEMENTATION.md: `## N.` numbers {found}, expected {want}")
 
 phase_rows, phase_bad, ms_rows, ms_bad = check_phase_and_milestone_status(root)
 print(f"phase cells: {phase_rows} §3 phase rows · {len(phase_bad)} malformed status "
@@ -1116,10 +1172,15 @@ print(f"phase cells: {phase_rows} §3 phase rows · {len(phase_bad)} malformed s
 dump(ms_bad, lambda label, cell, expected: f"  IMPLEMENTATION.md §1 {label}: {cell!r}, §3 derives {expected!r}")
 dump(phase_bad, lambda token, cell: f"  IMPLEMENTATION.md §3 **{token}**: status cell {cell!r} is not a glyph")
 
-ve_headings, ve_entries, ve_rows, ve_dangling, ve_orphans = check_validation_entries(root)
+ve_headings, ve_entries, ve_rows, ve_dangling, ve_orphans, ve_misaddressed = \
+    check_validation_entries(root)
 print(f"validation entries: {ve_headings} `### N.N` headings \u00b7 {ve_entries} of them "
       f"R14.2 entries \u00b7 {ve_rows} phase rows \u00b7 {len(ve_dangling)} dangling "
-      f"\u00a7 refs \u00b7 {len(ve_orphans)} entries not named by their phase row")
+      f"\u00a7 refs \u00b7 {len(ve_orphans)} entries not named by their phase row \u00b7 "
+      f"{len(ve_misaddressed)} rows whose address is not a validation entry")
+dump(ve_misaddressed, lambda token, ref, title:
+     f"  IMPLEMENTATION.md \u00a73 row **{token}**: addresses \u00a7{ref} ({title}), which is "
+     f"not a `Phase X validation entry (R14.2)` heading")
 dump(ve_dangling, lambda token, ref: f"  IMPLEMENTATION.md \u00a73 row **{token}**: \u00a7{ref} has no heading")
 dump(ve_orphans, lambda sec, phase, why: f"  IMPLEMENTATION.md \u00a7{sec} (Phase {phase} entry): {why}")
 
@@ -1241,6 +1302,6 @@ dump(self_bad, lambda n: f"  {__file__}:{n}: {SELF[n - 1]}", cap=5)
 sys.exit(1 if (bad or missing or cite_bad or path_bad or ambiguous or links_bad or header_bad
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
-              or width_bad or idc_bad or ve_dangling or ve_orphans
-              or self_bad) else 0)
+              or width_bad or idc_bad or ve_dangling or ve_orphans or ve_misaddressed
+              or h2_gaps or self_bad) else 0)
 

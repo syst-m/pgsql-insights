@@ -713,7 +713,7 @@ re-implementing it.
 | R9.11 | PrometheusRule with a `critical` tier — Phase 4 carryover | `chart/templates/prometheusrule.yaml`, `Makefile` (`rules-check`), shipped `f9aae41` | **tabled** — (Phase 5) tabled in §3.7's R9.11 row (16 rules, provisional, `promtool check rules` reports 16 found, no rule has fired on a real sample). Not re-implemented here; the WBS row's caveat and §3.7 now agree on it, which is what R14.9's per-owner rule asks for |
 | R13.3 | API p50 **< 100 ms** for cached endpoints, p95 **< 400 ms**; first UI paint **< 1.5 s** (R10.14) | none | **blocked** — no measurement artifact exists. `scripts/` holds seven scripts and none measures latency (`build-push-dev.sh`, `check-openapi.py`, `check-parity-matrix.py`/`.sh`, `cardinality-check.py`, `gen-licenses.py`, `image-size.py`), and `web/e2e` asserts rendered state, not timing. The requirement's precondition is Phase 4's other half — "live scrape by the reference Prometheus" — i.e. a running deployment behind a Service, which needs Phase 2's `pgsi_up` and Phase 6b's cached endpoints. When it lands it also needs a Makefile target, because R11.11 forbids CI running a command the Makefile lacks |
 | R13.4 | The cardinality budget per §5 **with a CI-checkable assertion** that the exported series count for a fixture cluster set stays under the documented bound | `scripts/cardinality-check.py` (`271b7bb`), `Makefile` (`cardinality-check`), `.github/workflows/ci.yml` (lint job); the budget itself is documented in `chart/README.md`, one row up | **implemented** — the assertion half, written here. It computes from §5's family table × `testdata/api/clusters.json` rather than carrying a literal, and its computed figure is **24 080 series / 1.56 GB over 30 d** — the cell read **24 480 series / 1.59 GB** until 2026-11-24, which is what the script computed at `271b7bb` from the table's pre-S25 per-query row of 300 (S52's rule: name both, the older figure is an exhibit of the rev that produced it, not a typo). The gate is `max(published)`, so the governing bound stays chart/README.md's 24 480 and R13.4's own 23 700 is the oldest of the four; §5's prose — 24 300 until this round, now amended to the script's 24 080 — is the fourth (`requirements.md:556-560` records that generation's own correction), and requirements.md is A3's file to amend, so the script reports all four figures and gates on the highest. The live-count form of the same assertion — scrape `/metrics`, count series — is Phase 2's, once the MetricHub emits what the table promises |
-| R16.4 | Chart goldens for all three profiles | `deploy/plain-yaml/all.yaml`, `all-lab.yaml`, `all-production.yaml`, `Makefile` (`render`, `render-check`), `chart/README.md` § "Golden renders (R16.4)" (:394) (A4) | **implemented (A4)** — R11.13's generated-file rule and R16.4's golden test are one mechanism: the committed manifests *are* the goldens, `make render-check` re-renders all three profiles and requires an empty diff, and CI's `helm` job runs it. A chart change without a regenerated manifest fails the build |
+| R16.4 | Chart goldens for all three profiles | `deploy/plain-yaml/all.yaml`, `all-lab.yaml`, `all-production.yaml`, `Makefile` (`render`, `render-check`), `chart/README.md` § "Golden renders (R16.4)" (:394), `chart/values-default.yaml` (`db4f237`), `chart/values-lab.yaml` (`92ebabf`), `chart/values-production.yaml` (`434134d`) (A4) | **implemented (A4)** — R11.13's generated-file rule and R16.4's golden test are one mechanism: the committed manifests *are* the goldens, `make render-check` re-renders all three profiles and requires an empty diff, and CI's `helm` job runs it. A chart change without a regenerated manifest fails the build |
 
 ### 3.10 Task-level breakdown (Phase 2, expanded)
 
@@ -1229,7 +1229,7 @@ touches no R-number: R3.1's own sentence is what was ambiguous, and spec §11 ru
 
 ### 3.15 Phase 5 validation entry (R14.2)
 
-**Scope, stated as a file list rather than as "Phase 5 reviewed."** The phase's seventy tracked files are `api/` (4), `internal/api/` (56, including `dto/` and `testdata/`), `internal/metrics/` (7), `scripts/check-openapi.py`, `Makefile` and `.github/workflows/ci.yml`; the table is generated at `5a11629` by `git ls-files api internal/api internal/metrics scripts/check-openapi.py Makefile .github/workflows/ci.yml` with each row's commit from `git log -1 --format=%h -- <path>`, so the rev is part of the claim, and the findings column is every `docs/reviews/finding-index.md` row whose `against` cell cites that path. `chart/templates/prometheusrule.yaml` is excluded by ownership, not by oversight: R9.11 transferred to this phase but the file is A4's, and R14.9's per-owner rule puts it in the Phase 4 entry -- which is why the Phase 4 row's cell says it is "tabled in §3.7's R9.11 row".
+**Scope, stated as a file list rather than as "Phase 5 reviewed."** The phase's seventy tracked files are `api/` (4), `internal/api/` (56, including `dto/` and `testdata/`), `internal/metrics/` (7), `scripts/check-openapi.py`, `Makefile` and `.github/workflows/ci.yml`; the table is generated at `5a11629` by `git ls-files api internal/api internal/metrics scripts/check-openapi.py Makefile .github/workflows/ci.yml` with each row's commit from `git log -1 --format=%h -- <path>`, so the rev is part of the claim, and the findings column is every `docs/reviews/finding-index.md` row whose `against` cell cites that path. The `Round that read it` column is the `filed in` rev of those same rows (the review round that read the file), `—` where the file has no findings row; the house 4-column shape is used here rather than the 3-column one the first draft of this table had, because a table without a header row cannot be pasted into the next entry without someone having to guess which column is which; §3.16's table is still the 3-column one and its own `Findings column` paragraph says so in as many words ("The `Round that read it` column of the house format is omitted here because the review record for these files is A3's, not this slot's"), which A2 converts in the commit immediately after this one -- A2's message caught the sentence and the table disagreeing by one commit, which is the two-copies class this entry exists to prevent, and the honest fix at this rev is to make the sentence name the pending conversion rather than assert a shape the neighbouring section does not have. `chart/templates/prometheusrule.yaml` is excluded by ownership, not by oversight: R9.11 transferred to this phase but the file is A4's, and R14.9's per-owner rule puts it in the Phase 4 entry -- which is why the Phase 4 row's cell says it is "tabled in §3.7's R9.11 row". `cmd/pgsi/main.go` is excluded by the same kind of rule and it is worth naming because S3's index row assigns a code half to "A2's Phase 5 (code)" and this table cites neither S3 nor the file: the table's file set is the `git ls-files api internal/api internal/metrics scripts/check-openapi.py Makefile .github/workflows/ci.yml` derivation above, which has no `cmd/` arm, and R14.9's per-owner rule tables an `cmd/pgsi` file in the Phase 1a entry, not here -- so the row belongs to §3.5's Phase 1a entry, which is the entry the checker's staged rule 2 is waiting on.
 
 **The review record.** A3's review of `f9aae41` landed six fixes to the two files A2 owns -- four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it) -- plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. Those landed in `518fbb7`. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it. The R8.3 commit `02381ba` landed the PromQL pair (`promql.go`, `promql_catalogue.go`, `promql_test.go`, the two `paths` entries) and R8.1's CI half (`scripts/check-openapi.py` -> `make openapi-check` -> a `lint`-job step), but not `cmd/pgsi`'s `--prometheus-url` -- `02381ba` touches seven files and `cmd/pgsi/main.go` is not one of them; the flag landed separately in `e6800c1`. A3's seventh fix, dropped from their own list and forwarded afterwards, is A5's `GroupFor` classifying `/metrics/` alongside `/metrics`. `internal/api/server.go`'s mount landed in `362e8d3`, closing the write-and-flag flag §3.7 carried on that file.
 
@@ -1237,76 +1237,78 @@ touches no R-number: R3.1's own sentence is what was ambiguous, and spec §11 ru
 
 **Open set.** R8.1b (the generator -- the only clause in the spec recorded false that this phase can turn true), R8.6's `--serve-ui=false` flag, and the R10.x page half, which is A4's. R8.11 is *not* open: it shipped in `4cef345`, and §3.7's own R8.11 row was corrected for exactly that reading.
 
-| `.github/workflows/ci.yml` | `0de8112` | — |
-| `Makefile` | `7a6a13b` | S108 |
-| `api/embed.go` | `9794560` | — |
-| `api/embed_test.go` | `518fbb7` | — |
-| `api/openapi.yaml` | `3d6d1c3` | S100, S119, S120, S52, S92, S99 |
-| `api/x-planned-paths.yaml` | `71a52a1` | S86, S92, S95 |
-| `internal/api/active_queries.go` | `e6a4921` | — |
-| `internal/api/active_queries_test.go` | `08b897d` | — |
-| `internal/api/auth.go` | `134206e` | — |
-| `internal/api/auth_test.go` | `02381ba` | — |
-| `internal/api/cluster_detail.go` | `51c5bbd` | — |
-| `internal/api/cluster_detail_test.go` | `51c5bbd` | — |
-| `internal/api/clusters.go` | `e8ada16` | — |
-| `internal/api/clusters_test.go` | `362e8d3` | — |
-| `internal/api/cors.go` | `134206e` | — |
-| `internal/api/cors_test.go` | `134206e` | — |
-| `internal/api/dto/clusters.go` | `93fcd44` | S100 |
-| `internal/api/dto/clusters_test.go` | `362e8d3` | — |
-| `internal/api/dto/queries.go` | `ae9cc86` | S123, S44, S94, S98 |
-| `internal/api/dto/queries_test.go` | `5a11629` | S123, S124 |
-| `internal/api/dto/series.go` | `d0ea2c4` | S100, S51, S52 |
-| `internal/api/dto/series_test.go` | `4640526` | — |
-| `internal/api/dto/sessions.go` | `c5d1772` | — |
-| `internal/api/dto/sessions_test.go` | `c5d1772` | — |
-| `internal/api/metrics_mw.go` | `79d2c11` | — |
-| `internal/api/metrics_mw_test.go` | `7a8e158` | — |
-| `internal/api/openapi_annotations.go` | `3d6d1c3` | S100, S101, S119, S120, S51, S89 |
-| `internal/api/openapi_emit.go` | `bc4c71a` | S89 |
-| `internal/api/openapi_emit_test.go` | `8cd7514` | — |
-| `internal/api/openapi_gen.go` | `fc8dd45` | — |
-| `internal/api/openapi_gen_test.go` | `db265b6` | — |
-| `internal/api/openapi_schemas.go` | `ebe0995` | — |
-| `internal/api/openapi_schemas_test.go` | `29c0ae3` | — |
-| `internal/api/paging.go` | `51c5bbd` | — |
-| `internal/api/probe_presence.go` | `7833653` | — |
-| `internal/api/probe_presence_test.go` | `7833653` | — |
-| `internal/api/promql.go` | `2a5caeb` | — |
-| `internal/api/promql_catalogue.go` | `26461a3` | — |
-| `internal/api/promql_test.go` | `cf2f5aa` | — |
-| `internal/api/queries.go` | `ffc2b47` | S119, S123 |
-| `internal/api/queries_test.go` | `ffc2b47` | — |
-| `internal/api/query_detail.go` | `4f1524c` | — |
-| `internal/api/query_detail_test.go` | `08b897d` | — |
-| `internal/api/query_plans.go` | `08b897d` | — |
-| `internal/api/query_plans_test.go` | `08b897d` | — |
-| `internal/api/readiness.go` | `362e8d3` | — |
-| `internal/api/series.go` | `51c5bbd` | — |
-| `internal/api/series_test.go` | `d0ea2c4` | — |
-| `internal/api/server.go` | `4ff4a0d` | S71, S76, S77, S99 |
-| `internal/api/server_test.go` | `898c7c0` | — |
-| `internal/api/sessions.go` | `db265b6` | — |
-| `internal/api/sessions_test.go` | `db265b6` | — |
-| `internal/api/spa.go` | `25847eb` | — |
-| `internal/api/spa_test.go` | `e8ad71a` | — |
-| `internal/api/tags.go` | `08b897d` | — |
-| `internal/api/tags_test.go` | `62740ed` | — |
-| `internal/api/testdata/routes/patterns.go` | `51c5bbd` | — |
-| `internal/api/testdata/routes/register.go` | `51c5bbd` | — |
-| `internal/api/testdata/routes/register_test.go` | `51c5bbd` | — |
-| `internal/api/testdata/schemas/api/types.go` | `29c0ae3` | — |
-| `internal/api/testdata/schemas/dto/extra_test.go` | `29c0ae3` | — |
-| `internal/api/testdata/schemas/dto/types.go` | `29c0ae3` | — |
-| `internal/metrics/http.go` | `7a8e158` | — |
-| `internal/metrics/http_test.go` | `7a8e158` | — |
-| `internal/metrics/metrics.go` | `04169bf` | S70, S76 |
-| `internal/metrics/metrics_test.go` | `7a8e158` | — |
-| `internal/metrics/scheduler_test.go` | `04169bf` | — |
-| `internal/metrics/store.go` | `898c7c0` | — |
-| `internal/metrics/store_test.go` | `c9df249` | — |
-| `scripts/check-openapi.py` | `02381ba` | S92 |
+| File | Round that read it | Findings filed | Last commit touching it |
+|---|---|---|---|
+| `.github/workflows/ci.yml` | — | — | `0de8112` |
+| `Makefile` | — | — | `7a6a13b` |
+| `api/embed.go` | — | — | `9794560` |
+| `api/embed_test.go` | — | — | `518fbb7` |
+| `api/openapi.yaml` | this review | S100, S120 | `3d6d1c3` |
+| `api/x-planned-paths.yaml` | this review | S86 | `71a52a1` |
+| `internal/api/active_queries.go` | — | — | `e6a4921` |
+| `internal/api/active_queries_test.go` | — | — | `08b897d` |
+| `internal/api/auth.go` | — | — | `134206e` |
+| `internal/api/auth_test.go` | — | — | `02381ba` |
+| `internal/api/cluster_detail.go` | — | — | `51c5bbd` |
+| `internal/api/cluster_detail_test.go` | — | — | `51c5bbd` |
+| `internal/api/clusters.go` | — | — | `e8ada16` |
+| `internal/api/clusters_test.go` | — | — | `362e8d3` |
+| `internal/api/cors.go` | — | — | `134206e` |
+| `internal/api/cors_test.go` | — | — | `134206e` |
+| `internal/api/dto/clusters.go` | — | — | `93fcd44` |
+| `internal/api/dto/clusters_test.go` | — | — | `362e8d3` |
+| `internal/api/dto/queries.go` | `ae9cc86`, this review | S94, S123 | `ae9cc86` |
+| `internal/api/dto/queries_test.go` | `ae9cc86` | S123, S124 | `5a11629` |
+| `internal/api/dto/series.go` | `136c059` | S52 | `d0ea2c4` |
+| `internal/api/dto/series_test.go` | — | — | `4640526` |
+| `internal/api/dto/sessions.go` | — | — | `c5d1772` |
+| `internal/api/dto/sessions_test.go` | — | — | `c5d1772` |
+| `internal/api/metrics_mw.go` | — | — | `79d2c11` |
+| `internal/api/metrics_mw_test.go` | — | — | `7a8e158` |
+| `internal/api/openapi_annotations.go` | this review | S119, S120 | `3d6d1c3` |
+| `internal/api/openapi_emit.go` | — | — | `bc4c71a` |
+| `internal/api/openapi_emit_test.go` | — | — | `8cd7514` |
+| `internal/api/openapi_gen.go` | — | — | `fc8dd45` |
+| `internal/api/openapi_gen_test.go` | — | — | `db265b6` |
+| `internal/api/openapi_schemas.go` | — | — | `ebe0995` |
+| `internal/api/openapi_schemas_test.go` | — | — | `29c0ae3` |
+| `internal/api/paging.go` | — | — | `51c5bbd` |
+| `internal/api/probe_presence.go` | — | — | `7833653` |
+| `internal/api/probe_presence_test.go` | — | — | `7833653` |
+| `internal/api/promql.go` | — | — | `2a5caeb` |
+| `internal/api/promql_catalogue.go` | — | — | `26461a3` |
+| `internal/api/promql_test.go` | — | — | `cf2f5aa` |
+| `internal/api/queries.go` | `ae9cc86` | S123 | `ffc2b47` |
+| `internal/api/queries_test.go` | — | — | `ffc2b47` |
+| `internal/api/query_detail.go` | — | — | `4f1524c` |
+| `internal/api/query_detail_test.go` | — | — | `08b897d` |
+| `internal/api/query_plans.go` | — | — | `08b897d` |
+| `internal/api/query_plans_test.go` | — | — | `08b897d` |
+| `internal/api/readiness.go` | — | — | `362e8d3` |
+| `internal/api/series.go` | — | — | `51c5bbd` |
+| `internal/api/series_test.go` | — | — | `d0ea2c4` |
+| `internal/api/server.go` | — | — | `4ff4a0d` |
+| `internal/api/server_test.go` | — | — | `898c7c0` |
+| `internal/api/sessions.go` | — | — | `db265b6` |
+| `internal/api/sessions_test.go` | — | — | `db265b6` |
+| `internal/api/spa.go` | — | — | `25847eb` |
+| `internal/api/spa_test.go` | — | — | `e8ad71a` |
+| `internal/api/tags.go` | — | — | `08b897d` |
+| `internal/api/tags_test.go` | — | — | `62740ed` |
+| `internal/api/testdata/routes/patterns.go` | — | — | `51c5bbd` |
+| `internal/api/testdata/routes/register.go` | — | — | `51c5bbd` |
+| `internal/api/testdata/routes/register_test.go` | — | — | `51c5bbd` |
+| `internal/api/testdata/schemas/api/types.go` | — | — | `29c0ae3` |
+| `internal/api/testdata/schemas/dto/extra_test.go` | — | — | `29c0ae3` |
+| `internal/api/testdata/schemas/dto/types.go` | — | — | `29c0ae3` |
+| `internal/metrics/http.go` | — | — | `7a8e158` |
+| `internal/metrics/http_test.go` | — | — | `7a8e158` |
+| `internal/metrics/metrics.go` | — | — | `04169bf` |
+| `internal/metrics/metrics_test.go` | — | — | `7a8e158` |
+| `internal/metrics/scheduler_test.go` | — | — | `04169bf` |
+| `internal/metrics/store.go` | — | — | `898c7c0` |
+| `internal/metrics/store_test.go` | — | — | `c9df249` |
+| `scripts/check-openapi.py` | — | — | `02381ba` |
 
 
 ### 3.16 Phase 4 validation entry (R14.2)
