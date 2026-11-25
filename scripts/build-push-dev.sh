@@ -24,7 +24,7 @@ BUILDKIT=""
 
 for arch in amd64 arm64; do
   dir="$ROOT/bin/oci-$arch"
-  echo "==> building linux/$arch ($(VERSION=$VERSION COMMIT=$COMMIT))"
+  echo "==> building linux/$arch (VERSION=$VERSION COMMIT=$COMMIT)"
   rm -rf "$dir"
   mkdir -p "$dir"
   docker buildx build $BUILDKIT --platform "linux/$arch" \
