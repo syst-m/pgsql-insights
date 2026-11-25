@@ -502,7 +502,7 @@ poolers.go's pgbouncer parameters) wants the error, because a malformed map is a
 cluster that R1.5's view has to report rather than render as 'no entries'." Both named sites drop it
 anyway. `build.go:532-534`: `raw, err := nestedStringMapE(obj, "status", "certificates",
 "expirations"); if err != nil || raw == nil { return c }` — `buildCertificates` returns no error,
-so a malformed map is indistinguishable from a cluster with no certificates. `poolers.go:92`:
+so a malformed map is indistinguishable from a cluster with no certificates. `internal/discovery/poolers.go:92`:
 `if params, err := nestedStringMapE(obj, "spec", "pgbouncer", "parameters"); err == nil {
 v.Parameters = params }` — a malformed map becomes "no parameters", which R6.2's pool sizing then
 reads as an empty set. Concrete input: `status.certificates.expirations: "not-a-map"` → the API
