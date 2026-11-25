@@ -154,9 +154,9 @@ type Config struct {
 	// its sibling above is a bool, because R3.12 gives the application dimension
 	// two sources and the requirement has to name which one is recorded:
 	// `application_name` (the default) is R3.12's (a), Postgres's own
-	// application_name; `query_comment` is R3.12's (b), the `/* pgsi: */`
-	// grammar; `off` records no application dimension at all, which is Cloud SQL's
-	// `recordApplicationTags=false`.
+	// application_name; `query_comment` is R3.12's (b), whose `/* pgsi: */` grammar
+	// names five of Cloud SQL's six app-supplied keys and `application` is the
+	// missing one (filed with A3); `off` is Cloud SQL's `recordApplicationTags=false`.
 	//
 	// Empty means the default. The value is validated in Open, so a store opened
 	// with `--application-tag-source=application` fails there rather than writing
