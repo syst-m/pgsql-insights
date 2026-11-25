@@ -22,29 +22,40 @@
  * (`state/useActiveQueries.test.ts`), and this one has no state-layer file to
  * belong to until `useTags` exists.
  *
- * Rendered directly, not through `<App>`: `routes.ts:262`'s `component:` is
- * still `null` (the flip is A4's, gated on this file), so the shell cannot
- * render this page yet — and `PageProps<T>` exists precisely so a page test can
- * pass the props the shell will.
+ * Rendered directly, not through `<App>` even though the shell mounts this page
+ * now (`routes.ts:263`'s `component: TagsPage`, A4's `843986b`): the mount is
+ * `routes.test.tsx`'s to assert, and `PageProps<T>` exists precisely so a page
+ * test can pass the props the shell will without routing to it.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { isValidElement, type ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ClientConfig } from "../api/client";
+import type { ClientConfig, TagsParams } from "../api/client";
 import { FIXTURE_TAGS } from "../api/fixtures";
 import type { Envelope, TagView } from "../api/types";
 import { DEFAULTS } from "../components/ColumnMenu";
 import { buildPath } from "../routes";
 import { DEFAULT_STATE, TIME_RANGES, type TimeRange, type UrlState } from "../state/urlState";
 import { formatDurationMs, formatNumber, formatPercent, formatTimestamp, NULL_VALUE } from "../lib/format";
-import { TAG_COLUMNS, TagsPage, cell, tagsParamsFrom, type TagsPageProps } from "./Tags";
+import {
+  TAG_COLUMNS,
+  TagsPage,
+  cell,
+  tagsKey,
+  tagsParamsFrom,
+  useTagsFetch,
+  type TagsPageProps,
+} from "./Tags";
 
 const CFG: ClientConfig = { source: "fixture", apiBase: "", fixture: "fleet", delayMs: 0 };
 const CLUSTER_ID = "open-webui/open-webui-pg";
 
-/** The URL this page is mounted from: `routes.ts:256-266`'s
+/** The unstubbed fetch, so the http-arm suite below can put it back. */
+const realFetch = globalThis.fetch;
+
+/** The URL this page is mounted from: `routes.ts:257-267`'s
  *  `/c/:ns/:name/tags`, which is `scope: "cluster"` with no other params. */
 const URL_STATE: UrlState = { ...DEFAULT_STATE, page: "tags", cluster: CLUSTER_ID };
 
@@ -394,7 +405,7 @@ describe("TagsPage — R10.12's named states", () => {
 
 describe("TagsPage — a URL that names no cluster", () => {
   it("renders the no-cluster frame instead of the page", () => {
-    // `routes.ts:256-266` is `scope: "cluster"`; the route takes a
+    // `routes.ts:257-267` is `scope: "cluster"`; the route takes a
     // namespace/cluster pair, so there is no fleet-wide form to fall back to.
     const { container, onPatch } = renderPage({
       state: { ...DEFAULT_STATE, page: "tags" },
@@ -464,5 +475,171 @@ describe("tagsParamsFrom", () => {
       ).toBeNull();
     }
     expect(tagsParamsFrom({ ...DEFAULT_STATE, page: "tags", cluster: null }, NOW)).toBeNull();
+  });
+});
+
+/* ── 5. useTagsFetch — the R10.22 envelope (S96/S97) ───────────────────────── */
+
+describe("useTagsFetch — the R10.22 envelope (S96/S97)", () => {
+  const NOW = new Date("2026-11-23T12:00:00Z");
+  /** The http arm, because the fixture arm returns a const without fetching —
+   *  every rule in this block is invisible to a `CFG`-based render. */
+  const HTTP: ClientConfig = { source: "http", apiBase: "", fixture: "fleet", delayMs: 0 };
+  // Annotated `TagsParams`, not the narrower `TagsParams & {namespace; cluster}`
+  // the factory returns: `renderHook` infers its Props from `initialProps`, and
+  // the narrower type makes every later `rerender` with a plain `TagsParams` an
+  // assignment error for a reason that has nothing to do with the test.
+  const PARAMS_A: TagsParams = tagsParamsFrom(URL_STATE, NOW)!; // open-webui/open-webui-pg
+  const PARAMS_B: TagsParams = { namespace: "postgres-operator", cluster: "postgres-operator-pg" };
+
+  /** A fetch that answers with `body` and counts its calls.
+   *
+   *  The count is the point, and it is the only instrument for S96: with
+   *  `state.tags` in `load`'s dep list the hook refetched in a loop — 21 calls
+   *  30 ms after mount, 46 by 60 ms — and the render is byte-identical at one
+   *  fetch and at forty-six, so every test above passes either way.
+   *  `responseOf`/`stub` from `state/useActiveQueries.test.ts:30-46`, in the
+   *  shape this hook needs. */
+  function countingFetch(body: unknown): () => number {
+    const text = JSON.stringify(body);
+    let calls = 0;
+    globalThis.fetch = () => {
+      calls += 1;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => text,
+        json: async () => JSON.parse(text) as unknown,
+      } as unknown as Response);
+    };
+    return () => calls;
+  }
+
+  /** A fetch whose answers the test hands over by hand, so the in-flight frame
+   *  between a request and its response is observable. `pending()` from the same
+   *  template, narrowed to the one thing these tests need: answer the n-th
+   *  request, optionally with a failure. */
+  function holdFetch(): {
+    resolve: (n: number, body: unknown, ok?: boolean, status?: number) => void;
+  } {
+    const open: ((res: Response) => void)[] = [];
+    globalThis.fetch = () =>
+      new Promise<Response>((resolve) => {
+        open.push(resolve);
+      });
+    return {
+      resolve: (n, body, ok = true, status = 200) => {
+        const text = JSON.stringify(body);
+        open[n]!(
+          {
+            ok,
+            status,
+            statusText: ok ? "OK" : "Internal Server Error",
+            text: async () => text,
+            json: async () => JSON.parse(text) as unknown,
+          } as unknown as Response,
+        );
+      },
+    };
+  }
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("keys on the cluster pair and nothing else", () => {
+    // `activeKey` (state/useActiveQueries.ts:73-75) in this page's vocabulary:
+    // the subject is the cluster, so the window, the limit and the sort must not
+    // change the key — they change the query, not whose rows these are.
+    expect(tagsKey(PARAMS_A)).toBe("open-webui/open-webui-pg");
+    expect(tagsKey({ ...PARAMS_A, limit: 50, sort: "cpu" })).toBe(tagsKey(PARAMS_A));
+    expect(tagsKey(PARAMS_B)).not.toBe(tagsKey(PARAMS_A));
+  });
+
+  it("fetches once per params, not once per render (S96)", async () => {
+    const calls = countingFetch(FIXTURE_TAGS);
+    const { result } = renderHook(() => useTagsFetch(HTTP, PARAMS_A));
+
+    await waitFor(() => expect(result.current.state.phase).toBe("ready"));
+    // One fetch — and the payload it returned is the one on screen, so a hook
+    // that fetched once and dropped the body would not pass on the count alone.
+    expect(calls()).toBe(1);
+    expect(result.current.state.tags?.data).toEqual(FIXTURE_TAGS.data);
+  });
+
+  it("is idle and never fetches when the URL names no cluster", () => {
+    const calls = countingFetch(FIXTURE_TAGS);
+    const { result } = renderHook(() => useTagsFetch(HTTP, null));
+
+    expect(result.current.state).toEqual({ phase: "idle", tags: null, error: null, refreshing: false });
+    expect(calls()).toBe(0);
+  });
+
+  it("drops the other cluster's rows while the new subject is in flight (S97)", async () => {
+    const held = holdFetch();
+    const { result, rerender } = renderHook(
+      ({ params }: { params: TagsParams }) => useTagsFetch(HTTP, params),
+      { initialProps: { params: PARAMS_A } },
+    );
+
+    await act(async () => {
+      held.resolve(0, envelopeWith([TAG_NO_COMMENT]));
+    });
+    expect(result.current.state.tags?.data[0]?.tagHash).toBe(TAG_NO_COMMENT.tagHash);
+
+    // Navigate to cluster b with b's answer still open. Before the key existed
+    // `held` was `state.tags`, so cluster a's rows stayed on screen for the whole
+    // in-flight window under cluster b's title. The abort pair stops a's response
+    // from *overwriting* b's; only the key stops a's from *displaying* under it.
+    rerender({ params: PARAMS_B });
+    expect(result.current.state.phase).toBe("loading");
+    expect(result.current.state.tags).toBeNull();
+
+    await act(async () => {
+      held.resolve(1, envelopeWith([TAG_PARTIAL]));
+    });
+    expect(result.current.state.tags?.data[0]?.tagHash).toBe(TAG_PARTIAL.tagHash);
+  });
+
+  it("holds the rows and flags refreshing when the same subject refetches", async () => {
+    // The other half of the key. The caller memoises `params` with
+    // `useMemo(..., [state])` (`Tags.tsx:178`), so patching any *other* URL
+    // param hands over a new object for the same cluster; that must refetch
+    // without blanking the table.
+    const held = holdFetch();
+    const { result, rerender } = renderHook(
+      ({ params }: { params: TagsParams }) => useTagsFetch(HTTP, params),
+      { initialProps: { params: PARAMS_A } },
+    );
+    await act(async () => {
+      held.resolve(0, envelopeWith([TAG_NO_COMMENT]));
+    });
+
+    rerender({ params: { ...PARAMS_A, limit: 50 } });
+    expect(result.current.state.phase).toBe("ready");
+    expect(result.current.state.refreshing).toBe(true);
+    expect(result.current.state.tags?.data[0]?.tagHash).toBe(TAG_NO_COMMENT.tagHash);
+  });
+
+  it("keeps the last good frame and the banner when a refresh fails (R10.22)", async () => {
+    const held = holdFetch();
+    const { result } = renderHook(() => useTagsFetch(HTTP, PARAMS_A));
+    await act(async () => {
+      held.resolve(0, envelopeWith([TAG_NO_COMMENT]));
+    });
+
+    // The error panel's Retry, on a subject whose rows are already on screen.
+    // `phase: held === null ? "error" : "ready"` is the line this asserts: a
+    // failed refresh over a good frame is ready-with-a-banner, not an error
+    // screen replacing a table that still has data in it.
+    act(() => result.current.refresh());
+    await act(async () => {
+      held.resolve(1, {}, false, 500);
+    });
+    expect(result.current.state.phase).toBe("ready");
+    expect(result.current.state.tags?.data[0]?.tagHash).toBe(TAG_NO_COMMENT.tagHash);
+    expect(result.current.state.error).not.toBeNull();
+    expect(result.current.state.refreshing).toBe(false);
   });
 });

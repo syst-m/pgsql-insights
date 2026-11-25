@@ -96,7 +96,7 @@
  *
  * `extensionInstalled` is the interim `pages/Queries.tsx:45` carries too. The
  * tags envelope has no presence field — R3.1's per-database detection is
- * `dto.ExtensionPresenceView`, which A1 added at `dto/queries.go:267` for the
+ * `dto.ExtensionPresenceView`, which A1 added at `dto/queries.go:268` for the
  * *queries* route — so `unavailable` renders on an explicit `false` and every
  * response today is *unknown*, which renders the plain empty.
  */
@@ -484,7 +484,7 @@ const RANGE_SECONDS: Record<TimeRange, number> = {
  *  takes a `namespace`/`cluster` pair, so there is no cluster-less form of this
  *  page to fall back to and a page that cannot name its cluster should say so
  *  rather than fetch a fleet-wide rollup and label it with a cluster's name.
- *  The malformed-pair rule is `activeParamsFrom`'s (useActiveQueries.ts:83-95)
+ *  The malformed-pair rule is `activeParamsFrom`'s (useActiveQueries.ts:88-96)
  *  verbatim: a pair needs a non-empty name on both sides of the slash, so
  *  "noslash", "ns/" and "/name" are all `null`.
  *
@@ -530,7 +530,7 @@ export function tagsParamsFrom(
 
 /** `2026-11-23T12:00:00.000Z` → `2026-11-23T12:00:00Z`, matching `time.RFC3339`
  *  as `internal/api/series.go:178` formats it (R10.21: every timestamp the API
- *  emits is RFC 3339 UTC). The second copy of this one too — useQueries.ts:109-111. */
+ *  emits is RFC 3339 UTC). The second copy of this one too — useQueries.ts:106-109. */
 function trimMs(d: Date): string {
   return d.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -549,6 +549,17 @@ export interface UseTags {
   state: TagsFetchState;
   /** Force a refresh (the error panel's Retry calls it; R16.7's suite calls it). */
   refresh: () => void;
+}
+
+/** The subject a `TagsParams` names: the cluster pair, and nothing else.
+ *
+ *  `activeKey` (useActiveQueries.ts:73-75) in another vocabulary — the pair,
+ *  not the window — because the window is a query parameter and the subject is
+ *  the cluster: changing the range refetches the same cluster, and the rows that
+ *  belong to that cluster are the ones worth holding while the new frame is in
+ *  flight. Exported so the suite can name the key it is testing. */
+export function tagsKey(params: TagsParams): string {
+  return `${params.namespace ?? ""}/${params.cluster ?? ""}`;
 }
 
 /** `fetchTags` (client.ts:477) behind R10.22's refetch envelope.
@@ -570,7 +581,7 @@ export interface UseTags {
  *
  *  No `pollMs`: see the header. The `refresh` the error panel's Retry calls is
  *  the same `load`, so the button in `TAGS_COPY.error` does what it says. */
-function useTagsFetch(cfg: ClientConfig, params: TagsParams | null): UseTags {
+export function useTagsFetch(cfg: ClientConfig, params: TagsParams | null): UseTags {
   const [state, setState] = useState<TagsFetchState>({
     phase: "idle",
     tags: null,
@@ -578,37 +589,56 @@ function useTagsFetch(cfg: ClientConfig, params: TagsParams | null): UseTags {
     refreshing: false,
   });
   const abort = useRef<AbortController | null>(null);
+  /** The payload and the subject it belongs to, as one value (R10.22).
+   *
+   *  Two jobs, one ref. It lets `load` read the previous frame without putting
+   *  `state.tags` in `load`'s own dep list — a value `load` writes must not be
+   *  a dep of `load`, or every fetch produces a new `load`, the effect re-runs,
+   *  and the page refetches forever. And the `key` half is what separates the
+   *  two cases `params` identity conflates: the caller memoises with
+   *  `useMemo(..., [state])` (`:178`), which keys on the whole `UrlState`, so
+   *  patching *any* other URL param yields a new `params` for the same cluster.
+   *  Same subject → hold the rows while the refetch is in flight; different
+   *  subject → drop them, because cluster a's rows under cluster b's title is
+   *  the failure R10.22's key exists to prevent. The abort pair stops a stale
+   *  response from *overwriting* the new one; only the key stops it from
+   *  *displaying* under the new title. */
+  const last = useRef<{ key: string | null; tags: Envelope<TagView> | null }>({
+    key: null,
+    tags: null,
+  });
 
   const load = useCallback(async () => {
     abort.current?.abort();
 
     if (params === null) {
+      last.current = { key: null, tags: null };
       setState({ phase: "idle", tags: null, error: null, refreshing: false });
       return;
     }
 
     const ctrl = new AbortController();
     abort.current = ctrl;
-    // R10.22: hold the previous frame while the new one is in flight. The
-    // subject key the other hooks keep alongside the payload is unnecessary
-    // here because `params` identity already encodes the subject — a cluster
-    // change is a new `params` object, and this hook's caller memoises it per
-    // `state`, so a new subject is a new `load` and the old payload is the one
-    // being replaced either way.
-    const held = state.tags;
+    // R10.22: same subject → hold the previous frame; different subject → drop
+    // it. `held` comes from the ref, never from `state`, so `load`'s dep list
+    // stays `[cfg, params]`.
+    const key = tagsKey(params);
+    const held = last.current.key === key ? last.current.tags : null;
 
     setState({ phase: held === null ? "loading" : "ready", tags: held, error: null, refreshing: held !== null });
 
     try {
       const next = await fetchTags(cfg, params, { signal: ctrl.signal });
       if (ctrl.signal.aborted) return;
+      last.current = { key, tags: next };
       setState({ phase: "ready", tags: next, error: null, refreshing: false });
     } catch (err) {
       if (ctrl.signal.aborted) return;
       const message = err instanceof Error ? err.message : String(err);
+      last.current = { key, tags: held };
       setState({ phase: held === null ? "error" : "ready", tags: held, error: message, refreshing: false });
     }
-  }, [cfg, params, state.tags]);
+  }, [cfg, params]);
 
   useEffect(() => {
     void load();

@@ -175,8 +175,9 @@ export interface TagsPanelInput {
 
 /** The Tags page's rule (R10.3's ninth page, R3.12's UI, R8.2's route).
  *
- *  The fourth derivation over the one `PanelState` union, and the second one
- *  that can reach `unavailable`. R3.7's rollup is computed from the query store,
+ *  The fourth derivation over the one `PanelState` union, and the third one
+ *  that can reach `unavailable` — `derivePanelState` at `:61` and
+ *  `deriveQueryPanelState` at `:110` come before it. R3.7's rollup is computed from the query store,
  *  which is what `pg_stat_statements` feeds, so an empty tag set is ambiguous in
  *  exactly the way an empty query set is: not installed (R10.27's first-class
  *  screen) or installed with nothing in the window (R10.12's plain empty). The
