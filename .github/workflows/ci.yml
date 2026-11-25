@@ -255,11 +255,11 @@ jobs:
 # twelve ci.yml line numbers -- three form-A (:40, :139, :238 spelled with the path) and
 # nine bare form-C (:42, :84, :90, :96, :117, :141, :203, :208, :213) that inherit the
 # path from the line's first citation. The checker's form-A rule
-# (scripts/check-parity-matrix.py:384) fails a cite only when its number exceeds the
+# (scripts/check-parity-matrix.py:391) fails a cite only when its number exceeds the
 # file's length, so a top insertion would leave all twelve "resolving" while pointing
 # at the wrong lines. That is the ed58452 class named at the top of that script. The four
 # `Makefile:` numbers on that row (:58, :93, :88, :247) were invisible to the checker until
-# 8582636 taught P (:327) to alternate over CITE_NAMES -- before that P required a
+# 8582636 taught P (:334) to alternate over CITE_NAMES -- before that P required a
 # dot-extension, so an extensionless file was unattachable in form A.
 #
 #   run: lines              23   grep -c '^ *run:' .github/workflows/ci.yml
