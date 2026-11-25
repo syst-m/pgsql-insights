@@ -2058,13 +2058,58 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
 # ---------------------------------------------------------------------------
-# Planned routes (R8.2, R8.11) — deliberately NOT under `paths` yet.
+# Planned routes — the manifest, and the grammar of its keys.
 #
-# R14.7 requires every route *in code* to be documented; these are not in code,
-# and putting them in `paths` would make the document claim routes that 404.
-# They are listed here so Phase 3/5 extend this file by promoting entries into
-# `paths` — one edit per route — instead of restructuring it. The shape of the
-# catalogue is fixed by R8.2, so this is a list of names, not a design.
+# What this file is. Generator input, not generated output: `internal/api/
+# openapi_gen.go:16` embeds it and writes it into api/openapi.yaml at :144, one of
+# the three inputs that file has (the route table from the go/ast walk over
+# internal/api, the annotation table, and this manifest), which is why Makefile:101
+# says editing api/openapi.yaml by hand does not survive the next `make openapi`.
+# R14.7 requires every route *in code* to be documented; these are not in code, and
+# putting them in `paths` would make the document claim routes that 404.
+#
+# Key grammar — one top-level key, one sub-key per requirement. The container is
+# `x-planned-paths:` and it names the artifact, never a requirement; every key under
+# it names exactly one requirement and is spelled `r<major>.<minor>-<slug>` —
+# `r8.2-catalogue`, `r4.5-actions`, `r8.3-promql-pair`. A requirement with routes in
+# both `paths` and here gets one key here, not one per verb and not one per page; a
+# route two requirements name (R8.2's catalogue and R10.3's page) is filed under the
+# one that enumerates the route, with the other named in the entry's own comment.
+# Two keys exist today, `x-planned-paths:` at :56 and `r8.2-catalogue:` at :133 — one
+# container and one requirement — and the four requirement keys that used to be here
+# are retirement notes, not keys: r4.5-actions (:146), r8.3-promql-pair (:168), and
+# r8.11-batched-series and r8.7-debug at the foot of the file. That closes the
+# spelling: `planned_r8_2:`, `R8.2:` and a bare `catalogue:` are all unavailable,
+# because a key named for a page rather than a requirement is how one route ends up
+# listed twice under two owners.
+#
+# Entry form — a bare path string. `/api/v1/poolers`, no method prefix, no status
+# field. `scripts/check-openapi.py:386` requires `entry.startswith("/")`, so
+# `GET /api/v1/poolers` is a failure rather than a style choice (measured on a copy
+# of the generated document: adding that one line under r8.2-catalogue exits 1 with
+# `'GET /api/v1/poolers' is not a route path`). Set membership is the whole claim; a
+# status field is what rots, so the twelve entries carry their requirement ids in
+# trailing comments and nothing that can disagree with the code.
+#
+# The assertion, and what enforces it. Per requirement key: that key's entries plus
+# the `paths` entries the same requirement owns equal the route set requirements.md
+# names for it — a partition per key, never a global count, because a global number
+# cannot be attributed (R8.2's row has been wrong six times over: `grep -c '^  /api'`
+# said 9, this file lists 12, the generated document has 21 paths, and none of the
+# three is R8.2's route set). `paths` ∩ this file = ∅ is the half that makes a
+# promotion visible. Enforced today: entry shape (check-openapi.py:379-388) and the
+# implemented↔route pairing (`internal/api/openapi_gen.go:214` `checkRouteTable`,
+# plus the `make openapi` byte-compare). Not enforced by any tool: the per-requirement
+# partition and the disjointness — measured, re-adding the implemented
+# `/api/v1/insights/queries` to r8.2-catalogue leaves check-openapi.py at rc 0, so
+# the header states the assertion and the checker that fails it is not written yet.
+#
+# A move is a deletion with a retirement note, never a status flip. The four notes
+# named above are the pattern: the route moves to `paths` in the commit that registers
+# it, the entry here disappears in the same commit, and the note says what it was,
+# which requirement owned it, and what the old text used to claim. A `status:` line
+# would let a route be implemented and planned at once, which is the one state R14.7
+# cannot represent.
 # ---------------------------------------------------------------------------
 x-planned-paths:
   # /api/v1/clusters/{namespace}/{name} was the first route in this list. It
