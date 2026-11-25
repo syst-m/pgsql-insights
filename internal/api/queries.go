@@ -206,8 +206,8 @@ func sortQueries(rows []dto.QueryView, key string, desc bool) {
 // null, because the field has no omitempty and `pgStatStatements: null` would
 // tell R10.27's screen something the Go type does not, which is the argument
 // pageRows makes for `data` one line up. The rows arrive with a presence source;
-// the fixture gains the key in the commit that switches dto/queries_test.go:89's
-// TestQueriesFixtureIsCanonical to this type, as that file's own docblock says.
+// the fixture gained it in ae9cc86, which switched dto/queries_test.go's
+// TestQueriesFixtureIsCanonical to this type; its docblock says the same.
 func pageQueries(rows []dto.QueryView, q QueryListQuery, now time.Time) dto.QueriesResponse {
 	env := pageRows(rows, q, querySortKey, dto.Meta{GeneratedAt: now})
 
