@@ -32,6 +32,7 @@ import apiQueryDetailJson from "../../../testdata/api/query-detail.json";
 import apiQueryPlansJson from "../../../testdata/api/query-plans.json";
 import apiQuerySeriesJson from "../../../testdata/api/query-series.json";
 import apiQueriesJson from "../../../testdata/api/queries.json";
+import apiSessionsTerminateJson from "../../../testdata/api/sessions-terminate.json";
 import apiTagsJson from "../../../testdata/api/tags.json";
 
 import { emptyEnvelope, toFleetResponse, type RowExtras } from "./envelope";
@@ -48,6 +49,7 @@ import type {
   QuerySeriesEnvelope,
   QueryView,
   TagView,
+  TerminateResponse,
 } from "./types";
 
 /** The drift check, in one line.
@@ -122,6 +124,14 @@ export const FIXTURE_TAGS: Envelope<TagView> = apiTagsJson;
  *  rather than rendering a table with a blank column. The third row carries no
  *  `queryid`, which is the fixture's own proof that the field is omitempty. */
 export const FIXTURE_ACTIVE_QUERIES: ActiveQueriesResponse = apiActiveQueriesJson;
+
+/** POST /api/v1/sessions/{pid}/terminate — R4.5's audit answer, and the second
+ *  fixture here for a route whose body is not an envelope. Assigned, not cast:
+ *  the same one-line drift check `FIXTURE_ENVELOPE` is, so a json tag renamed on
+ *  `dto.TerminateResponse` without regenerating the fixture fails the typecheck
+ *  here. One object, four fields, no `meta` — the non-envelope case the
+ *  interface above explains, and the reason there is no `data` array to pin. */
+export const FIXTURE_TERMINATE_SESSION: TerminateResponse = apiSessionsTerminateJson;
 
 /** Now read from the contract instead of being a second copy of it. The old
  *  value ("2026-11-20T11:04:12Z") was invented here; the contract's is

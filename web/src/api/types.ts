@@ -38,14 +38,21 @@
  *                   are not added here because nothing in `web/` consumes the
  *                   PromQL routes yet, whereas the Detail chart does need this one.
  *                   The fourth block — `SessionView`, `ScorecardView`,
- *                   `BlockingChainView`, `ActiveQueriesResponse` — mirrors
- *                   `internal/api/dto/sessions.go` (R4.1/R4.4, served by
- *                   `e6a4921`). It is the one block here whose response type is
+ *                   `BlockingChainView`, `ActiveQueriesResponse`,
+ *                   `TerminateResponse` — mirrors `internal/api/dto/sessions.go`
+ *                   (R4.1/R4.4, served by `e6a4921`; R4.5's body added with
+ *                   `c5d1772`). It is the one block here whose response type is
  *                   not `Envelope<T>`: R4.1 puts a scorecard above the table and
  *                   R8.4's generic carries exactly `data` + `meta`, so the route
  *                   publishes a named body and this file copies that name rather
- *                   than widening the shared envelope. Its pin is
- *                   `testdata/api/active-queries.json`, imported by fixtures.ts.
+ *                   than widening the shared envelope. R4.5's single-object
+ *                   answer is that block's second named body, for the reason the
+ *                   dto's own "WHY NOT AN ENVELOPE" paragraph gives it — a page
+ *                   and its paging describe a list, and `meta.truncated` has no
+ *                   meaning for one object. Its pins are
+ *                   `testdata/api/active-queries.json` and
+ *                   `testdata/api/sessions-terminate.json`, imported by
+ *                   fixtures.ts.
  *
  *   presentation  — `FleetRow`, what the Fleet table actually draws: a
  *                   ClusterView plus the fields the UI computes or owns and
@@ -868,6 +875,37 @@ export interface ActiveQueriesResponse {
   scorecard: ScorecardView;
   blockingChains: BlockingChainView[];
   meta: Meta;
+}
+
+/** The body of `POST /api/v1/sessions/{pid}/terminate`. Mirrors
+ *  `dto.TerminateResponse` (sessions.go:302), which is the third of the three
+ *  named non-generic bodies the dto's "WHY NOT AN ENVELOPE" paragraph counts —
+ *  `api.VersionResponse` (server.go:627), `ActiveQueriesResponse` (:236) and
+ *  this one, with a different reason on each. This file mirrors two of the
+ *  three: `ActiveQueriesResponse` above and this. `VersionResponse` has no TS
+ *  type here because nothing in `web/` calls `/version` yet — the same reason
+ *  `promql.go`'s payloads are absent, and the reason the header gives for
+ *  keeping the wire half to types something consumes.
+ *
+ *  The name is the Go name, not a TS-side invention of it: A3's ruling on the
+ *  A1/A2 naming question (requirements.md:525) is that a Go-side named body
+ *  does not rename its TS counterpart, so the pair is `dto.TerminateResponse`
+ *  ↔ `TerminateResponse` here, exactly as `dto.ActiveQueriesResponse` pairs
+ *  with the interface above.
+ *
+ *  No field is `omitempty`, so all four are required. `terminated` is
+ *  `pg_terminate_backend`'s own return value and `false` on a 200 is a real
+ *  answer — the session was already gone — which is the dto's stated reason for
+ *  making it a field instead of folding it into the status code. `actor` and
+ *  `target` are R4.5's audit pair, carried in the body so the response cannot
+ *  disagree with the log line the same request wrote by re-deriving either half
+ *  from a second read; `target` is the `<namespace>/<cluster>` pair the path
+ *  cannot carry, because a pid is unique only per instance. */
+export interface TerminateResponse {
+  pid: number;
+  terminated: boolean;
+  actor: string;
+  target: string;
 }
 
 /* ── presentation ────────────────────────────────────────────────────────── */
