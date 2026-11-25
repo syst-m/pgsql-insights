@@ -199,23 +199,34 @@ func sortQueries(rows []dto.QueryView, key string, desc bool) {
 // gone rather than renamed: an alias names a type, and the type this route serves
 // is no longer `dto.Envelope[dto.QueryView]`.
 //
-// The third key is empty here and says so. R3.1's presence rows come from the
-// collector (internal/collector/settings.go), not from the query store this route
-// reads, and there is no seam between the two yet — the handler hands this
-// function the rows and the query and nothing else. An empty array rather than a
-// null, because the field has no omitempty and `pgStatStatements: null` would
-// tell R10.27's screen something the Go type does not, which is the argument
-// pageRows makes for `data` one line up. The rows arrive with a presence source;
-// the fixture gained it in ae9cc86, which switched dto/queries_test.go's
-// TestQueriesFixtureIsCanonical to this type; its docblock says the same.
-func pageQueries(rows []dto.QueryView, q QueryListQuery, now time.Time) dto.QueriesResponse {
+// The third key arrives as a parameter rather than being minted here. R3.1's
+// presence rows come from the collector's per-database probe
+// (internal/collector/settings.go's S119 fan-out, A1's `6e88618`), not from the
+// query store this route reads, so the handler reads the route's
+// ExtensionPresenceSource and hands the rows in beside the query rows — which is
+// the same reason the query rows are a parameter: the paging stays testable
+// without an HTTP server, and a function that reached for its second source
+// internally could only be tested with both sources attached. Until `6e88618`
+// this line was a hardcoded empty slice and the docblock explained that no seam
+// existed; the seam is ExtensionPresenceSource below, and the empty slice is now
+// the *default source's* answer rather than the route's.
+//
+// An empty array rather than a null is still the rule — the field has no
+// omitempty and `pgStatStatements: null` would tell R10.27's screen something the
+// Go type does not, which is the argument pageRows makes for `data` one line up.
+// The fixture's four rows (ae9cc86, whose dto/queries.go docblock this paragraph
+// used to point at) are the shape served here.
+func pageQueries(rows []dto.QueryView, q QueryListQuery, now time.Time, presence []dto.ExtensionPresenceView) dto.QueriesResponse {
 	env := pageRows(rows, q, querySortKey, dto.Meta{GeneratedAt: now})
 
-	return dto.QueriesResponse{
-		Data: env.Data,
-		Meta: env.Meta,
+	if presence == nil {
 		// Non-nil so a fleet with nothing measured renders `[]`, not `null`.
-		PGStatStatements: []dto.ExtensionPresenceView{},
+		presence = []dto.ExtensionPresenceView{}
+	}
+	return dto.QueriesResponse{
+		Data:             env.Data,
+		Meta:             env.Meta,
+		PGStatStatements: presence,
 	}
 }
 
@@ -266,6 +277,74 @@ func (s *Server) querySource() QueryListSource {
 	return s.cfg.Queries
 }
 
+// ExtensionPresenceSource is the read side of R3.1's per-database presence report
+// as this route needs it: given a parsed query, the presence rows for the
+// databases in its scope.
+//
+// It is a separate interface from QueryListSource because the two halves of this
+// one response have two producers. R3.2's rows come from the Phase 3 query store;
+// R3.1's rows come from the collector's `pg_extension` probe, which is a
+// metric-plane producer (internal/collector/settings.go's extensionSamples, whose
+// S119 fan-out is what finally supplies the `database` half that
+// openapi_annotations.go:3887's `required: [namespace, cluster, database]` asked
+// for) with no store behind it. One field per interface is what lets a build serve
+// the rows without the presence report or the report without the rows — the way
+// QueryDetail and QueryPlans are split from Queries for the same reason, and for
+// the same reason an `api`-only role (D9) serves the list and answers presence
+// empty.
+//
+// The contract matches QueryListSource's on one point that matters more here than
+// there: return every row in q's scope, not a page. The field has no cursor and no
+// total — dto.QueriesResponse gives it no paging keys — so a source that returned
+// "the first twenty databases" would shrink R3.1's report with nothing on the
+// response saying so, which is the D18 argument QueryListSource makes for `data`
+// and which has no meta field here to catch it.
+//
+// The tri-state rule an implementation owes is A3's first R3.1 ruling (the row in
+// requirements.md §3.2, on the presence-ranking question A6 logged rather than
+// answered): `true` > `false` > not-known, and R10.27's "not installed" screen
+// renders only on an explicit `false`. So a database the collector probed and
+// found without the extension must come back as a row with `Installed` pointing at
+// false, not as no row at all: absence from this list renders R10.12's plain empty
+// state, and a database that was measured and found lacking is the one answer that
+// must not render that way. A database that was never probed — `datallowconn =
+// false`, `template0`, an instance the collector cannot reach — is the not-known
+// case, and the row that carries it leaves `installed` off the body entirely
+// (dto.ExtensionPresenceView.Installed is a `*bool` with omitempty for exactly
+// this, which is why R3.1's row calls `nullable: true` on the schema a defect).
+type ExtensionPresenceSource interface {
+	ExtensionPresence(ctx context.Context, q ListQuery) ([]dto.ExtensionPresenceView, error)
+}
+
+// emptyPresenceSource is the default: a process with no collector attached knows
+// nothing about any database's extensions, and says so with no rows. It is
+// emptyQuerySource's honesty argument one key away — an empty answer is the true
+// answer for a source that has not been wired, where a 500 would be a lie about
+// *why* there is no data — with the nuance R3.1's ranking adds: an empty list
+// renders R10.12's empty state, which is correct for "no database has been
+// measured", and not R10.27's not-installed screen, which only an explicit `false`
+// triggers.
+type emptyPresenceSource struct{}
+
+// ExtensionPresence implements ExtensionPresenceSource by returning no rows and no
+// error.
+func (emptyPresenceSource) ExtensionPresence(context.Context, ListQuery) ([]dto.ExtensionPresenceView, error) {
+	return nil, nil
+}
+
+// presenceSource is cfg.ExtensionPresence with the default applied, so a Config
+// that sets nothing still serves the documented field and New needs no change —
+// the accessor-rather-than-New pattern the five source fields above it set, and
+// with them the typed-nil caveat from 2b63f1e: `cfg.ExtensionPresence =
+// (*something)(nil)` is not `== nil`, so the accessor hands back the typed nil and
+// the implementation is on the hook for answering from a nil receiver.
+func (s *Server) presenceSource() ExtensionPresenceSource {
+	if s.cfg.ExtensionPresence == nil {
+		return emptyPresenceSource{}
+	}
+	return s.cfg.ExtensionPresence
+}
+
 // handleQueries is R8.2's query list in the shape clusters.go set for
 // /api/v1/clusters, with the same three checks in the same order:
 //
@@ -275,7 +354,12 @@ func (s *Server) querySource() QueryListSource {
 //  2. Readiness second, through the same Readiness /readyz answers from
 //     (R8.7(i)): 503 NotReady rather than a 200 whose empty `data` looks like a
 //     cluster that has run no queries.
-//  3. Then the rows, paged.
+//  3. Then the rows, paged, and alongside them R3.1's presence rows from the
+//     second source. The two reads are not one transaction and do not fail
+//     together: a presence failure degrades the field to the empty list and still
+//     serves the rows (see the comment at the read), because the route's contract
+//     is the query list and a 503 here would hide a working list behind a field
+//     the page renders as a caption.
 func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request) {
 	q, err := parseQueryListQuery(r.URL.Query())
 	if err != nil {
@@ -293,7 +377,22 @@ func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request) {
 			dto.NewError(dto.ErrUnavailable, fmt.Sprintf("queries are not readable: %v", err)))
 		return
 	}
-	env := pageQueries(rows, q, time.Now().UTC())
+	// The second read, and it is deliberately not in the same failure path as the
+	// first. A presence error degrades the field to the empty list and still serves
+	// the rows: the route's contract is R3.2's list, and 503-ing a working list
+	// because a caption-sized field is unreadable would tell the client the query
+	// page is down when the query page is fine. The degraded answer is also the
+	// honest one — an empty list is what R3.1's ranking renders as "no database
+	// measured", which is exactly what a source that could not be read knows.
+	presence, perr := s.presenceSource().ExtensionPresence(r.Context(), q)
+	if perr != nil {
+		s.logDebug("extension presence unreadable, serving empty pgStatStatements",
+			"route", QueriesPath,
+			"error", perr.Error(),
+		)
+		presence = nil
+	}
+	env := pageQueries(rows, q, time.Now().UTC(), presence)
 	s.logDebug("queries served",
 		"route", QueriesPath,
 		"namespace", q.Namespace,
@@ -301,6 +400,7 @@ func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request) {
 		"sort", q.Sort,
 		"rows", len(env.Data),
 		"total", env.Meta.Total,
+		"presenceRows", len(env.PGStatStatements),
 	)
 	writeJSON(w, http.StatusOK, env)
 }

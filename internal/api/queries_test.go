@@ -113,13 +113,72 @@ func (st *stubQueries) QueryList(_ context.Context, q ListQuery) ([]dto.QueryVie
 	return rows, st.err
 }
 
+// loadQueryPresenceFixture returns the fixture's `pgStatStatements` rows. It
+// parses the same file loadQueryFixture parses, but into dto.QueriesResponse —
+// the type that file is the canonical encoding of, per
+// dto/queries_test.go's TestQueriesFixtureIsCanonical — because the
+// Envelope[QueryView] the rows-only loader decodes has no presence field for
+// them to land in. Reading them from the file rather than restating them here is
+// the R16.8 rule: a fourth copy of the four rows in Go would be a fourth thing
+// to keep in step.
+func loadQueryPresenceFixture(t *testing.T) []dto.ExtensionPresenceView {
+	t.Helper()
+	raw, err := os.ReadFile(queriesFixturePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", queriesFixturePath, err)
+	}
+	var env dto.QueriesResponse
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("parse %s: %v", queriesFixturePath, err)
+	}
+	if len(env.PGStatStatements) == 0 {
+		t.Fatalf("%s has no pgStatStatements rows", queriesFixturePath)
+	}
+	return env.PGStatStatements
+}
+
+// stubPresence is the ExtensionPresenceSource counterpart of stubQueries, for the
+// same reason that one exists: it returns a fixed answer and records the query it
+// was asked, so a test can prove the handler passed the *parsed* query to the
+// second source as well as the first.
+type stubPresence struct {
+	rows []dto.ExtensionPresenceView
+	err  error
+
+	called int
+	last   ListQuery
+}
+
+func (st *stubPresence) ExtensionPresence(_ context.Context, q ListQuery) ([]dto.ExtensionPresenceView, error) {
+	st.called++
+	st.last = q
+	// Copy for the same reason stubQueries copies: a handler that sorted or
+	// truncated the slice it was handed would otherwise corrupt the next request.
+	rows := make([]dto.ExtensionPresenceView, len(st.rows))
+	copy(rows, st.rows)
+	return rows, st.err
+}
+
 // newQueriesServer builds a ready Server whose only subsystem is R8.2's source.
 // A process with no Fleet is ready once it is listening (R8.7(ii)), which is
 // what makes the 200 paths reachable without a discovery stub — the same reason
 // newSeriesServer exists.
+//
+// It leaves ExtensionPresence unset, so the presence field comes from the empty
+// source and the route's primary tests keep testing the route rather than the
+// seam; the tests that need to observe the second read use
+// newQueriesServerWithPresence.
 func newQueriesServer(t *testing.T, src QueryListSource) *Server {
 	t.Helper()
 	s := New(Config{Listen: "127.0.0.1:0", Queries: src})
+	s.readiness.SetListening(true)
+	return s
+}
+
+// newQueriesServerWithPresence is newQueriesServer with R3.1's source attached.
+func newQueriesServerWithPresence(t *testing.T, src QueryListSource, presence ExtensionPresenceSource) *Server {
+	t.Helper()
+	s := New(Config{Listen: "127.0.0.1:0", Queries: src, ExtensionPresence: presence})
 	s.readiness.SetListening(true)
 	return s
 }
@@ -216,6 +275,13 @@ func TestQueriesDefaultSourceIsAnEmptyPage(t *testing.T) {
 	if !strings.Contains(body, `"data":[]`) {
 		t.Errorf("body = %s, want `data` to be [] (not null) — R8.4's envelope always emits an array", body)
 	}
+	// The second field, from the second source, in the same state. `pgStatStatements`
+	// has no omitempty either, and R10.27's "not installed" screen reads a null here
+	// as a claim the Go type does not make — so the empty source's nil has to be
+	// normalized to [] before it reaches the envelope, which is pageQueries' job.
+	if !strings.Contains(body, `"pgStatStatements":[]`) {
+		t.Errorf("body = %s, want `pgStatStatements` to be [] (not null)", body)
+	}
 	var env dto.QueriesResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode: %v\nbody: %s", err, body)
@@ -311,6 +377,83 @@ func TestQueriesSourceErrorIsUnavailable(t *testing.T) {
 	}
 	if !strings.Contains(body.Error.Message, boom.Error()) {
 		t.Errorf("message %q does not carry the source error %q", body.Error.Message, boom)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// R3.1's second source
+// ---------------------------------------------------------------------------
+
+// TestQueriesServesPresenceRows is the presence counterpart of
+// TestQueriesRowJSONMatchesFixture: the rows the handler serves under
+// `pgStatStatements` are the source's rows, in order, field for field. The
+// fixture's four rows include one with no `installed` key, so this also proves
+// the not-known state survives a round trip through the handler instead of being
+// coerced to false — the state A3's ranking ruling exists to preserve, and the
+// reason the field is *bool rather than bool in the first place.
+func TestQueriesServesPresenceRows(t *testing.T) {
+	rows := loadQueryFixture(t)
+	presence := loadQueryPresenceFixture(t)
+	env := getQueries(t,
+		newQueriesServerWithPresence(t, &stubQueries{rows: rows}, &stubPresence{rows: presence}),
+		QueriesPath)
+
+	if len(env.PGStatStatements) != len(presence) {
+		t.Fatalf("served %d presence rows, fixture has %d", len(env.PGStatStatements), len(presence))
+	}
+	for i, want := range presence {
+		got := env.PGStatStatements[i]
+		if d := firstDiff(canonical(t, got), canonical(t, want)); d != "" {
+			t.Errorf("presence row %d (%s/%s/%s) differs:\n%s",
+				i, got.Namespace, got.Cluster, got.Database, d)
+		}
+	}
+}
+
+// TestQueriesPassesTheParsedQueryToBothSources is the second source's half of
+// TestQueriesPassesTheParsedQueryToTheSource. Both reads take the same parsed
+// query: a handler that passed the rows source the parsed query and the presence
+// source an empty one would serve the right page of rows beside the whole
+// fleet's presence rows, which is the failure the source's scope contract exists
+// to prevent and the one nothing else here would catch.
+func TestQueriesPassesTheParsedQueryToBothSources(t *testing.T) {
+	st := &stubQueries{rows: loadQueryFixture(t)}
+	ps := &stubPresence{rows: loadQueryPresenceFixture(t)}
+
+	const when = "2026-11-20T09:12:00Z"
+	getQueries(t, newQueriesServerWithPresence(t, st, ps),
+		QueriesPath+"?namespace=ai-api-gateway&cluster=rev-proxy-pg&db=gateway&sort=-avgExecTimeMs&limit=1&from="+when+"&to="+when)
+
+	if ps.called != 1 {
+		t.Fatalf("presence source called %d times, want 1", ps.called)
+	}
+	if st.last != ps.last {
+		t.Errorf("presence source got %+v, want the query the rows source got: %+v", ps.last, st.last)
+	}
+}
+
+// TestQueriesPresenceErrorDegradesToEmpty pins the failure policy the handler
+// documents: a failed presence read costs the field, not the route. The rows come
+// back 200 with their page intact and the field falls to []. 503-ing a working
+// list because a caption-sized second source is unreadable would tell a client
+// the query page is down when the query page is fine — and an empty list is
+// itself the honest answer, since it is what R3.1's ranking renders as "no
+// database measured". (getQueries fails the test on a non-200, so the status code
+// is asserted by the helper; the row count is what a naive implementation
+// regresses.)
+func TestQueriesPresenceErrorDegradesToEmpty(t *testing.T) {
+	boom := errors.New("collector: no published samples for cluster")
+	rows := loadQueryFixture(t)
+	env := getQueries(t,
+		newQueriesServerWithPresence(t, &stubQueries{rows: rows}, &stubPresence{err: boom}),
+		QueriesPath)
+
+	if len(env.Data) != len(rows) {
+		t.Errorf("served %d rows, want %d — a presence failure must not cost the list",
+			len(env.Data), len(rows))
+	}
+	if len(env.PGStatStatements) != 0 {
+		t.Errorf("presence rows = %d, want 0 on a failed read", len(env.PGStatStatements))
 	}
 }
 

@@ -149,6 +149,29 @@ type Config struct {
 	// Phase 3's query store replaces the default by assigning this field.
 	Queries QueryListSource
 
+	// ExtensionPresence is R3.1's per-database presence report, the third key of
+	// the query-list response (GET /api/v1/insights/queries, implemented in
+	// queries.go). Nil selects the empty source, so the field answers `[]` — the
+	// rule Queries and Series above follow for a producer this process has not
+	// wired, and the same answer the route shipped with while the field was
+	// hardcoded empty.
+	//
+	// It is a separate field from Queries because the one response has two
+	// producers: R3.2's rows come from the Phase 3 query store, R3.1's rows from
+	// the collector's per-database `pg_extension` probe (A1's `6e88618` fan-out,
+	// which is what finally fills the `database` half that
+	// openapi_annotations.go:3887's `required: [namespace, cluster, database]`
+	// asked for). A process can run one producer and not the other, and one field
+	// per interface is what lets it — the reason QueryDetail and QueryPlans are
+	// separate fields too.
+	//
+	// Nothing assigns it yet. The remaining half is a producer that turns the
+	// collector's published samples into `dto.ExtensionPresenceView` rows, and
+	// until it exists every process answers the field empty exactly as it did
+	// before the seam existed; wiring cmd/pgsi's assignment is A1's call to make
+	// from their side, not a constraint this field places on their file.
+	ExtensionPresence ExtensionPresenceSource
+
 	// QueryDetail is R10.7's query detail (GET /api/v1/insights/queries/
 	// {fingerprint}, implemented in query_detail.go). Nil selects the not-found
 	// source, so the route answers 404 for every fingerprint instead of
