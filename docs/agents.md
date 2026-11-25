@@ -357,7 +357,7 @@ about the finding are two claims.** The headline gets verified because it is the
 on; the quantified sentence attached to it rides out on the headline's credibility, unchecked. Four
 instances in one session, across three slots: A3's `R8.12 → R8.6` fix in `docs/architecture.md`
 was correct, and the enumeration justifying it — "R8 has exactly R8.1, R8.1b, R8.1c, R8.2–R8.9" —
-was short by two, since R8.10 and R8.11 exist (`requirements.md:386-387`). A2 twice corrected a
+was short by two, since R8.10 and R8.11 exist (`requirements.md:387-388`). A2 twice corrected a
 number correctly while overstating what that number implied ("the form that survives the next
 insertion", then "stops owing you a fix"); A4 doubted an arithmetic claim of their own that was
 correct once it was checked against the diffs. The coordinator catches the headline and inherits
