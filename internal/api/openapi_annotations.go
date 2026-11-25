@@ -3906,7 +3906,6 @@ var openAPISchemas = []openAPISchema{
 			"            vocabulary and R9.3 defines a metric family's.",
 			"        installed:",
 			"          type: boolean",
-			"          nullable: true",
 			"          description: |",
 			"            The tri-state R3.1's two sources force. Absent from the body means",
 			"            not known, `false` means absent, `true` means present; a plain bool",
