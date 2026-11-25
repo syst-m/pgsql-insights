@@ -1342,7 +1342,7 @@ var openAPIPaths = []openAPIPath{
 			"      description: |",
 			"        R8.2's query list — R3.2's Queries table, R10.4's page. Ranked by",
 			"        `total_exec_time`, which is R3.2's own ranking and the answer",
-			"        `clusters.go:36` gave for this route before the route existed (\"a",
+			"        `internal/api/clusters.go:37-38` gave for this route before the route existed (\"a",
 			"        cluster list sorts by phase and pgMajor, a query list by",
 			"        total_exec_time\"): `?sort=-totalExecTimeMs` is the default, and the",
 			"        `-` is R8.4's direction marker.",
