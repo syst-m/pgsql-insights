@@ -116,7 +116,7 @@ owners and share one validation entry.
 | **2** | Collector framework + PG version matrix + database/settings/replication/wal collectors + `/metrics` v1 + `pgsi_up` + scheduler budget + **`pg_stat_statements` enablement flow** + `validate-env.sh` + ground-truth fixture + clock contract | R2.1–R2.9, R3.15, R8.1, R8.7, R9.2–R9.4, R9.7 (partial), R9.12, R11.8, R12.4, R12.5, R13.1, R13.2, R13.5, R13.11, R16.1, R16.2, R16.3, R16.5, R16.6 | A1 | 🔄 | §3.12 (the Phase 2 entry itself, `1be97e2` — A3's S79: the cell named only §3.10, Phase 2's task-level breakdown, which the entry reports on but is not; the pairing between this column and the `### 3.N` headings is now checked) · §3.10 (steps 1–3 of 5 landed at `4360e21`, `aa974c6`, `fea3571b`, `ca5f5d4`, `b5263b1`, `12df353`; step 4 in progress since `0f4b154` — the hub half shipped; the scheduler-budget half this clause blamed on step 4 is §3.10 step 5's work (:744), and step 5 is itself now in progress since `74485a4` — the registry and the targets producer landed, the R2.9 cap and the R11.8 chain did not; per-requirement rows in §3.10; `b51ea03`'s `internal/collector/locks.go` (469 lines, plus `internal/collector/locks_test.go` at 439) is recorded here too — R4.4's pg_locks input is Phase 6a's and has no table to live in until Phase 6's is written, so it rides the Phase 2 row and the `requirements.md:240` tree line. Its `LocksSamples` (`internal/collector/locks.go:372`) returns nil and carries the argument — pg_locks' numeric columns are all join keys and its two booleans would mint an R5.2-unnameable `pgsi_locks_granted`, the S8/S50 invalid-exposition class — and nothing registers the collector, the same missing `collector.Registry` R9.5's cell in §3.11 names |
 | **3** | `pg_stat_statements` collector + normalizer + query store + top-N API + per-query metrics family + rollup endpoints | R3.1–R3.8, R3.13, R3.14, R8.2, R8.4, R8.5, R9.5, R9.5b | A5 | ⚠️ | §3.11 (this commit) — **done with deviations**: the store, the normalizer and the read paths shipped; the `pg_stat_statements` collector and the R9.5/R9.5b metrics family did not, and both are recorded in §5-D18. **Amended 2026-11-24 on A5's report:** the collector half has since shipped — `76b0f56` adds `internal/collector/statements.go` (872 lines) and `internal/collector/statements_test.go` — so the sentence above describes Phase 3 at §3.11's rev, not at HEAD; see §5-D18's third amendment. The R9.5/R9.5b family is still not emitted: `74485a4` added the `collector.Registry` this sentence named missing — the Phase 2 wiring step, as promised — but it registers the pooler only, because the driver decision gates the seven SQL collectors, `statements.go` among them, so the family still has no publisher — the clause is two commits stale (A3's S78): `c8f2024` composed the family into the hub and `aee9046` wired the call site at `internal/api/server.go:507-510`, so a publisher exists and what it lacks is a non-nil source, which is `cmd/pgsi/main.go`'s assignment rather than a missing publisher. R9.5's cell at IMPLEMENTATION.md:857 (the row moved from IMPLEMENTATION.md:850 when §3.12 was added; the address has to be spelled, because a bare number on this line inherits its file from the line's first citation — now `internal/api/server.go`, 549 lines, so a bare 850 reads as that file's line 850 and fails the gate: the form-C shape A3's S76 rows, re-committed by the edit that fixed it) now names the driver rather than the wiring |
 | **4** | ServiceMonitor/PodMonitor, PrometheusRule with `critical` tier, cardinality assertion, live scrape by the reference Prometheus | R9.1, R9.6, R9.8–R9.11, R13.3, R13.4, R16.4 | A2 | 🔄 (§3.9 — one requirement transferred, recorded there) | — — **R9.11 was taken in Phase 5**, not here: `chart/templates/prometheusrule.yaml` and the `make rules-check` target shipped in `f9aae41` and are tabled in §3.7's R9.11 row, because A4 held the ServiceMonitor/PodMonitor half of this phase and the rule set rode out with it. R14.9's per-owner rule needs this row to acknowledge the transfer rather than keep claiming a file another phase committed — an unmarked ⬜ next to a requirement that is implemented is how a requirement gets implemented twice |
-| **5** | Full API surface + OpenAPI + auth + PromQL pair + **Cluster Overview** page + remaining shell reqs (SPA shell, Fleet page and the test harness moved to **1b**) | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | 🔄 | §3.7 (the Go half: R8.1, R8.2, R8.3, R8.8, R8.9, R8.10; the R10.x page half and R8.11 are open). **A3's review of `f9aae41`** is landed here: six fixes to the two files A2 owns — four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it), plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it. **The R8.3 commit that followed** lands the PromQL pair (`internal/api/promql.go`, `internal/api/promql_catalogue.go`, `internal/api/promql_test.go`, the two `paths` entries — and `cmd/pgsi`'s `--prometheus-url`, which is **not** in that commit: `02381ba` touches seven files and `cmd/pgsi/main.go` is not one of them, the flag landed separately in `e6800c1`), R8.1's CI half (`scripts/check-openapi.py` → `make openapi-check` → a `lint`-job step), and **A5** — A3's seventh fix, dropped from their own list and forwarded afterwards: `GroupFor` classifies `/metrics/` alongside `/metrics`, so the metrics group's policy no longer hinges on a trailing slash. `internal/api/server.go`'s mount of the pair has since landed, in `362e8d3` — the §3.7 write-and-flag flag on that file is closed, and the pair's own three files are at HEAD from `02381ba` |
+| **5** | Full API surface + OpenAPI + auth + PromQL pair + **Cluster Overview** page + remaining shell reqs (SPA shell, Fleet page and the test harness moved to **1b**) | R8.1–R8.9, R8.10, R8.11, R10.3, R10.13, R10.14, R10.15, R10.17, R10.24 | A2 | 🔄 | §3.15 §3.7 (the Go half: R8.1, R8.2, R8.3, R8.8, R8.9, R8.10; the R10.x page half is open, R8.11 shipped in `4cef345`). **A3's review of `f9aae41`** is landed here: six fixes to the two files A2 owns — four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it), plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it. **The R8.3 commit that followed** lands the PromQL pair (`internal/api/promql.go`, `internal/api/promql_catalogue.go`, `internal/api/promql_test.go`, the two `paths` entries — and `cmd/pgsi`'s `--prometheus-url`, which is **not** in that commit: `02381ba` touches seven files and `cmd/pgsi/main.go` is not one of them, the flag landed separately in `e6800c1`), R8.1's CI half (`scripts/check-openapi.py` → `make openapi-check` → a `lint`-job step), and **A5** — A3's seventh fix, dropped from their own list and forwarded afterwards: `GroupFor` classifies `/metrics/` alongside `/metrics`, so the metrics group's policy no longer hinges on a trailing slash. `internal/api/server.go`'s mount of the pair has since landed, in `362e8d3` — the §3.7 write-and-flag flag on that file is closed, and the pair's own three files are at HEAD from `02381ba` |
 | **6a** | Active queries + blocking chain + wait events + terminate + Active Queries & Wait Events pages + alerts surface | R4.1–R4.8, R10.8, R10.9, R10.25, R10.26 | A1 | ⬜ | — |
 | **6b** | Query Insights UI + percentiles + plan capture + tags + client-address rollup + load graphs + batched series endpoint | R3.9–R3.12, R9.13, R10.5, R10.6, R10.7, R10.18–R10.23, R10.27, R10.28 | A6 | 🔄 | §3.14 |
 | **7** | System Insights: OS + DB families, summary cards, compare-5, PNG/CSV export + log source | R5.1–R5.8, R5.10, R9.7 complete, R10.10 | A2 | ⬜ | — |
@@ -1227,7 +1227,87 @@ Go type cannot emit, in the same package whose handler rejects `pgStatStatements
 `internal/api/queries.go:206` for exactly that reason. The ruling names no new requirement id, so it
 touches no R-number: R3.1's own sentence is what was ambiguous, and spec §11 rule 4 files it there.
 
-## 4. Decisions log
+### 3.15 Phase 5 validation entry (R14.2)
+
+**Scope, stated as a file list rather than as "Phase 5 reviewed."** The phase's seventy tracked files are `api/` (4), `internal/api/` (56, including `dto/` and `testdata/`), `internal/metrics/` (7), `scripts/check-openapi.py`, `Makefile` and `.github/workflows/ci.yml`; the table is generated at `5a11629` by `git ls-files api internal/api internal/metrics scripts/check-openapi.py Makefile .github/workflows/ci.yml` with each row's commit from `git log -1 --format=%h -- <path>`, so the rev is part of the claim, and the findings column is every `docs/reviews/finding-index.md` row whose `against` cell cites that path. `chart/templates/prometheusrule.yaml` is excluded by ownership, not by oversight: R9.11 transferred to this phase but the file is A4's, and R14.9's per-owner rule puts it in the Phase 4 entry -- which is why the Phase 4 row's cell says it is "tabled in §3.7's R9.11 row".
+
+**The review record.** A3's review of `f9aae41` landed six fixes to the two files A2 owns -- four in `auth.go` (a wrong token now answers 401 `Unauthorized` instead of 403, which is R12's code alone; `--auth-metrics` gained its own `--auth-metrics-token[-file]` secret with a documented fallback to `--auth-token[-file]`; the `Authorization` header is split on whitespace per RFC 7235 rather than on one literal space; the per-group handler is built once in `NewAuthz` instead of per request) and two in `cors.go` (`Vary: Origin` now precedes every return, including the disallowed-origin one a cache used to poison; `Access-Control-Allow-Origin` echoes the matched origin and uses `*` only when the list literally contains it) -- plus `X-Request-Id` dropped from `Access-Control-Expose-Headers` because no handler sets it. Those landed in `518fbb7`. The OpenAPI document moved to the path R8.1 names (§5-D13) and `api/embed.go` now embeds it. The R8.3 commit `02381ba` landed the PromQL pair (`promql.go`, `promql_catalogue.go`, `promql_test.go`, the two `paths` entries) and R8.1's CI half (`scripts/check-openapi.py` -> `make openapi-check` -> a `lint`-job step), but not `cmd/pgsi`'s `--prometheus-url` -- `02381ba` touches seven files and `cmd/pgsi/main.go` is not one of them; the flag landed separately in `e6800c1`. A3's seventh fix, dropped from their own list and forwarded afterwards, is A5's `GroupFor` classifying `/metrics/` alongside `/metrics`. `internal/api/server.go`'s mount landed in `362e8d3`, closing the write-and-flag flag §3.7 carried on that file.
+
+**Landed since that record was written.** `7833653` (A2) added `internal/api/probe_presence.go` and its test -- the R3.1 extension-presence source, wired at `cmd/pgsi/main.go:669-682` in A1's `dfb69bc` -- and `5a11629` (A1) landed the S123/S124 repair to `internal/api/dto/queries_test.go`.
+
+**Open set.** R8.1b (the generator -- the only clause in the spec recorded false that this phase can turn true), R8.6's `--serve-ui=false` flag, and the R10.x page half, which is A4's. R8.11 is *not* open: it shipped in `4cef345`, and §3.7's own R8.11 row was corrected for exactly that reading.
+
+| `.github/workflows/ci.yml` | `0de8112` | — |
+| `Makefile` | `7a6a13b` | S108 |
+| `api/embed.go` | `9794560` | — |
+| `api/embed_test.go` | `518fbb7` | — |
+| `api/openapi.yaml` | `3d6d1c3` | S100, S119, S120, S52, S92, S99 |
+| `api/x-planned-paths.yaml` | `71a52a1` | S86, S92, S95 |
+| `internal/api/active_queries.go` | `e6a4921` | — |
+| `internal/api/active_queries_test.go` | `08b897d` | — |
+| `internal/api/auth.go` | `134206e` | — |
+| `internal/api/auth_test.go` | `02381ba` | — |
+| `internal/api/cluster_detail.go` | `51c5bbd` | — |
+| `internal/api/cluster_detail_test.go` | `51c5bbd` | — |
+| `internal/api/clusters.go` | `e8ada16` | — |
+| `internal/api/clusters_test.go` | `362e8d3` | — |
+| `internal/api/cors.go` | `134206e` | — |
+| `internal/api/cors_test.go` | `134206e` | — |
+| `internal/api/dto/clusters.go` | `93fcd44` | S100 |
+| `internal/api/dto/clusters_test.go` | `362e8d3` | — |
+| `internal/api/dto/queries.go` | `ae9cc86` | S123, S44, S94, S98 |
+| `internal/api/dto/queries_test.go` | `5a11629` | S123, S124 |
+| `internal/api/dto/series.go` | `d0ea2c4` | S100, S51, S52 |
+| `internal/api/dto/series_test.go` | `4640526` | — |
+| `internal/api/dto/sessions.go` | `c5d1772` | — |
+| `internal/api/dto/sessions_test.go` | `c5d1772` | — |
+| `internal/api/metrics_mw.go` | `79d2c11` | — |
+| `internal/api/metrics_mw_test.go` | `7a8e158` | — |
+| `internal/api/openapi_annotations.go` | `3d6d1c3` | S100, S101, S119, S120, S51, S89 |
+| `internal/api/openapi_emit.go` | `bc4c71a` | S89 |
+| `internal/api/openapi_emit_test.go` | `8cd7514` | — |
+| `internal/api/openapi_gen.go` | `fc8dd45` | — |
+| `internal/api/openapi_gen_test.go` | `db265b6` | — |
+| `internal/api/openapi_schemas.go` | `ebe0995` | — |
+| `internal/api/openapi_schemas_test.go` | `29c0ae3` | — |
+| `internal/api/paging.go` | `51c5bbd` | — |
+| `internal/api/probe_presence.go` | `7833653` | — |
+| `internal/api/probe_presence_test.go` | `7833653` | — |
+| `internal/api/promql.go` | `2a5caeb` | — |
+| `internal/api/promql_catalogue.go` | `26461a3` | — |
+| `internal/api/promql_test.go` | `cf2f5aa` | — |
+| `internal/api/queries.go` | `ffc2b47` | S119, S123 |
+| `internal/api/queries_test.go` | `ffc2b47` | — |
+| `internal/api/query_detail.go` | `4f1524c` | — |
+| `internal/api/query_detail_test.go` | `08b897d` | — |
+| `internal/api/query_plans.go` | `08b897d` | — |
+| `internal/api/query_plans_test.go` | `08b897d` | — |
+| `internal/api/readiness.go` | `362e8d3` | — |
+| `internal/api/series.go` | `51c5bbd` | — |
+| `internal/api/series_test.go` | `d0ea2c4` | — |
+| `internal/api/server.go` | `4ff4a0d` | S71, S76, S77, S99 |
+| `internal/api/server_test.go` | `898c7c0` | — |
+| `internal/api/sessions.go` | `db265b6` | — |
+| `internal/api/sessions_test.go` | `db265b6` | — |
+| `internal/api/spa.go` | `25847eb` | — |
+| `internal/api/spa_test.go` | `e8ad71a` | — |
+| `internal/api/tags.go` | `08b897d` | — |
+| `internal/api/tags_test.go` | `62740ed` | — |
+| `internal/api/testdata/routes/patterns.go` | `51c5bbd` | — |
+| `internal/api/testdata/routes/register.go` | `51c5bbd` | — |
+| `internal/api/testdata/routes/register_test.go` | `51c5bbd` | — |
+| `internal/api/testdata/schemas/api/types.go` | `29c0ae3` | — |
+| `internal/api/testdata/schemas/dto/extra_test.go` | `29c0ae3` | — |
+| `internal/api/testdata/schemas/dto/types.go` | `29c0ae3` | — |
+| `internal/metrics/http.go` | `7a8e158` | — |
+| `internal/metrics/http_test.go` | `7a8e158` | — |
+| `internal/metrics/metrics.go` | `04169bf` | S70, S76 |
+| `internal/metrics/metrics_test.go` | `7a8e158` | — |
+| `internal/metrics/scheduler_test.go` | `04169bf` | — |
+| `internal/metrics/store.go` | `898c7c0` | — |
+| `internal/metrics/store_test.go` | `c9df249` | — |
+| `scripts/check-openapi.py` | `02381ba` | S92 |
+
 
 Every decision that a future contributor would otherwise have to ask about. Newest first.
 
@@ -1301,7 +1381,7 @@ carried the repo over. So "the gate stays red" is historical, and the row's own 
 the aggregate is hostage to whichever package is newest — is exactly what happened: it moved 16.2
 points on another owner's tests, and it cleared without the `kubernetes/fake` harness this row says
 the gate is waiting on. `discovery`'s 53.8% is unchanged and is still the open half for Phase 2. |
-| D19 | 5 | R8.4, R3.1 | **`GET /insights/queries` answers with three wire keys where R8.4 specifies two.** R8.4's envelope for every list endpoint is `{data, meta}`; `dto.QueriesResponse` (`internal/api/dto/queries.go:235`) adds a third, `pgStatStatements`, so the R8.4 shape table (`internal/api/dto/queries_test.go:647-649`) cannot admit it -- `jsonKeys` yields `[data, meta, pgStatStatements]` against the table's `want := []string{"data", "meta"}` at `internal/api/dto/queries_test.go:654`. | The third key carries R3.1's pg_stat_statements presence per database, which has no home inside R8.4's shape: `meta` is `{total, truncated, generatedAt, nextCursor}` and an extension-presence report is not pagination metadata. `a83612b` introduced the type and `ae9cc86` moved the route's own fixture test onto it without logging the deviation (filed as A3's S123). The route keeps the three-key shape; the repair is this row plus a `QueriesResponse` case in the R8.4 table with its own expectation. |
+| D19 | 5 | R8.4, R3.1 | **`GET /insights/queries` answers with three wire keys where R8.4 specifies two.** R8.4's envelope for every list endpoint is `{data, meta}`; `dto.QueriesResponse` (`internal/api/dto/queries.go:235`) adds a third, `pgStatStatements`. The R8.4 shape table (`internal/api/dto/queries_test.go:654-663`) was written with one shared `want := []string{"data", "meta"}` for every row, so it could not admit the third key -- `jsonKeys` yields `[data, meta, pgStatStatements]`. `5a11629` gave the table a per-row `want` column (`internal/api/dto/queries_test.go:657`) and a fourth row carrying the three-key expectation (`internal/api/dto/queries_test.go:662`), which is the repair this row prescribed. | The third key carries R3.1's pg_stat_statements presence per database, which has no home inside R8.4's shape: `meta` is `{total, truncated, generatedAt, nextCursor}` and an extension-presence report is not pagination metadata. `a83612b` introduced the type and `ae9cc86` moved the route's own fixture test onto it without logging the deviation (filed as A3's S123). The route keeps the three-key shape; the repair was this row plus a `QueriesResponse` case with its own expectation, and `5a11629` is that case. |
 
 ### Spec-level issues from round 1 — all resolved in v0.2.0
 
