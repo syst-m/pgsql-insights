@@ -348,7 +348,7 @@ PATH_EXEMPT = {
 # such citations in IMPLEMENTATION.md, requirements.md and docs/reviews/finding-index.md
 # counted as nothing while the rows that contain them reported as resolving: A3's S113, whose
 # block cited :328/:332/:486, the pre-edit positions of the three consumers named above.
-P = ("(?:" + r"[A-Za-z0-9_./-]+\.(?:md|go|ya?ml|tsx?|json|sh|py|js|css)"
+P = ("(?:" + r"[A-Za-z0-9_./-]+\.(?:md|go|mod|sum|ya?ml|tsx?|json|sh|py|js|css)"
      + "|" + "|".join(re.escape(n) for n in sorted(CITE_NAMES)) + ")")
 CITE_A = re.compile(r"`(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?`")
 # The colon inside the parens is part of the form (`… (:254)`), and it is load-bearing: the
@@ -356,6 +356,17 @@ CITE_A = re.compile(r"`(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?`")
 # that exist — a tier that could not fail, which is the defect this script exists to catch.
 CITE_B = re.compile(r"`(" + P + r")`\s*§\s*\"([^\"]+)\"\s*\(\s*:(\d+)(?:\s*[-–]\s*(\d+))?")
 CITE_C = re.compile(r"`:(\d+)(?:\s*[-–]\s*(\d+))?`")
+# A3's S132: a cite can pin its line numbers to a commit -- `74485a4:cmd/pgsi/main.go:434`; 10 of
+# them at `f3d319c` (9 in docs/reviews/finding-index.md, 1 in IMPLEMENTATION.md; 24 in this tree,
+# as S132's own row cites six more). CITE_A requires the backtick immediately before the path, so
+# the rev prefix consumed it and each counted as nothing while the row containing it reported as
+# resolving. The prose spelling "`path:N` at `REV`" is a different case and was never blind: CITE_A
+# matches its `path:N` half at the same offset (29 of 29 in this tree), so it is gated -- against
+# HEAD's file rather than the rev the sentence names, and honouring that rev needs a fourth arm. A
+# rev-prefixed cite is checked at `git show REV:path` and nowhere else: the worktree/index/HEAD
+# disjunction exists to answer "which current version does this mean", and a cite that names a rev
+# has answered it.
+CITE_R = re.compile(r"`([0-9a-f]{7,40}):(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?`")
 
 _lines = {}
 def lines_of(root, rel):
@@ -404,23 +415,38 @@ def resolve_path(tracked, tracked_set, citing, path):
     return [p for p in tracked if p.endswith("/" + path)]
 
 def path_citations(root, tracked):
-    """(file, lineno, kind, cited_path, start, end, heading) for every citation in scope."""
+    """(file, lineno, kind, cited_path, start, end, heading, rev) for every citation in scope.
+
+    `rev` is the commit a cite pins its line numbers to, or None when it means "the current
+    file". A3's S132: CITE_C used to inherit only the *path* from the line's first anchored cite,
+    so on a row whose `filed in` column pins the rev, the bare `:N` cites were checked against
+    HEAD -- and a row documenting a fix that deleted the line it quotes went red the moment any
+    commit shifted that file. The rev is now inherited with the path."""
     out = []
     for rel in tracked:
         if pathlib.PurePosixPath(rel).suffix not in PATH_CITE_EXTS or rel.startswith(PATH_SKIP_DIRS): continue
         for n, line in enumerate(lines_of(root, rel), 1):
+            a_matches = list(CITE_A.finditer(line))
             anchored = [(m.start(), "B", m.group(1), int(m.group(3)),
-                         int(m.group(4) or m.group(3)), m.group(2))
+                         int(m.group(4) or m.group(3)), m.group(2), None)
                         for m in CITE_B.finditer(line)]
             anchored += [(m.start(), "A", m.group(1), int(m.group(2)),
-                          int(m.group(3) or m.group(2)), None)
-                         for m in CITE_A.finditer(line)]
+                          int(m.group(3) or m.group(2)), None, None)
+                         for m in a_matches]
+            # R: `REV:path:N`, added only where CITE_A did not already match the same backtick
+            # pair, so the two arms cannot double-count one citation.
+            a_spans = [(m.start(), m.end()) for m in a_matches]
+            anchored += [(m.start(), "R", m.group(2), int(m.group(3)),
+                          int(m.group(4) or m.group(3)), None, m.group(1))
+                         for m in CITE_R.finditer(line)
+                         if not any(m.start() < e and s < m.end() for s, e in a_spans)]
             anchored.sort()
-            for _, k, p, s, e, h in anchored:
-                out.append((rel, n, k, p, s, e, h))
-            if anchored:                       # C: bare `:N` inherits the line's first path
-                first = anchored[0][2]
-                out += [(rel, n, "C", first, int(m.group(1)), int(m.group(2) or m.group(1)), None)
+            for _, k, p, s, e, h, rv in anchored:
+                out.append((rel, n, k, p, s, e, h, rv))
+            if anchored:                       # C: bare `:N` inherits the line's first path+rev
+                first = anchored[0]
+                out += [(rel, n, "C", first[2], int(m.group(1)),
+                         int(m.group(2) or m.group(1)), None, first[6])
                         for m in CITE_C.finditer(line)]
     return out
 
@@ -428,24 +454,35 @@ def check_paths(root, tracked):
     checked, code_checked, bad, unresolved, ambiguous, exempt = 0, 0, [], [], [], 0
     pairs = set()                                  # every (citing file, cited path) it found
     tset = set(tracked)
-    for rel, n, kind, path, s, e, head in path_citations(root, tracked):
+    for rel, n, kind, path, s, e, head, rev in path_citations(root, tracked):
         pairs.add((rel, path))
-        r = resolve_path(tracked, tset, rel, path)
-        if (rel, path) in PATH_EXEMPT and len(r) != 1:
-            exempt += 1; continue              # exempt only while it still fails to resolve
-        if len(r) == 0:
-            unresolved.append((rel, n, kind, path, 0)); continue
-        if len(r) > 1:                       # the cite under-specified a path the repo has 2+ of
-            ambiguous.append((rel, n, kind, path, len(r))); continue
+        if rev is not None:
+            # A3's S132: a rev-prefixed cite names its own version, so the tracked-set resolution
+            # and the worktree/index/HEAD disjunction both do not apply -- the path is taken
+            # verbatim and read at that commit only.
+            target = f"{rev}:{path}"
+            v = _git_show(root, target)
+            if v is None:
+                unresolved.append((rel, n, kind, target, 0)); continue
+            vs = [v]
+        else:
+            r = resolve_path(tracked, tset, rel, path)
+            if (rel, path) in PATH_EXEMPT and len(r) != 1:
+                exempt += 1; continue          # exempt only while it still fails to resolve
+            if len(r) == 0:
+                unresolved.append((rel, n, kind, path, 0)); continue
+            if len(r) > 1:                     # the cite under-specified a path the repo has 2+ of
+                ambiguous.append((rel, n, kind, path, len(r))); continue
+            target = r[0]
+            # A3's S121: resolve the target across every shippable version, not just the worktree.
+            vs = target_versions(root, r[0])
         checked += rel.endswith(".md"); code_checked += not rel.endswith(".md")
-        # A3's S121: resolve the target across every shippable version, not just the worktree.
-        vs = target_versions(root, r[0])
         if not vs:
             bad.append((rel, n, kind, f"{path}: no readable version")); continue
         why = ""
         for v in vs:
             if e > len(v):
-                why = f"{path}:{s}-{e} — {r[0]} has {len(v)} lines"
+                why = f"{path}:{s}-{e} — {target} has {len(v)} lines"
             elif not v[s - 1].strip():         # A3's S118: a blank line cannot be what a cite names
                 why = f"{path}:{s} is blank"
             elif kind == "B":                  # the durable form asserts the heading
