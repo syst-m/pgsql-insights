@@ -45,12 +45,17 @@
  * enabled one is `"terminate"`.
  *
  * R4.5 also requires the action be "confirmed", so an enabled button does not
- * fire on click — it arms a Confirm/Cancel pair (`confirmPid` below). What it
- * cannot yet do is fire at all: `client.ts` has six fetchers and none of them
- * is `POST /api/v1/sessions/{pid}/terminate`, and a mutation is not a shape
- * this slot may invent. Confirming therefore re-reads the list (the honest
- * half of the flow — the row you acted on is refetched) and the POST is the
- * standing ask on `web/src/api/`.
+ * fire on click — it arms a Confirm/Cancel pair (`confirmPid` below), and
+ * confirming fires the mutation: `terminateSession` (`../api/client.ts:602`,
+ * A4's `efdabb3`). That signature is this paragraph written in the type system:
+ * `confirm` is the literal `"true"`, so a caller that has not shown the dialog
+ * cannot spell the argument and the button cannot fire without the step. The
+ * response is not rendered. The fixture arm answers with its own pid (48213)
+ * whatever was asked — the same property the other param-taking fetchers have —
+ * so the page re-reads the list it acted on instead of showing what came back,
+ * and afterwards the row's own `action` field decides whether Terminate is
+ * still there, which is R4.1's read doing the job a response echo could only
+ * guess at.
  *
  * ── the 15 s indicator ─────────────────────────────────────────────────────
  *
@@ -63,6 +68,7 @@
 
 import { useMemo, useState, type ReactElement } from "react";
 
+import { terminateSession } from "../api/client";
 import { SESSION_NOUN } from "../api/envelope";
 import { FIXTURE_ACTIVE_QUERIES } from "../api/fixtures";
 import type {
@@ -143,6 +149,28 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
   const { state: data, refresh } = useActiveQueries(props.cfg, params, POLL_MS);
   const resp: ActiveQueriesResponse = props.fixtureOverride ?? data.active ?? FIXTURE_ACTIVE_QUERIES;
   const phase: FetchPhase = props.fixtureOverride !== undefined ? "ready" : data.phase;
+  const columns = useColumnVisibility({ viewId: "active-queries", columns: ACTIVE_COLUMNS });
+
+  // The three pieces of local state the page owns, and the reason all three sit
+  // above the early return rather than where two of them used to: `confirmPid`
+  // and `useColumnVisibility` were both below it, so a render that turned a
+  // malformed URL into a valid one rendered more hooks than the render before it
+  // and threw. R10.16's URL has no slot for any of them either, which is the
+  // second reason they are here:
+  //
+  //   · `confirmPid` — which row is showing its Confirm/Cancel. R4.5's
+  //     confirmation is per-row, so it must not be global (two rows armed at
+  //     once would render two confirmations for one click).
+  //   · `pendingPid` — the row whose POST is in flight. The read's `phase`
+  //     cannot carry it: `refresh()` sets phase to `"loading"` about a *read*,
+  //     and a terminate in flight is a different fact, one the row's own button
+  //     needs so a double-click cannot send a second POST.
+  //   · `actionError` — the message from the last POST that failed. A failed
+  //     mutation never reaches the read's error state, so without this slot the
+  //     only feedback for a refused terminate is a row that quietly stays.
+  const [confirmPid, setConfirmPid] = useState<number | null>(null);
+  const [pendingPid, setPendingPid] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Every hook is above this line. `activeParamsFrom` returns `null` for a URL
   // with no cluster (or a malformed pair), and the route is `scope: "cluster"`
@@ -153,18 +181,38 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
   if (params === null) return <NoCluster {...props} />;
 
   const panel = deriveActivePanelState({ phase, active: resp, error: data.error ?? undefined });
-  const columns = useColumnVisibility({ viewId: "active-queries", columns: ACTIVE_COLUMNS });
   // R10.22's wording is composed from the payload rather than written here: the
   // read that served 47 of 51 sessions has to name the four, which is what
   // `copyFor`'s `source` argument does and a fixed sentence cannot.
   const bannerCopy = copyFor(panel, { meta: resp.meta, data: resp.data }, ACTIVE_COPY, SESSION_NOUN);
 
-  // The one piece of local state the page owns besides the expansion: which row
-  // is showing its Confirm/Cancel. R4.5 requires a confirmed action, and a
-  // confirmation is per-row, so it cannot live in the URL (R10.16's list has no
-  // slot for it) and it must not be global (two rows armed at once would render
-  // two confirmations for one click).
-  const [confirmPid, setConfirmPid] = useState<number | null>(null);
+  /** R4.5's action, fired. Both arms of `terminateSession` are called the same
+   *  way: the fixture arm resolves with its own payload after `delay(cfg)`, the
+   *  http arm POSTs `/api/v1/sessions/{pid}/terminate?confirm=true`. Neither
+   *  response is read, for the reason the header gives — success ends in
+   *  `refresh()`, the re-read the flow was always going to end in; failure lands
+   *  in `actionError`, because `StatePanel`'s error frame belongs to the read
+   *  and reusing it here would report a refused POST as a failed GET.
+   *
+   *  An arrow bound to a const rather than a `function` declaration, and not for
+   *  style: a hoisted declaration is treated as existing before the
+   *  `if (params === null) return` above it, so tsc will not carry that narrowing
+   *  into its body and `params.namespace` is `string | undefined` again — the
+   *  TS18047 a declaration here produces. */
+  const terminate = (pid: number): void => {
+    setConfirmPid(null);
+    setPendingPid(pid);
+    setActionError(null);
+    terminateSession(props.cfg, {
+      pid,
+      namespace: params.namespace,
+      cluster: params.cluster,
+      confirm: "true",
+    })
+      .then(() => refresh())
+      .catch((err: unknown) => setActionError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setPendingPid(null));
+  };
 
   if (panel === "loading" || panel === "empty" || panel === "error") {
     return (
@@ -190,6 +238,13 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
         <div className="banner" role="status">
           <strong>{bannerCopy.title}</strong>
           <span>{bannerCopy.body}</span>
+        </div>
+      )}
+
+      {actionError !== null && (
+        <div className="banner" role="alert" data-testid="action-error">
+          <strong>Terminate failed</strong>
+          <span>{actionError}</span>
         </div>
       )}
 
@@ -226,15 +281,10 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
                 columns={columns.visible}
                 chain={chainFor(resp.blockingChains, row.pid)}
                 confirming={confirmPid === row.pid}
+                terminating={pendingPid === row.pid}
                 onConfirm={() => setConfirmPid(row.pid)}
                 onCancel={() => setConfirmPid(null)}
-                onConfirmed={() => {
-                  // The POST is the ask on `web/src/api/` (see the header); the
-                  // part that exists today is re-reading the list, which is what
-                  // a confirmed action has to end in anyway.
-                  setConfirmPid(null);
-                  refresh();
-                }}
+                onConfirmed={() => terminate(row.pid)}
               />
             ))}
           </tbody>
@@ -365,6 +415,7 @@ function SessionRow({
   columns,
   chain,
   confirming,
+  terminating,
   onConfirm,
   onCancel,
   onConfirmed,
@@ -375,6 +426,8 @@ function SessionRow({
   columns: readonly string[];
   chain: BlockingChainView | null;
   confirming: boolean;
+  /** This row's terminate POST is in flight (see `ActionCell.terminating`). */
+  terminating: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   onConfirmed: () => void;
@@ -404,7 +457,7 @@ function SessionRow({
         </td>
         {columns.map((key) => (
           <td key={key} className={numericCol(key) ? "num" : undefined}>
-            {cell(row, key, onConfirm)}
+            {cell(row, key, onConfirm, terminating)}
           </td>
         ))}
       </tr>
@@ -518,6 +571,8 @@ function cell(
   key: string,
   /** R4.5's arm step, threaded to the one column that has an action. */
   onTerminate?: () => void,
+  /** Passed through to `ActionCell`; every other column ignores it. */
+  terminating?: boolean,
 ): ReactElement | string {
   switch (key) {
     case "pid":
@@ -570,7 +625,7 @@ function cell(
     case "blockingPids":
       return row.blockingPids.length === 0 ? NULL_VALUE : row.blockingPids.join(", ");
     case "action":
-      return <ActionCell row={row} onTerminate={onTerminate} />;
+      return <ActionCell row={row} onTerminate={onTerminate} terminating={terminating} />;
     case "sourceTime":
       return <span title={utcTitle(row.sourceTime)}>{formatTimestamp(row.sourceTime)}</span>;
     default:
@@ -583,14 +638,27 @@ function cell(
 function ActionCell({
   row,
   onTerminate,
+  terminating = false,
 }: {
   row: SessionView;
   onTerminate?: () => void;
+  /** This row's POST is in flight. The button goes disabled and says so: the
+   *  alternative is an enabled Terminate on a backend the server has already
+   *  been told to kill, which invites the second click whose 400 the page then
+   *  has to explain. `data-terminating` is the test/automation hook for it. */
+  terminating?: boolean;
 }): ReactElement {
   if (row.action === ACTION_TERMINATE) {
     return (
-      <button type="button" className="btn btn-xs" onClick={onTerminate} data-action={row.action}>
-        Terminate
+      <button
+        type="button"
+        className="btn btn-xs"
+        onClick={onTerminate}
+        disabled={terminating}
+        data-action={row.action}
+        data-terminating={terminating ? "true" : undefined}
+      >
+        {terminating ? "Terminating…" : "Terminate"}
       </button>
     );
   }

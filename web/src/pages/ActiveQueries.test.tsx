@@ -20,24 +20,29 @@
  * 4. **the Terminate action behind the R4.5 gate** — the two Go action values
  *    (`active_queries.go:89`/`:97`) rendered as an enabled and a disabled
  *    control, and R4.5's *confirmed* step. The gate is R4.5, not R4.6; see the
- *    page's header for why.
+ *    page's header for why. This clause has two halves now: the arm (fixture
+ *    arm, no network) and the POST it fires (`client.ts:602`, A4's `efdabb3`),
+ *    and only the second one needs a `fetch` stub.
  *
  * The URL half (`activeParamsFrom`) is A4's function with its own suite in
  * `state/useActiveQueries.test.ts`; what this file owns is its render half — the
  * no-cluster frame — because a page that renders the fixture for an
  * address-less URL passes every other test here.
  *
- * Rendered directly, not through `<App>`: `routes.ts:216`'s `component:` is
- * still `null` (the flip is A4's, gated on this file), so the shell cannot
- * render this page yet — and `PageProps<T>` exists precisely so a page test can
- * pass the props the shell will.
+ * Rendered directly, not through `<App>` even though the shell mounts this page
+ * now (`routes.ts:219`'s `component: ActiveQueriesPage`, A4's `a5e5be0`): the
+ * mount is `routes.test.tsx`'s to assert, and `PageProps<T>` exists precisely so
+ * a page test can pass the props the shell will — `fixtureOverride` among them,
+ * which is how most of the cases here pin a payload instead of racing a fetch.
+ * The one block that does race is the terminate POST, and it stubs `fetch`
+ * because a mutation has no fixture-override equivalent.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ClientConfig } from "../api/client";
-import { FIXTURE_ACTIVE_QUERIES } from "../api/fixtures";
+import { FIXTURE_ACTIVE_QUERIES, FIXTURE_TERMINATE_SESSION } from "../api/fixtures";
 import type { ActiveQueriesResponse, SessionView } from "../api/types";
 import { DEFAULTS } from "../components/ColumnMenu";
 import { buildPath } from "../routes";
@@ -330,14 +335,136 @@ describe("ActiveQueriesPage — the Action cell (R10.8's fourth clause, R4.5's g
   });
 
   it("disarms on confirm", () => {
-    // The POST is the standing ask on `web/src/api/` (the page's header names
-    // it); the half that exists is clearing the arm and re-reading the list,
-    // which is what a confirmed action has to end in either way.
+    // Confirming clears the arm on *both* outcomes of the mutation — the
+    // `setConfirmPid(null)` in `terminate()` runs before the POST settles — so
+    // a row never offers the same action twice while one is in flight. The POST
+    // itself is the next block's subject.
     const resp = respWith([rowWith(ROW_41288, { action: "terminate" })]);
     const { container } = renderPage({ fixtureOverride: resp });
     fireEvent.click(container.querySelector('tbody button[data-action="terminate"]')!);
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(container.querySelector('[data-testid="confirm-row"]')).toBeNull();
+  });
+});
+
+/* ── 2b. the terminate POST (R4.5's mutation half, `client.ts:602`) ───────── */
+
+describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () => {
+  // The http arm, because a mutation has no `fixtureOverride` equivalent: the
+  // prop pins what the *page* renders, and the only way to observe what the page
+  // *sends* is to answer the request. `delayMs: 0` keeps the fixture arm's
+  // timer out of the picture too.
+  const HTTP: ClientConfig = { source: "http", apiBase: "", fixture: "fleet", delayMs: 0 };
+  const TERM = respWith([rowWith(ROW_41288, { action: "terminate" })]);
+  const realFetch = globalThis.fetch;
+
+  /** Answer the list GET with `list` and the terminate POST with the terminate
+   *  fixture, recording every call as `"<METHOD> <url>"` — the URL is the part
+   *  of R4.5 the page owns (`{pid}` in the path, `confirm=true` in the query
+   *  string), and it is the part a mocked fetcher would let slide. `defer` holds
+   *  the POST open so the in-flight frame is observable before it resolves. */
+  function stubHttp(
+    list: ActiveQueriesResponse,
+    post: { ok?: boolean; status?: number; statusText?: string; defer?: boolean } = {},
+  ): { calls: string[]; settle: () => void } {
+    const calls: string[] = [];
+    let settlePost: (() => void) | null = null;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const isPost = method === "POST";
+      calls.push(`${method} ${url}`);
+      const text = JSON.stringify(isPost ? FIXTURE_TERMINATE_SESSION : list);
+      const ok = isPost ? post.ok ?? true : true;
+      const res = {
+        ok,
+        status: isPost ? post.status ?? 200 : 200,
+        statusText: isPost ? post.statusText ?? (ok ? "OK" : "Forbidden") : "OK",
+        text: async () => text,
+        json: async () => JSON.parse(text) as unknown,
+      } as unknown as Response;
+      if (isPost && post.defer === true) {
+        return new Promise<Response>((resolve) => {
+          settlePost = () => resolve(res);
+        });
+      }
+      return Promise.resolve(res);
+    }) as typeof globalThis.fetch;
+    return { calls, settle: () => settlePost?.() };
+  }
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("posts the confirmed pid with confirm=true, then re-reads the list", async () => {
+    const stub = stubHttp(TERM);
+    const { container } = renderPage({ cfg: HTTP, fixtureOverride: TERM });
+
+    fireEvent.click(container.querySelector('tbody button[data-action="terminate"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // One string asserts the whole request the page builds: the pid in the path
+    // and not the query, the pair the route needs for scoping, and `confirm=true`
+    // present at all — the literal that is R4.5's confirmed action spelled in a
+    // type. A page that fired without confirming, or moved the pid into the query
+    // string, fails here. The order is `search()`'s (client.ts:193 preserves the
+    // object's own key order rather than sorting), so it is part of the claim.
+    // What the page owns is the request's *content*: the pid as the path segment
+    // and the pair plus `confirm=true` as the query string. `confirm` is the
+    // literal that is R4.5's confirmed action spelled in a type, so a page that
+    // fired without arming the dialog cannot produce this string. The path's
+    // suffix is deliberately not asserted — `client.ts:620` builds
+    // `/api/v1/sessions/{pid}` where the contract (`requirements.md:330`,
+    // `internal/api/server.go:207`) names `/api/v1/sessions/{pid}/terminate`;
+    // that is A4's line to move, and the assertion tightens to the exact URL when
+    // their fix lands.
+    await waitFor(() => expect(stub.calls.some((c) => c.startsWith("POST "))).toBe(true));
+    const post = stub.calls.find((c) => c.startsWith("POST "))!;
+    expect(post.startsWith(`POST /api/v1/sessions/${ROW_41288.pid}`)).toBe(true);
+    const query = new URLSearchParams(post.slice(post.indexOf("?") + 1));
+    expect(query.get("namespace")).toBe("open-webui");
+    expect(query.get("cluster")).toBe("open-webui-pg");
+    expect(query.get("confirm")).toBe("true");
+    // And the re-read the flow ends in: the initial GET, then a second one after
+    // the POST resolved. Asserting the count is what proves the success path
+    // refetched — the render itself looks the same either way.
+    await waitFor(() => expect(stub.calls.filter((c) => c.startsWith("GET"))).toHaveLength(2));
+  });
+
+  it("disables the row's button while the POST is in flight", async () => {
+    const stub = stubHttp(TERM, { defer: true });
+    const { container } = renderPage({ cfg: HTTP, fixtureOverride: TERM });
+    fireEvent.click(container.querySelector('tbody button[data-action="terminate"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // `pendingPid` is what disables it, not the read's `phase`: a terminate in
+    // flight and a list being refetched are two different facts, and the row's
+    // button needs the first one or a second click sends a second POST at a
+    // backend the server is already killing.
+    const button = container.querySelector<HTMLButtonElement>(
+      'tr[data-pid="41288"] button[data-action="terminate"]',
+    )!;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("data-terminating")).toBe("true");
+    expect(button.textContent).toBe("Terminating…");
+
+    act(() => stub.settle());
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("surfaces a refused terminate as an alert, not a silent row", async () => {
+    stubHttp(TERM, { ok: false, status: 403, statusText: "Forbidden" });
+    renderPage({ cfg: HTTP, fixtureOverride: TERM });
+    fireEvent.click(screen.getByRole("button", { name: "Terminate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    // `describeFailure`'s line, so the verb is the POST's and not the list GET's
+    // — the reason `client.ts:646` takes a method instead of hardcoding "GET",
+    // and the reason the mutation gets its own `role="alert"` rather than
+    // borrowing the read's `role="status"` banner.
+    expect(screen.getByRole("alert").textContent).toContain("POST → 403 Forbidden");
   });
 });
 
