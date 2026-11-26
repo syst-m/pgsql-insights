@@ -85,7 +85,7 @@ cover:
 		{ echo "FAIL: coverage $$total% is below the 70% gate (R11.11)"; exit 1; }
 
 ## lint: go vet + golangci-lint when installed (R11.11)
-lint: vet lint-go openapi-check cardinality-check sha-check
+lint: vet lint-go openapi-check cardinality-check sha-check as-built-check
 
 vet:
 	go vet ./...
@@ -123,6 +123,17 @@ openapi:
 # and that the two lists are disjoint.
 openapi-check:
 	python3 scripts/check-openapi.py
+
+## as-built-check: verify docs/architecture.md's as-built table against the tree (R14.3).
+# The table's "Where it lives" column is a hand-maintained copy of `git ls-tree -r
+# --name-only HEAD` -- every file count, test count, component count and file name in it
+# is derivable from git, and every one rots the moment anyone commits a file without
+# editing the row. The script regenerates the derivable half and diffs it, leaving Box
+# names, Requirement ids and Status prose byte-for-byte alone: the same fix
+# api/openapi.yaml got from openapi_gen.go -- a derived artifact gets a generator or it
+# rots.
+as-built-check:
+	python3 scripts/gen-as-built-table.py --check
 
 ## cardinality-check: R13.4's assertion — the exported series count for the fixture
 ## cluster set, computed from requirements.md §5's family table.
