@@ -26,11 +26,9 @@ github.com/jackc/pgservicefile,https://github.com/jackc/pgservicefile/blob/5a60c
 github.com/jackc/pgx/v5,https://github.com/jackc/pgx/blob/v5.13.0/LICENSE,MIT
 github.com/jackc/puddle/v2,https://github.com/jackc/puddle/blob/v2.2.3/LICENSE,MIT
 github.com/json-iterator/go,https://github.com/json-iterator/go/blob/v1.1.12/LICENSE,MIT
-github.com/mattn/go-isatty,https://github.com/mattn/go-isatty/blob/v0.0.24/LICENSE,MIT
 github.com/modern-go/concurrent,https://github.com/modern-go/concurrent/blob/bacd9c7ef1dd/LICENSE,Apache-2.0
 github.com/modern-go/reflect2,https://github.com/modern-go/reflect2/blob/35a7c28c31ee/LICENSE,Apache-2.0
 github.com/munnerz/goautoneg,https://github.com/munnerz/goautoneg/blob/a7dc8b61c822/LICENSE,BSD-3-Clause
-github.com/ncruces/go-strftime,https://github.com/ncruces/go-strftime/blob/v1.1.0/LICENSE,MIT
 github.com/pmezard/go-difflib/difflib,https://github.com/pmezard/go-difflib/blob/5d4384ee4fb2/LICENSE,BSD-3-Clause
 github.com/remyoudompheng/bigfft,https://github.com/remyoudompheng/bigfft/blob/24d4a6f8daec/LICENSE,BSD-3-Clause
 github.com/spf13/pflag,https://github.com/spf13/pflag/blob/v1.0.10/LICENSE,BSD-3-Clause
@@ -40,7 +38,7 @@ go.yaml.in/yaml/v3,https://github.com/yaml/go-yaml/blob/v3.0.4/LICENSE,MIT
 golang.org/x/net,https://cs.opensource.google/go/x/net/+/v0.57.0:LICENSE,BSD-3-Clause
 golang.org/x/oauth2,https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE,BSD-3-Clause
 golang.org/x/sync/semaphore,https://cs.opensource.google/go/x/sync/+/v0.24.0:LICENSE,BSD-3-Clause
-golang.org/x/sys,https://cs.opensource.google/go/x/sys/+/v0.49.0:LICENSE,BSD-3-Clause
+golang.org/x/sys/unix,https://cs.opensource.google/go/x/sys/+/v0.49.0:LICENSE,BSD-3-Clause
 golang.org/x/term,https://cs.opensource.google/go/x/term/+/v0.45.0:LICENSE,BSD-3-Clause
 golang.org/x/text,https://cs.opensource.google/go/x/text/+/v0.41.0:LICENSE,BSD-3-Clause
 golang.org/x/time/rate,https://cs.opensource.google/go/x/time/+/v0.15.0:LICENSE,BSD-3-Clause

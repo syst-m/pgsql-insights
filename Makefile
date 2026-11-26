@@ -269,12 +269,25 @@ push-local:
 
 ## licenses: regenerate the dependency manifest (R15.3) — Go modules + SPA licenses
 # scripts/gen-licenses.py reads go.mod and web/package-lock.json, both committed, so
-# it needs no Go SDK, no npm and no network, and its output is byte-stable. The shell
-# one-liner this replaces shelled out to `go list -m all` and stamped the output with
-# `# Generated: <timestamp>` — the timestamp meant the file could never be diffed,
-# which is why the target stayed a report you ran by hand. Git records the date.
+# it needs no Go SDK, no npm and no network. The shell one-liner this replaces shelled
+# out to `go list -m all` and stamped the output with `# Generated: <timestamp>` — the
+# timestamp meant the file could never be diffed, which is why the target stayed a
+# report you ran by hand. Git records the date.
+#
+# GOOS/GOARCH are pinned because go-licenses-report.csv is not host-independent, which
+# is the half of "byte-stable" the sentence above this one used to claim without
+# qualifying it: `go-licenses report ./...` resolves the import graph for the host
+# platform, so one commit yields 67 rows on darwin (golang.org/x/sys,
+# github.com/mattn/go-isatty, github.com/ncruces/go-strftime) and 65 on linux
+# (golang.org/x/sys/unix, neither of the other two). The committed file was the darwin
+# form and CI runs on ubuntu, which is the whole of the `license manifest (R15.3)`
+# failure at 56fd5b7 — regenerating on a mac cannot fix it, because the mac's answer is
+# the one already committed. Pinning the resolution target to linux/amd64 gives the
+# artifact one form on every host, and it is the form CI's check compares against; the
+# two manifest files were always host-independent, since they come from go.mod and the
+# lockfile rather than from a build.
 licenses:
-	python3 scripts/gen-licenses.py
+	GOOS=linux GOARCH=amd64 python3 scripts/gen-licenses.py
 
 ## licenses-check: R15.3's "regenerated in CI" half — the gate, not the report.
 # `make render-check` is the house precedent for a generated file that must be
@@ -290,8 +303,13 @@ licenses:
 # ci.yml calls this step directly instead of folding it into `lint:` — the same shape
 # as `scripts/check-parity-matrix.sh`, which the lint job runs without a make target.
 # Folding it in would have made `make lint` require go-licenses on every machine.
+# The GOOS/GOARCH pin is `licenses:`'s, above, and has to be repeated here: --check
+# regenerates and compares, so a gate that resolves a different platform than the
+# generator answers a different question than the generator answers, which is R11.11's
+# one-contract rule one level down (the same rule that says CI runs no command the
+# Makefile lacks — here, the same rule that says the check runs the same command).
 licenses-check:
-	python3 scripts/gen-licenses.py --check
+	GOOS=linux GOARCH=amd64 python3 scripts/gen-licenses.py --check
 
 ## licenses-selftest: the negative tests for licenses-check's README assertion.
 # scripts/gen-licenses-selftest.py mutates each of the ten counts the README

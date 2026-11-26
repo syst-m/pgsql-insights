@@ -13,7 +13,7 @@ third one used to be only asserted. See [How CI regenerates it](#how-ci-regenera
 |---|---|
 | `go-dependencies.txt` | Every module in the module graph — 61 of them, 6 direct and 55 indirect — parsed from `go.mod`, plus this module itself with its Apache-2.0 license. |
 | `web-dependencies.txt` | Every package in `web/package-lock.json` with its SPDX license — 176 packages, 0 without a license field. |
-| `go-licenses-report.csv` | `go-licenses report ./...` — 66 packages with their license URL and SPDX id, the columns the tool emits (`package`, `license_url`, `license`). |
+| `go-licenses-report.csv` | `go-licenses report ./...` — 64 packages with their license URL and SPDX id, the columns the tool emits (`package`, `license_url`, `license`). |
 
 R15.3 names both halves explicitly, and the numbers are the reason: the SPA is 176
 packages against the Go side's 61 modules, so a Go-only audit covers the smaller
@@ -73,11 +73,17 @@ of the failure instead of looking like an unrelated edit to a generated file. Th
 the optional-tool shape `lint-go` already uses for golangci-lint: a machine without the
 tool reports the gap rather than pretending the audit is complete.
 
-The tool reports *packages*, not modules, which is why the CSV has 66 rows against
+The tool reports *packages*, not modules, which is why the CSV has 64 rows against
 `go.mod`'s 61 modules — a module with several imported packages contributes one row
-per package. Its own header line for this module reads `blob/HEAD/LICENSE` because the
-main module has no version in `go.mod`; the tool warns about that and the warning is
-correct and harmless.
+per package. That count is the linux/amd64 one, because `make licenses` pins
+`GOOS=linux GOARCH=amd64`: the tool resolves the import graph for the host platform, so
+a darwin run yields 67 rows instead — `golang.org/x/sys` where linux has
+`golang.org/x/sys/unix`, plus `github.com/mattn/go-isatty` and
+`github.com/ncruces/go-strftime`. The 67-row darwin form is what `8c07252` committed, and
+it is the file CI's ubuntu runner names stale at `56fd5b7`; regenerating on a mac cannot
+fix that failure, because the mac's answer is the one already in the tree. Its own header
+line for this module reads `blob/HEAD/LICENSE` because the main module has no version in
+`go.mod`; the tool warns about that and the warning is correct and harmless.
 
 One row was a tool miss, and it is overridden rather than deleted. `modernc.org/mathutil`
 (`go.mod:86`, pulled in by `modernc.org/sqlite`, Phase 2's store) read `Unknown,Unknown`
