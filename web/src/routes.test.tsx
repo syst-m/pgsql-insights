@@ -136,7 +136,7 @@ const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknow
   // followed `ca0915b`. Its props are `SystemInsightsPageProps`
   // (`SystemInsights.tsx:351`) -- `PageProps<Envelope<SystemGroupView>>` -- so
   // the payload is the page's own exported envelope rather than FIXTURE_FLEET;
-  // the page reads it as `props.fixtureOverride` at `SystemInsights.tsx:372`.
+  // the page reads it as `props.fixtureOverride` at `SystemInsights.tsx:419`.
   {
     page: "system",
     location: `/c/${CLUSTER}/system`,
