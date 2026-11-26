@@ -320,7 +320,7 @@ func DefaultCatalogue() *Catalogue {
 	// by(...) over two pooler pods' averages doubles a per-pod number.
 	//
 	// All fifteen are Implemented: true because all fifteen metrics are in the
-	// collector's naming table (naming.go:611-630). This table carries no
+	// collector's naming table (internal/collector/naming.go:701-720). This table carries no
 	// provisional list of its own because there is nothing provisional in it — and
 	// internal/collector/naming_catalogue_test.go's biconditional fails the build
 	// if that claim is wrong, which is what lets the field be a constant here.
