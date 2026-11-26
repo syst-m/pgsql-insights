@@ -47,10 +47,10 @@ func sinkSample(metric string, value float64, source, ingest time.Time) collecto
 // assertion from the test side, so a signature that drifts fails the test build
 // and not only the package build.
 func TestStoreImplementsCollectorSink(t *testing.T) {
-	var s collector.Sink = openMem(t, seriesNow)
-	if s == nil {
-		t.Fatal("(*Store)(nil) does not satisfy collector.Sink")
-	}
+	// The assertion is the declaration: assigning openMem's concrete *Store to
+	// collector.Sink is what a drifting signature fails on. The old `if s == nil`
+	// was SA4023's "this comparison is never true" -- the value is never nil.
+	var _ collector.Sink = openMem(t, seriesNow)
 }
 
 // TestPublishValidatesTarget covers the gate in front of the write, including the

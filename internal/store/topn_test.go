@@ -192,8 +192,8 @@ func TestClusterKey(t *testing.T) {
 	if clusterKey("a", "b") == clusterKey("a/b", "") {
 		t.Errorf(`clusterKey("a","b") == clusterKey("a/b","") — the separator must not be a character that can appear in a name`)
 	}
-	if clusterKey("prod", "pg") != clusterKey("prod", "pg") {
-		t.Error("clusterKey is not deterministic")
+	if got, want := clusterKey("prod", "pg"), "prod\x00pg"; got != want {
+		t.Errorf("clusterKey(%q,%q) = %q, want %q", "prod", "pg", got, want)
 	}
 	// The two halves must both survive: a key that dropped the cluster would
 	// collapse every cluster in a namespace onto one total.

@@ -179,8 +179,8 @@ func (s *Store) PutSnapshot(ctx context.Context, snap Snapshot) error {
 	}
 
 	var (
-		queries []queryRow
-		sources []sourceRow
+		queries = make([]queryRow, 0, len(rows))
+		sources = make([]sourceRow, 0, len(rows))
 		rollups []rollupRow
 		plans   []planRow
 	)
