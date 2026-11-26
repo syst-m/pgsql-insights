@@ -34,7 +34,7 @@
 
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { isValidElement, type ReactElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ClientConfig, TagsParams } from "../api/client";
 import { FIXTURE_TAGS } from "../api/fixtures";
@@ -70,6 +70,29 @@ const URL_STATE: UrlState = { ...DEFAULT_STATE, page: "tags", cluster: CLUSTER_I
 const TAG_FULL_COMMENT = FIXTURE_TAGS.data[0]!; // openwebui — every (b) dimension
 const TAG_NO_COMMENT = FIXTURE_TAGS.data[1]!; // gateway — the (a) dimensions only
 const TAG_PARTIAL = FIXTURE_TAGS.data[2]!; // cookbook — action + route, no controller
+
+/** Every render starts from the documented default column set.
+ *
+ *  `useColumnVisibility` (`../components/ColumnMenu.tsx:194`) reads a persisted
+ *  selection from `browserStorage()` (`../components/ThemeToggle.tsx:61`) before
+ *  it falls back to `DEFAULTS.tags` (`ColumnMenu.tsx:124`), and any test that
+ *  drives the ColumnMenu writes one. Without this clear, a test renders whatever
+ *  the previous test left in storage — which is why the R10.18 windowing case
+ *  below saw ten columns while the page's documented default is eight. The
+ *  storage is only live where `globalThis.localStorage` resolves to a working
+ *  store, so the suite's result was a property of the runner's node, not of the
+ *  code under test: `.github/workflows/ci.yml:164`'s node 22 has jsdom's
+ *  per-file storage and fails, a node whose global throws (the state
+ *  `ThemeToggle.tsx:61` documents) has none and passes.
+ */
+beforeEach(() => {
+  try {
+    globalThis.localStorage?.clear();
+  } catch {
+    // Accessing the property itself threw: storage is absent, so there is no
+    // persisted selection to leak. Same fallback as `browserStorage()` (:61).
+  }
+});
 
 function renderPage(overrides: Partial<TagsPageProps> = {}) {
   const onPatch = vi.fn();

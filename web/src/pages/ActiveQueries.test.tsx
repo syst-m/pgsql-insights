@@ -44,7 +44,7 @@
  */
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ClientConfig } from "../api/client";
 import { FIXTURE_ACTIVE_QUERIES, FIXTURE_TERMINATE_SESSION } from "../api/fixtures";
@@ -77,6 +77,30 @@ const URL_STATE: UrlState = {
  *  way to silence a real `undefined`. */
 const ROW_41288 = FIXTURE_ACTIVE_QUERIES.data[0]!;
 const ROW_41102 = FIXTURE_ACTIVE_QUERIES.data[1]!;
+
+/** Every render starts from the documented default column set.
+ *
+ *  `useColumnVisibility` (`../components/ColumnMenu.tsx:194`) reads a persisted
+ *  selection from `browserStorage()` (`../components/ThemeToggle.tsx:61`) before
+ *  it falls back to `DEFAULTS["active-queries"]` (`ColumnMenu.tsx:95`, the nine
+ *  this file's header names), and any test that drives the ColumnMenu writes one.
+ *  Without this clear, a test renders whatever the previous test left in storage —
+ *  which is why the R10.18 windowing case below saw eleven visible columns, a
+ *  colspan of twelve with the expander column, while the documented default is
+ *  nine and ten. Storage is only live where `globalThis.localStorage` resolves to
+ *  a working store, so the suite's result was a property of the runner's node:
+ *  `.github/workflows/ci.yml:164`'s node 22 has jsdom's per-file storage and
+ *  fails, a node whose global throws (the state `ThemeToggle.tsx:61` documents)
+ *  has none and passes.
+ */
+beforeEach(() => {
+  try {
+    globalThis.localStorage?.clear();
+  } catch {
+    // Accessing the property itself threw: storage is absent, so there is no
+    // persisted selection to leak. Same fallback as `browserStorage()` (:61).
+  }
+});
 
 function renderPage(overrides: Partial<ActiveQueriesPageProps> = {}) {
   const onPatch = vi.fn();
