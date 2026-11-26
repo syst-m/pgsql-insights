@@ -443,6 +443,48 @@ def finding_row_revs(root):
                 if r: out[n] = r[0]; break     # first cell with a rev wins
     return out
 
+# The per-line grammar, factored out of path_citations by A3's S51 so the commit-message tier
+# (check_commit_citations) grades the same four forms with one parser instead of a second copy
+# that can drift. The tuple is (offset, kind, cited_path, start, end, heading, rev): `offset` is
+# the match position in the line, kept so the C arm can take the line's *first* anchored cite the
+# way CITE_C's rule requires; `heading` is populated only by form B, which asserts the target
+# line's text; `rev` is the commit the cite pins its numbers to, or None for "the current file".
+# Ordering is load-bearing: anchored matches sorted by offset, then the C matches, because
+# check_paths' dump order -- and therefore the report a reviewer diffs -- follows this list.
+def cites_in_line(line, row_rev=None):
+    """Every citation on one line, as (offset, kind, cited_path, start, end, heading, rev).
+
+    `row_rev` is A3's S121 inheritance: the rev a ledger row names in its `filed in`/`fixed by`
+    cells, applied to that row's unrevved cites so a row documenting a fix is graded at the commit
+    the row is about rather than at a file that has since moved. Cite forms that carry their own
+    rev win over it.
+    """
+    a_matches = list(CITE_A.finditer(line))
+    anchored = [(m.start(), "B", m.group(1), int(m.group(3)),
+                 int(m.group(4) or m.group(3)), m.group(2), None)
+                for m in CITE_B.finditer(line)]
+    anchored += [(m.start(), "A", m.group(1), int(m.group(2)),
+                  int(m.group(3) or m.group(2)), None, None)
+                 for m in a_matches]
+    # R: `REV:path:N`, added only where CITE_A did not already match the same backtick
+    # pair, so the two arms cannot double-count one citation.
+    a_spans = [(m.start(), m.end()) for m in a_matches]
+    anchored += [(m.start(), "R", m.group(2), int(m.group(3)),
+                  int(m.group(4) or m.group(3)), None, m.group(1))
+                 for m in CITE_R.finditer(line)
+                 if not any(m.start() < e and s < m.end() for s, e in a_spans)]
+    anchored.sort()
+    if row_rev is not None:            # A3's S121: the row's rev pins its unrevved cites
+        anchored = [(o, k, p, s, e, h, rv if rv is not None else row_rev)
+                    for o, k, p, s, e, h, rv in anchored]
+    out = list(anchored)
+    if anchored:                       # C: bare `:N` inherits the line's first path+rev
+        first = anchored[0]
+        out += [(m.start(), "C", first[2], int(m.group(1)),
+                 int(m.group(2) or m.group(1)), None, first[6])
+                for m in CITE_C.finditer(line)]
+    return out
+
 def path_citations(root, tracked):
     """(file, lineno, kind, cited_path, start, end, heading, rev) for every citation in scope.
 
@@ -462,33 +504,49 @@ def path_citations(root, tracked):
     for rel in tracked:
         if pathlib.PurePosixPath(rel).suffix not in PATH_CITE_EXTS or rel.startswith(PATH_SKIP_DIRS): continue
         for n, line in enumerate(lines_of(root, rel), 1):
-            a_matches = list(CITE_A.finditer(line))
-            anchored = [(m.start(), "B", m.group(1), int(m.group(3)),
-                         int(m.group(4) or m.group(3)), m.group(2), None)
-                        for m in CITE_B.finditer(line)]
-            anchored += [(m.start(), "A", m.group(1), int(m.group(2)),
-                          int(m.group(3) or m.group(2)), None, None)
-                         for m in a_matches]
-            # R: `REV:path:N`, added only where CITE_A did not already match the same backtick
-            # pair, so the two arms cannot double-count one citation.
-            a_spans = [(m.start(), m.end()) for m in a_matches]
-            anchored += [(m.start(), "R", m.group(2), int(m.group(3)),
-                          int(m.group(4) or m.group(3)), None, m.group(1))
-                         for m in CITE_R.finditer(line)
-                         if not any(m.start() < e and s < m.end() for s, e in a_spans)]
-            anchored.sort()
-            rv0 = row_revs.get(n) if rel == FINDING_DOC else None
-            if rv0 is not None:                # A3's S121: the row's rev pins its unrevved cites
-                anchored = [(o, k, p, s, e, h, rv if rv is not None else rv0)
-                            for o, k, p, s, e, h, rv in anchored]
-            for _, k, p, s, e, h, rv in anchored:
+            for off, k, p, s, e, h, rv in cites_in_line(
+                    line, row_revs.get(n) if rel == FINDING_DOC else None):
                 out.append((rel, n, k, p, s, e, h, rv))
-            if anchored:                       # C: bare `:N` inherits the line's first path+rev
-                first = anchored[0]
-                out += [(rel, n, "C", first[2], int(m.group(1)),
-                         int(m.group(2) or m.group(1)), None, first[6])
-                        for m in CITE_C.finditer(line)]
     return out
+
+# The content checks, factored out of check_paths by A3's S51 so a cite in a commit message is
+# graded by the same code as a cite in a markdown file. `target` is the resolved path (or
+# `rev:path` for a rev-pinned cite) named in the failure string; `vs` is every readable version of
+# it, which is one version for a rev-pinned cite and up to three for an unrevved one.
+def grade_cite(kind, path, s, e, head, target, vs):
+    """Why this cite is wrong, or "" when it is right.
+
+    Three checks, in this order: a range whose end precedes its start (A3's S133 -- the two
+    content checks were `e > len(v)` and `v[s-1]` non-blank, so cmd/pgsi/main.go:790-756
+    (de-backticked per S120: a backticked path:N in a checked file is itself a live cite, and this
+    one is the exhibit, not a reference) passed on both numbers existing and nothing
+    compared the two; that form is a collapsed moved-address pair, S52 wants two cites each with
+    its own rev, and the assertion makes the collapse fail), then the end line existing in every
+    version, then A3's S118 blank-start rule -- a blank line cannot be what a cite names. Form B
+    additionally asserts the target line's heading text, which is the whole point of the durable
+    form; a B cite that matches the grammar but quotes the wrong heading is a wrong cite, not a
+    formatting nit.
+    """
+    if s > e:
+        return f"{path}:{s}-{e} — end precedes start"
+    if not vs:
+        return f"{path}: no readable version"
+    for v in vs:
+        if e > len(v):
+            why = f"{path}:{s}-{e} — {target} has {len(v)} lines"
+        elif not v[s - 1].strip():             # A3's S118: a blank line cannot be what a cite names
+            why = f"{path}:{s} is blank"
+        elif kind == "B":                      # the durable form asserts the heading
+            actual = re.sub(r"^#+\s*", "", v[s - 1]).strip()
+            if not v[s - 1].startswith("#"):
+                why = f"{path}:{s} is not a heading ({actual[:48]!r})"
+            elif actual != head.strip():
+                why = f"quotes {head!r}, {path}:{s} reads {actual!r}"
+            else:
+                why = ""; break
+        else:
+            why = ""; break
+    return why
 
 def check_paths(root, tracked):
     checked, code_checked, bad, unresolved, ambiguous, exempt = 0, 0, [], [], [], 0
@@ -524,33 +582,7 @@ def check_paths(root, tracked):
             # A3's S121: resolve the target across every shippable version, not just the worktree.
             vs = target_versions(root, r[0])
         checked += rel.endswith(".md"); code_checked += not rel.endswith(".md")
-        if s > e:
-            # A3's S133: the two content checks were `e > len(v)` and `v[s-1]` non-blank, so a
-            # range whose end precedes its start passed on both numbers existing -- at HEAD,
-            # cmd/pgsi/main.go:790-756 (de-backticked per S120: a backticked path:N in a
-            # checked file is itself a live cite, and this one is the exhibit, not a reference)
-            # had a non-blank :790 and a non-blank :756 and nothing
-            # compared the two. That form is a collapsed moved-address pair (S52 wants two cites,
-            # each with its own rev), not a range; the assertion makes the collapse fail.
-            bad.append((rel, n, kind, f"{path}:{s}-{e} — end precedes start")); continue
-        if not vs:
-            bad.append((rel, n, kind, f"{path}: no readable version")); continue
-        why = ""
-        for v in vs:
-            if e > len(v):
-                why = f"{path}:{s}-{e} — {target} has {len(v)} lines"
-            elif not v[s - 1].strip():         # A3's S118: a blank line cannot be what a cite names
-                why = f"{path}:{s} is blank"
-            elif kind == "B":                  # the durable form asserts the heading
-                actual = re.sub(r"^#+\s*", "", v[s - 1]).strip()
-                if not v[s - 1].startswith("#"):
-                    why = f"{path}:{s} is not a heading ({actual[:48]!r})"
-                elif actual != head.strip():
-                    why = f"quotes {head!r}, {path}:{s} reads {actual!r}"
-                else:
-                    why = ""; break
-            else:
-                why = ""; break
+        why = grade_cite(kind, path, s, e, head, target, vs)
         if why:
             bad.append((rel, n, kind, why))
     return checked, code_checked, bad, unresolved, ambiguous, exempt, pairs
@@ -594,6 +626,125 @@ dump(ambiguous, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] ambiguous: 
 dump(code_amb, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
 dump(code_unres, lambda f, n, kind, path, n_alt: f"  {f}:{n} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
 dump(path_orphans, lambda k: f"  orphan path exemption: {k[0]} -> {k[1]} — {PATH_EXEMPT[k]}")
+
+# --- commit-message citations (A3's S51) ---
+# Every tier above checks cites that live in a file. A commit message is the last place a
+# `path:N` gets written and never checked, and it is the message most likely to quote a line
+# number: the message that ships a fix quotes the line it changed, and the change is what moves
+# it. Measured at `b603e63` with an empty exemption table: 137 cites across the last 40 messages,
+# 11 of them failing across 9 (message, path) keys, and the table below is that measurement
+# generated from the tier's own output rather than hand-written. The classes, from the same run:
+# start-line-blank (27e1a45's checker cites at :1284 and :1295, 16a2ee5's finding-index cite,
+# 7dfd6e2's finding-index cite, 10d0021's server.go cite, 0628717's client.test.ts:1286 -- whose
+# claim spans :1286-1288 -- and client.ts:426): the message quotes the pre-change line and the
+# commit deletes it, so the number is right at the parent and blank inside the commit, which is
+# the finding rather than a fixable typo -- grading at the writing commit is what makes the
+# sentence mean what it says; end-past-end-of-file (10d0021's two spa_test.go cites, :528-530 and
+# :599-601 in a 154-line file); a collapsed range (3c07757 cmd/pgsi/main.go:790-756, S133's
+# class); an under-specified basename (0628717's series.go:96, S116's class).
+#
+# The window exists because cost does: the tier costs one `git show` per cite plus one `git
+# ls-tree` per message, measured at ~30ms per commit, so all 628 commits would add ~15s to a gate
+# that costs ~8s without it; 40 messages costs ~1.2s. The consequence is that a message ages out
+# of the check after 40 more commits, so an exemption for an aged-out message cannot be an orphan
+# -- `orphans` is computed over keys inside the window only, which is the difference between a
+# dead exemption and a historical record.
+#
+# Key granularity, inherited from PATH_EXEMPT and worth naming: a key is (message, cited path), so
+# exempting one bad cite on a path exempts that message's other cites to the same path -- 21 cites
+# sit behind the 9 keys, 11 failing and 10 passing. A key per line number would exempt only the 11;
+# the md tier has the same coarseness and nobody has asked it to be finer.
+MSG_CITE_WINDOW = 40
+MSG_CITE_EXEMPT = {
+    ("06287170a90ab9309f228270a317051918499be6", "client.test.ts"): "start line blank at the commit that wrote it",
+    ("06287170a90ab9309f228270a317051918499be6", "client.ts"): "start line blank at the commit that wrote it",
+    ("06287170a90ab9309f228270a317051918499be6", "series.go"): "under-specified path (S116's class)",
+    ("10d0021d35e8aa8c01c2c31ae47f42add2fdd0df", "internal/api/server.go"): "start line blank at the commit that wrote it",
+    ("10d0021d35e8aa8c01c2c31ae47f42add2fdd0df", "internal/api/spa_test.go"): "end past end of the file at that rev",
+    ("16a2ee5f11098775b1b5022daf4a830ad4d818bb", "finding-index.md"): "start line blank at the commit that wrote it",
+    ("27e1a45dc3e2edaedfbf03b87235869c9aa56d0d", "scripts/check-parity-matrix.py"): "start line blank at the commit that wrote it",
+    ("3c077573479d6cb8824b17b65fc4e9b8f0cc6744", "cmd/pgsi/main.go"): "collapsed range (S133's class)",
+    ("7dfd6e2bc5c578038dbb7043d61aabd6e6bccddf", "docs/reviews/finding-index.md"): "start line blank at the commit that wrote it",
+}
+
+_git_run_cache = {}
+def _git_run(root, *args):
+    """stdout of a git command, memoized per process; None when the command exits non-zero."""
+    key = "\0".join(args)
+    if key not in _git_run_cache:
+        try:
+            out = subprocess.run(["git", "-C", str(root), *list(args)],
+                                 capture_output=True, check=True).stdout
+            _git_run_cache[key] = out.decode("utf-8", "replace")
+        except Exception:
+            _git_run_cache[key] = None
+    return _git_run_cache[key]
+
+def _tree(root, sha):
+    """Paths tracked at `sha`, or None if `sha` is not a commit. Memoized per process."""
+    key = "TREE " + sha
+    if key not in _git_run_cache:
+        out = _git_run(root, "ls-tree", "-r", "--name-only", sha)
+        _git_run_cache[key] = None if out is None else [x for x in out.split("\n") if x]
+    return _git_run_cache[key]
+
+def check_commit_citations(root, n=MSG_CITE_WINDOW, exempt=None):
+    """(checked, bad, unresolved, ambiguous, exempt, orphans, scanned) for cites in messages.
+
+    The grammar and the grading are the markdown tier's -- `cites_in_line` for the four forms,
+    `grade_cite` for what makes a number wrong -- so a message cannot pass a cite the same file
+    would fail. `n=None` scans every reachable commit; `exempt` is injectable so the tier can be
+    mutation-tested against a table that is not the shipped one.
+    """
+    exempt = MSG_CITE_EXEMPT if exempt is None else exempt
+    shas = (_git_run(root, "log", "--format=%H") or "").split()
+    if n is not None:
+        shas = shas[:n]
+    checked, ex = 0, 0
+    bad, unresolved, ambiguous = [], [], []
+    seen = set()
+    for sha in shas:
+        own = _tree(root, sha)
+        if own is None:
+            continue
+        own_set = set(own)
+        cites = []
+        for line in (_git_run(root, "log", "-1", "--format=%B", sha) or "").split("\n"):
+            cites += cites_in_line(line)
+        for _, kind, path, s, e, head, rev in cites:
+            key = (sha, path)
+            seen.add(key)
+            if key in exempt:
+                ex += 1
+                continue
+            at = rev if rev is not None else sha          # the message's own commit is the default
+            tree = own if at == sha else _tree(root, at)
+            if tree is None:
+                bad.append((sha[:7], kind, path, f"{path}:{s}-{e} — {at[:7]} is not a commit"))
+                continue
+            r = resolve_path(tree, set(tree), ".", path)  # a commit has no directory: "." cites
+            if len(r) == 0:
+                unresolved.append((sha[:7], kind, path, 0)); continue
+            if len(r) > 1:
+                ambiguous.append((sha[:7], kind, path, len(r))); continue
+            v = _git_show(root, f"{at}:{r[0]}")
+            checked += 1
+            why = grade_cite(kind, path, s, e, head, f"{at[:7]}:{r[0]}", [] if v is None else [v])
+            if why:
+                bad.append((sha[:7], kind, path, why))
+    in_window = set(shas)
+    orphans = sorted(k for k in set(exempt) - seen if k[0] in in_window)
+    return checked, bad, unresolved, ambiguous, ex, orphans, len(shas)
+
+(msg_checked, msg_bad, msg_unres, msg_amb, msg_ex, msg_orphans,
+ msg_scanned) = check_commit_citations(root)
+print(f"commit-message citations: {msg_scanned} messages · {msg_checked} cites checked · "
+      f"{len(msg_bad)} wrong (failed) · {len(msg_unres)} unresolvable (reported, not failed) · "
+      f"{len(msg_amb)} ambiguous (failed) · {msg_ex} exempt · {len(msg_orphans)} orphan exemptions")
+dump(msg_bad, lambda s, kind, path, why: f"  {s} [{kind}] {why}", cap=10)
+dump(msg_unres, lambda s, kind, path, n_alt: f"  {s} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
+dump(msg_amb, lambda s, kind, path, n_alt: f"  {s} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
+dump(msg_orphans, lambda k: f"  orphan message exemption: {k[0][:7]} {k[1]} — {MSG_CITE_EXEMPT[k]}", cap=10)
 
 # --- relative markdown links (A4's docs/README.md find, generalised) ---
 # The half above validates `path:N` citations and says nothing about `[text](path)` links,
@@ -1398,5 +1549,5 @@ sys.exit(1 if (bad or missing or cite_bad or path_bad or ambiguous or links_bad 
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
               or width_bad or idc_bad or ve_dangling or ve_orphans or ve_misaddressed
-              or h2_gaps or self_bad) else 0)
+              or h2_gaps or self_bad or msg_bad or msg_amb or msg_orphans) else 0)
 
