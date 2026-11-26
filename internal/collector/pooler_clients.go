@@ -242,7 +242,7 @@ func (c *PoolerClientsCollector) Descriptor() Descriptor { return c.desc }
 // Collect is the Collector interface method, and it returns no samples.
 //
 // That is not a gap in this file; it is the absence of a family. R9.5's metric list
-// has no entry for client attribution: requirements.md:548's cardinality row is
+// has no entry for client attribution: `requirements.md:551`'s cardinality row is
 // scoped to "Pooler (R6.1)" — the S5 series — and naming.go:262 marks
 // pg_stat_activity.client_addr as TypeNotExported ("R9.1 text half (inet)"), the
 // framework's standing refusal to export an address as a number. R14.7 forbids a

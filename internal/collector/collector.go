@@ -82,8 +82,8 @@ const (
 // Eleven values, and they come from two spec places. S1-S10 are §3.2's table
 // verbatim (`requirements.md:168-177`, the ten rows it ranks by cost and by
 // always-available-ness). S11 is not in that table: it is R5.9's source, ruled at
-// `requirements.md:348` from §3.3's `k8s-events` collector row
-// (`requirements.md:207`, whose source column reads "`events` in the cluster's
+// `requirements.md:349` from §3.3's `k8s-events` collector row
+// (`requirements.md:208`, whose source column reads "`events` in the cluster's
 // namespace"). The ruling exists because §3.2's ten do not cover a pod-event
 // watch and Validate rejects every value outside this block, so a source-less
 // collector is a compile-time-impossible option rather than a second design
@@ -129,7 +129,7 @@ const (
 	// namespace, and the source R5.9's events timeline needs.
 	//
 	// It is the one value here that §3.2's table does not print. The id was ruled
-	// at `requirements.md:348` in answer to A1's question -- "does the k8s-events
+	// at `requirements.md:349` in answer to A1's question -- "does the k8s-events
 	// collector gain an S11, or does it get no SourceID because it is not a
 	// Postgres source?" -- and the ruling is that "no SourceID" is not
 	// implementable: Source is a required field and Validate rejects every other

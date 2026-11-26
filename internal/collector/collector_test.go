@@ -100,7 +100,7 @@ func TestValidSource(t *testing.T) {
 	// Eleven constants, and the test pins the count so an edit that adds a
 	// twelfth is caught here rather than in review. The set's provenance is
 	// documented on the type itself — S1-S10 are §3.2's table verbatim, S11 is
-	// R5.9's, ruled at `requirements.md:348` — so this test's job is the count and
+	// R5.9's, ruled at `requirements.md:349` — so this test's job is the count and
 	// the spellings that must never validate, not the spec cross-check. Until the
 	// S11 row lands in §3.2's table, the const block is the only place the spec's
 	// own word for the eleventh source is written down, and that is the state this

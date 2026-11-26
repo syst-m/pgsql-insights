@@ -256,7 +256,7 @@ func TestBloatDeadRatioGuard(t *testing.T) {
 // fail and so documents nothing.
 //
 //   - next_autovacuum must resolve naptime inside the expression. The ruled formula
-//     (`requirements.md:368`) writes the bare word autovacuum_naptime, which is not a
+//     (`requirements.md:369`) writes the bare word autovacuum_naptime, which is not a
 //     column of pg_stat_user_tables; replacing the subquery with a literal interval, or
 //     reading the value from the settings collector (option (b), rejected on schedule),
 //     both still produce a number and both are wrong.

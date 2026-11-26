@@ -456,13 +456,13 @@ var exportNames = map[string]exportEntry{
 	// (Phase 2's) rather than R9.7 (Phase 7's), because R9.7's own sentence routes
 	// them in — "the export set is therefore the union of R5.2's enumerated
 	// families and the numeric columns R2.4's matrix returns for the target major,
-	// and R9.4's naming function must enumerate that union" (`requirements.md:401`) —
+	// and R9.4's naming function must enumerate that union" (`requirements.md:402`) —
 	// and because the file had no `pg_stat_io.` or `pg_stat_slru.` key before
 	// io.go, so the rows are a choice R9.4 makes rather than a copy job. The
 	// collector's side of the argument is io.go's docblock; what is here is the
 	// name-by-name choice.
 	//
-	// R5.2 names no io or slru family — `requirements.md:341`'s list is transactions,
+	// R5.2 names no io or slru family — `requirements.md:342`'s list is transactions,
 	// tuples, blocks, temp, deadlocks, backends by state and by application name,
 	// database sizes, TXID and MXID age, WAL volume and generation rate, and
 	// checkpoints — so neither view has an R5.2 family word to put where R9.7's
@@ -558,7 +558,7 @@ var exportNames = map[string]exportEntry{
 	"pg_file_settings.error_count":   {name: "file_settings_error_count", typ: TypeGauge, src: "R5.2 settings card: lines carrying an error (PGSISettingsNotApplied)"},
 	// ---- R7.2's bloat families: table_* and index_* ----
 	//
-	// The two family words are ruled, not derived. `requirements.md:366`'s second ruling on
+	// The two family words are ruled, not derived. `requirements.md:367`'s second ruling on
 	// R7.2 names them alongside the collector name, the interval and the cost class —
 	// "the name is `bloat`, the interval is 5 min, the cost class is `standard`, and the
 	// two families are `table_*` and `index_*`" — and that ruling supersedes the
@@ -576,7 +576,7 @@ var exportNames = map[string]exportEntry{
 	// (archiver_last_archived_timestamp_seconds is the precedent), _bytes where the
 	// source declares a unit, and nothing for a plain count gauge.
 	//
-	// 45 rows, and the count is R9.7's union rule (`requirements.md:401`) applied to
+	// 45 rows, and the count is R9.7's union rule (`requirements.md:402`) applied to
 	// R2.4's matrix rather than a number this file picks: 30 columns is the union of the
 	// three pg_stat_user_tables column sets (23 on 13-15, 26 on 16-17, 30 on 18) plus
 	// bloat.go's five Extras, and 9 is the union of the two pg_stat_user_indexes sets
@@ -627,7 +627,7 @@ var exportNames = map[string]exportEntry{
 	"pg_stat_user_tables.total_autoanalyze_time": {name: "table_total_autoanalyze_time_seconds_total", typ: TypeCounter, src: "R7.4 (PG18): time spent in autoanalyze"},
 	"pg_stat_user_tables.total_bytes":            {name: "table_total_bytes", typ: TypeGauge, src: "R7.2 size half: pg_total_relation_size(relid)"},
 	"pg_stat_user_tables.dead_ratio":             {name: "table_dead_ratio", typ: TypeGauge, src: "R7.2 ratio half: n_dead_tup / (n_live_tup + n_dead_tup)"},
-	// R7.4's three, ruled into bloat.go by `requirements.md:368` rather than into a
+	// R7.4's three, ruled into bloat.go by `requirements.md:369` rather than into a
 	// collector of their own. next_autovacuum is the only one whose value comes from a
 	// setting (autovacuum_naptime) rather than a column or a relation size.
 	"pg_stat_user_tables.next_autovacuum":           {name: "table_next_autovacuum_timestamp_seconds", typ: TypeGauge, src: "R7.4: last_autovacuum + autovacuum_naptime"},

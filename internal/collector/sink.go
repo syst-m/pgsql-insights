@@ -40,7 +40,7 @@ const DefaultMaxStoreBytes int64 = 64 << 20
 // "Only write method" is scoped to Sink, and two writers exist outside it:
 // ProbePublisher (the settings collector's inventory, which Publish itself
 // preserves rather than wiping) and EventPublisher (R5.9's timeline, which the
-// ruling at `requirements.md:348` rules into being "not a fourth `Sink` method
+// ruling at `requirements.md:349` rules into being "not a fourth `Sink` method
 // -- which is what A1 proposed, and is ruled yes"). Read either docblock before
 // adding another — the reason each is a separate interface rather than a Sink
 // method is the same reason this interface has one method.
@@ -151,7 +151,7 @@ type ProbePublisher interface {
 // The five are the row's own list, in the row's own order — "phase transitions
 // from S1, Kubernetes events, fencing changes (`cnpg.io/fencedInstances`
 // annotation), promotions (`currentPrimaryTimestamp`), and backup outcomes"
-// (`requirements.md:348`) — and each const names the source its class is read
+// (`requirements.md:349`) — and each const names the source its class is read
 // from. That mapping lives here rather than in a Source field on Event so it is
 // written once: a per-event Source would be a second copy of a fact the class
 // already fixes, and the only thing a second copy can add is disagreement.
