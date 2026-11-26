@@ -65,7 +65,7 @@ export function detailKey(params: QueryDetailParams): string {
 
 /** URL state → the params `fetchQueryDetail` takes.
  *
- *  `QueryDetailParams` (client.ts:317) requires all three of fingerprint,
+ *  `QueryDetailParams` (`client.ts:381-385`) requires all three of fingerprint,
  *  namespace and cluster — the route is scoped by the cluster pair and keyed by
  *  the fingerprint, and there is no "the" query to default to. Both halves come
  *  from the URL: the pair from `state.cluster` ("namespace/name",

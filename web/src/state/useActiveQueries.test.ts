@@ -283,7 +283,7 @@ describe("useActiveQueries refetch behaviour (R10.22)", () => {
 
   it("is `error` with no payload when the first request fails", async () => {
     // Two details, so the assertion also pins `describeFailure`'s "; " join
-    // (client.ts:484) — the detail test's single-detail body could not.
+    // (`client.ts:659`) — the detail test's single-detail body could not.
     stub(
       { error: { code: "NotFound", message: "no such cluster", details: ["freeidp/freeidp-pg", "pg_stat_activity"] } },
       false,

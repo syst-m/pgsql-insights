@@ -1,4 +1,4 @@
-/* The batched-series hook — `fetchQuerySeries` (client.ts:395) behind R10.22's
+/* The batched-series hook — `fetchQuerySeries` (`client.ts:459`) behind R10.22's
  * refetch envelope.
  *
  * Copied from `useFleet.ts` (read 2026-11-23, the 76-line file as of `dd0b1ed`):
@@ -13,7 +13,7 @@
  *
  * The rule the brief singles out, and the one this file can get wrong quietly:
  * **the hook never slices `fingerprints` to 50.** `MaxBatchFingerprints` is 50
- * (`internal/api/series.go:56`, quoted at client.ts:359-366) and the server
+ * (`internal/api/series.go:56`, quoted at `client.ts:426`) and the server
  * answers `InvalidRequest` above it rather than truncating, so a `slice(0, 50)`
  * here would turn a loud server error into a chart that silently plots 50 of 80
  * — the exact "cannot tell '30 of them have no data' from 'you were cut off'"
@@ -49,14 +49,14 @@ export interface UseQuerySeries {
  *  R10.7's detail chart — R8.11's batch-of-one) because they are not URL state;
  *  everything else is, and comes from `urlState.ts` rather than being re-derived:
  *  `range` maps straight through (`TimeRange`'s five presets are a subset of
- *  `SeriesRange`'s six — client.ts:355-357 is the phasing note that keeps them
+ *  `SeriesRange`'s six — `client.ts:409-421` is the phasing note that keeps them
  *  apart, and the reason this assignment needs no cast), and `namespace`/
  *  `cluster` follow the same single-selection rule as `listParamsFrom`
  *  (useQueries.ts): the params are single strings, `UrlState.ns` is a list, so
  *  a multi-namespace filter sends neither rather than silently picking one.
  *
  *  `fingerprints` is passed through whole. No slice, no sort, no dedupe — see
- *  the header for why, and `client.ts:395-410` for the fetcher's own version of
+ *  the header for why, and `client.ts:425-430` for the fetcher's own version of
  *  the same argument. */
 export function seriesParamsFor(fingerprints: readonly string[], state: UrlState): QuerySeriesParams {
   const params: QuerySeriesParams = { fingerprints, range: state.range };

@@ -257,7 +257,7 @@ describe("listParamsFrom", () => {
     expect(listParamsFrom({ ...DEFAULT_STATE, ns: ["freeidp"] }, now).namespace).toBe("freeidp");
     // Two namespaces have no encoding in a single-string param, and sending the
     // first would silently narrow the set to a namespace the user did not pick
-    // alone — the no-clamp argument client.ts:359-373 makes for the batch.
+    // alone — the no-clamp argument `client.ts:425-430` makes for the batch.
     expect(listParamsFrom({ ...DEFAULT_STATE, ns: ["a", "b"] }, now).namespace).toBeUndefined();
   });
 

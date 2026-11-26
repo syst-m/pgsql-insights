@@ -1,4 +1,4 @@
-/* The Queries list hook — `fetchQueries` (client.ts:284) behind R10.22's
+/* The Queries list hook — `fetchQueries` (`client.ts:342`) behind R10.22's
  * refetch envelope.
  *
  * Copied from `useFleet.ts` (read 2026-11-23, the 76-line file as of `dd0b1ed`),
@@ -19,7 +19,7 @@
  *   - the separate 30 s poll effect with its own `pollMs <= 0` off-switch
  *     (:69-73).
  *
- * What the brief adds on top of the copy: `QueryListParams` (client.ts:273) is
+ * What the brief adds on top of the copy: `QueryListParams` (`client.ts:331`) is
  * *fed* from urlState.ts rather than re-derived here, which is what
  * `listParamsFrom` below is for — exported and pure so a page can memoise the
  * result. `useFleet.ts:62` puts `cfg` in `load`'s dep list, so params identity
@@ -52,7 +52,7 @@ export interface UseQueries {
 /** Each preset's window in seconds — the five `TIME_RANGES` (urlState.ts:141)
  *  enumerates, and the reason `listParamsFrom` needs a clock at all: the list
  *  route has no `range` parameter (`QueryListParams`' fields are `from`/`to`,
- *  client.ts:273-281), so a preset has to become a window before it can be sent.
+ *  `client.ts:331-340`), so a preset has to become a window before it can be sent.
  *
  *  No `custom` entry, because `TIME_RANGES` has none yet — urlState.ts:132-135
  *  phases it with the cell's auto-refresh-disable rule. When it lands, the entry
@@ -77,7 +77,7 @@ const RANGE_SECONDS: Record<TimeRange, number> = {
  *  selected: the param is a single string and `UrlState.ns` is a list, so a
  *  two-namespace filter has no faithful encoding, and sending the first would
  *  silently narrow the result set to a namespace the user did not pick alone —
- *  the same "no silent clamp" argument client.ts:359-373 makes for the batch
+ *  the same "no silent clamp" argument `client.ts:425-430` makes for the batch
  *  parameter. `cluster` maps when set. `from`/`to` come from `range` + `now`,
  *  formatted without milliseconds to match `time.RFC3339` as
  *  `internal/api/series.go:178` formats it (R10.21: every timestamp the API

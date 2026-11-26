@@ -133,7 +133,7 @@ describe("seriesParamsFor", () => {
   });
 
   it("carries every preset through the SeriesRange subset", () => {
-    // `TimeRange`'s five are a subset of `SeriesRange`'s six (client.ts:355-357),
+    // `TimeRange`'s five are a subset of `SeriesRange`'s six (`client.ts:409-421`),
     // so each one assigns without a cast; the loop is the cheap half of that
     // claim, and the type system is the half `tsc` runs on every commit.
     for (const range of Object.keys({ "1h": 1, "6h": 1, "1d": 1, "7d": 1, "30d": 1 }) as TimeRange[]) {

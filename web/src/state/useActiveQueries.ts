@@ -1,10 +1,10 @@
-/* The Active Queries hook — `fetchActiveQueries` (client.ts:447) behind R10.22's
+/* The Active Queries hook — `fetchActiveQueries` (`client.ts:559`) behind R10.22's
  * refetch envelope.
  *
  * The template is `useQueryDetail.ts` (read 2026-11-24, the 172-line file as of
  * `2223be9`), not `useQueries.ts`, and the reason is the param type rather than
- * the page: `ActiveQueriesParams` (client.ts:442-445) requires both `namespace`
- * and `cluster`, while `QueryListParams` (client.ts:282) makes all eight of
+ * the page: `ActiveQueriesParams` (`client.ts:554-557`) requires both `namespace`
+ * and `cluster`, while `QueryListParams` (`client.ts:331`) makes all eight of
  * its fields optional. An all-optional bag names a *collection* — the filtered
  * set — so a params change there is a refresh of the same thing and the
  * `setState`-`prev` form is enough. A required pair names one *subject*: one
