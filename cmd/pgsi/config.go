@@ -123,6 +123,12 @@ type setting struct {
 // grouped by requirement (auth together, CORS together, kube together) and the
 // dump is meant to be read by a human who just read the flag set. The resolver
 // does not depend on it; TestTableCoversEveryFlag does the set comparison.
+//
+// The last two rows are the exception worth naming: --cluster and --dry-run are
+// R3.15's enable flags (`requirements.md:322`), declared on serve's set because
+// newServeFlags is the binary's only declaration site and therefore required here
+// by TestTableCoversEveryFlag, but read by nothing in runServe. The dump prints
+// them for `pgsi serve` because the table covers the flag set, not the code path.
 var settings = []setting{
 	// R8.7 — the listener; R13.8 — the drain budget.
 	{Flag: "listen", Req: "R8.7"},
@@ -220,6 +226,13 @@ var settings = []setting{
 	// TestTableCoversEveryFlag is the seam that keeps the two lists from parting.
 	{Flag: "record-client-address", Req: "R3.13"},
 	{Flag: "application-tag-source", Req: "R3.13"},
+
+	// R12.8 — the action gate whose value api.Config.Actions now holds
+	// (`internal/api/server.go:127`), and R3.15's two enable flags, which are here
+	// for the reason the docblock above gives.
+	{Flag: "allow-actions", Req: "R12.8"},
+	{Flag: "cluster", Req: "R3.15"},
+	{Flag: "dry-run", Req: "R3.15"},
 }
 
 // EnvVar is R11.8's `PGSI_*` naming rule, stated as a function rather than as

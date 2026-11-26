@@ -44,6 +44,7 @@ usage: pgsi <command> [flags]
 
 commands:
   serve     run the API + collector + UI in one process (the v1 role, §3.1)
+  enable    enable an extension on one cluster (R3.15, R12.8's gated mutation)
   collect   reserved: the collector role of the v1.x role split (D9) — no-op in v1
   api       reserved: the API-only role of the v1.x role split (D9) — no-op in v1
   version   print the build version and commit (R11.3)
@@ -62,6 +63,7 @@ serve flags (run "pgsi serve -h" for the full set):
   --cors-allow-origin           CORS allow-list (R8.9); empty = same-origin  (none)
   --cors-allow-credentials      Access-Control-Allow-Credentials (R8.9)      false
   --cors-max-age                preflight cache lifetime (R8.9)              5m
+  --allow-actions               mutations this process may perform (R12.8)   (none)
   --prometheus-url              Prometheus the R8.3 pair proxies PromQL to;  (unset)
                                 empty serves the fixed catalogue only (R8.3)
 
@@ -91,6 +93,10 @@ serve flags (run "pgsi serve -h" for the full set):
   --log-field                   k=v structured field, repeatable; also accepts
                                 R13.7's --log-field-<key>=<value> shape       (none)
 
+enable flags (R3.15; declared on serve's set, the way config dump's are):
+  --cluster                     cluster to act on, as namespace/name         (required)
+  --dry-run                     print the offer and exit without patching      false
+
 `
 
 func main() {
@@ -102,6 +108,12 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		os.Exit(runServe(os.Args[2:]))
+	case "enable":
+		// R3.15 — pg_stat_statements enablement as a product flow
+		// (`requirements.md:322`, implemented in cmd/pgsi/enable.go). The
+		// extension name is positional there, so this one takes os.Args[2:]
+		// apart before it parses anything.
+		os.Exit(runEnable(os.Args[2:]))
 	case "config":
 		// R11.8 — resolve the chain and print it, without starting anything.
 		// The flags it accepts are serve's, so `pgsi config dump --listen=:9`
@@ -221,6 +233,17 @@ type serveFlags struct {
 	// than restated, so the flag's value set and the Config's cannot drift apart.
 	recordClientAddress  *bool
 	applicationTagSource *string
+
+	// R12.8's --allow-actions (`requirements.md:475`) and R3.15's --cluster and
+	// --dry-run (`requirements.md:322`). All three are declared here rather than in
+	// a per-command FlagSet because newServeFlags is the one place this binary
+	// declares a flag — which is why runConfig calls it instead of declaring its own
+	// subset, and why runEnable does too. Only Actions is read by serve: --cluster
+	// and --dry-run are enable-only, so serve accepts and ignores them, the same
+	// wart `config dump` accepts for every flag it dumps but does not act on.
+	actions *string
+	cluster *string
+	dryRun  *bool
 }
 
 // prescan is everything argv holds that the serve FlagSet cannot declare.
@@ -439,7 +462,48 @@ func newServeFlags(pre prescan) *serveFlags {
 	sf.applicationTagSource = fs.String("application-tag-source", store.DefaultApplicationTagSource,
 		"source for the application tag dimension (R3.13, R3.12's two sources plus off): application_name | query_comment | off")
 
+	// --- R12.8 action gate, R3.15 enablement ---------------------------------
+	// The default is the empty string, which parseAllowActions reads as the empty
+	// action set — `requirements.md:475`'s "off by default so a read-only product
+	// cannot become a mutation surface by surprise". The value grammar (a
+	// comma-separated list of action names, plus the true/false/none spellings
+	// R4.1's row kept) is parseAllowActions's and is documented there rather than
+	// restated in full here, so the flag and the parser describe the value once.
+	//
+	// --cluster and --dry-run are R3.15's (`requirements.md:322`). They are here
+	// because this function is the binary's only flag-declaration site; the struct
+	// comment says what serve does with the two enable-only flags (nothing).
+	sf.actions = fs.String("allow-actions", "",
+		"mutations this process may perform (R12.8): comma-separated action names, or true|false|none")
+	sf.cluster = fs.String("cluster", "",
+		"cluster to act on, as namespace/name (R3.15; required by `pgsi enable`)")
+	sf.dryRun = fs.Bool("dry-run", false,
+		"print the plan and exit without applying it (R3.15; enable-only)")
+
 	return sf
+}
+
+// kubeConfig is the kube.Config the serve and enable paths both hand to kube.New.
+//
+// It was, until now, a twelve-line literal inside runServe's `if *sf.discover`
+// block. runEnable needs the identical eleven dereferences, and a second copy of
+// them is how a flag gets read by one path and not the other — the failure this
+// file already names for the two dynamic flag families and for the DTO. One
+// function, two callers.
+func (sf *serveFlags) kubeConfig() kube.Config {
+	return kube.Config{
+		Kubeconfig:         *sf.kubeconfig,
+		Context:            *sf.kubeContext,
+		APIServerURL:       *sf.apiServer,
+		BearerToken:        *sf.bearer,
+		ClientCertFile:     *sf.clientCert,
+		ClientKeyFile:      *sf.clientKey,
+		InsecureSkipVerify: *sf.insecure,
+		UseProxy:           *sf.useProxy,
+		QPS:                float32(*sf.qps),
+		Burst:              *sf.burst,
+		Timeout:            *sf.reqTimeout,
+	}
 }
 
 func runServe(args []string) int {
@@ -500,7 +564,19 @@ func runServe(args []string) int {
 		return 2
 	}
 
-	cfg := api.Config{Listen: *sf.listen, ShutdownTimeout: *sf.shutdown, ServeUI: sf.serveUI, Auth: authz, Log: log}
+	// R12.8's gate, parsed here because the docblock on api.Config.Actions
+	// (`internal/api/server.go:104`) names this flag as the field's source and
+	// until now no such flag existed: main.go declared none, so the field was
+	// always empty and actionFor (`internal/api/active_queries.go:180`) answered
+	// "disabled" for every request on every deployment. Parsing the flag is the
+	// fix; enabling an action stays the operator's, through the flag.
+	actions, err := parseAllowActions(*sf.actions)
+	if err != nil {
+		log.Error("allow-actions", "error", err.Error())
+		return 2
+	}
+
+	cfg := api.Config{Listen: *sf.listen, ShutdownTimeout: *sf.shutdown, ServeUI: sf.serveUI, Auth: authz, Log: log, Actions: actions}
 
 	// --- CORS (R8.9) -----------------------------------------------------
 	// An empty allow-list leaves cfg.CORS nil, which cors.go treats as "no CORS
@@ -538,19 +614,7 @@ func runServe(args []string) int {
 	discDone := make(chan error, 1)
 	schedDone := make(chan error, 1)
 	if *sf.discover {
-		kc, err := kube.New(kube.Config{
-			Kubeconfig:         *sf.kubeconfig,
-			Context:            *sf.kubeContext,
-			APIServerURL:       *sf.apiServer,
-			BearerToken:        *sf.bearer,
-			ClientCertFile:     *sf.clientCert,
-			ClientKeyFile:      *sf.clientKey,
-			InsecureSkipVerify: *sf.insecure,
-			UseProxy:           *sf.useProxy,
-			QPS:                float32(*sf.qps),
-			Burst:              *sf.burst,
-			Timeout:            *sf.reqTimeout,
-		})
+		kc, err := kube.New(sf.kubeConfig())
 		if err != nil {
 			log.Error("kube client", "error", err.Error())
 			return 2
