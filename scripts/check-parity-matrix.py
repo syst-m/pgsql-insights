@@ -370,9 +370,15 @@ CITE_R = re.compile(r"`([0-9a-f]{7,40}):(" + P + r"):(\d+)(?:\s*[-–]\s*(\d+))?
 
 _lines = {}
 def lines_of(root, rel):
-    if rel not in _lines:
-        _lines[rel] = (root / rel).read_text(errors="replace").splitlines()
-    return _lines[rel]
+    # S170 (A5): keyed by (root, rel), not by rel. Every check takes root as a parameter and the
+    # module runs main() at import, so a process that imports the checker from repo A and calls
+    # it with root=B was grading A's content for every path B shares -- measured against this
+    # file at 388c476: check_d_ids(root=<worktree at ebd286c>) returned (65, [], 171, []), A's
+    # tuple, where that rev measured directly gives (11, [], 85, []).
+    key = (str(root), rel)
+    if key not in _lines:
+        _lines[key] = (root / rel).read_text(errors="replace").splitlines()
+    return _lines[key]
 
 # A3's S121: `lines_of` reads the worktree, so a cite whose target another slot has moved but
 # not committed reads as blank -- a state no commit has ever had (observed three times in one
@@ -384,14 +390,15 @@ def lines_of(root, rel):
 # on the worktree costs no git call and the fast path is exactly as fast as before.
 _git = {}
 def _git_show(root, arg):
-    if arg not in _git:
+    key = (str(root), arg)  # S170: root is part of the key, same reason as lines_of
+    if key not in _git:
         try:
             out = subprocess.run(["git", "-C", str(root), "show", arg],
                                  capture_output=True, check=True).stdout
-            _git[arg] = out.decode("utf-8", "replace").splitlines()
+            _git[key] = out.decode("utf-8", "replace").splitlines()
         except Exception:
-            _git[arg] = None
-    return _git[arg]
+            _git[key] = None
+    return _git[key]
 
 def target_versions(root, rel):
     """Every shippable version of a cited path: worktree, index, HEAD. Deduped by content."""
@@ -669,8 +676,8 @@ MSG_CITE_EXEMPT = {
 
 _git_run_cache = {}
 def _git_run(root, *args):
-    """stdout of a git command, memoized per process; None when the command exits non-zero."""
-    key = "\0".join(args)
+    """stdout of a git command, memoized per (root, args); None when the command exits non-zero."""
+    key = ("run", str(root)) + tuple(args)  # S170: root is part of the key
     if key not in _git_run_cache:
         try:
             out = subprocess.run(["git", "-C", str(root), *list(args)],
@@ -681,8 +688,8 @@ def _git_run(root, *args):
     return _git_run_cache[key]
 
 def _tree(root, sha):
-    """Paths tracked at `sha`, or None if `sha` is not a commit. Memoized per process."""
-    key = "TREE " + sha
+    """Paths tracked at `sha` under `root`, or None if `sha` is not a commit. Memoized."""
+    key = ("tree", str(root), sha)  # S170: root is part of the key
     if key not in _git_run_cache:
         out = _git_run(root, "ls-tree", "-r", "--name-only", sha)
         _git_run_cache[key] = None if out is None else [x for x in out.split("\n") if x]
