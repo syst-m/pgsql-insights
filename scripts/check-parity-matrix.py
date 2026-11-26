@@ -374,7 +374,7 @@ def lines_of(root, rel):
     # module runs main() at import, so a process that imports the checker from repo A and calls
     # it with root=B was grading A's content for every path B shares -- measured against this
     # file at 388c476: check_d_ids(root=<worktree at ebd286c>) returned (65, [], 171, []), A's
-    # tuple, where that rev measured directly gives (11, [], 85, []).
+    # tuple, where that rev measured directly gives (61, [], 137, []); S172: 11/85 is the md subset.
     key = (str(root), rel)
     if key not in _lines:
         _lines[key] = (root / rel).read_text(errors="replace").splitlines()
