@@ -166,7 +166,7 @@ and incorporated the architecture review (4 blocking, 8 major, 6 minor).
 Not every ruling is a scope change, and filing these under *changes* would
 overstate them as loudly as filing `lock_time` under *fixes* would understate it.
 
-- **`requirements.md:203`'s `pg_extensions` corrected to `pg_extension`** (D19).
+- **`requirements.md:204`'s `pg_extensions` corrected to `pg_extension`** (D19).
   The cell put an S3 query name inside an S2 relation list: the CNPG exporter's
   query #14 is *named* `pg_extensions` and reads `pg_available_extensions`, while
   the S2 relation R3.1 names is `pg_extension`. Invisible for the two entries
