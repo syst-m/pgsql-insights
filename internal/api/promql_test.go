@@ -926,16 +926,20 @@ func TestPromQLLookup(t *testing.T) {
 // derivedNoMetric is the set of entries allowed an empty Metric: R9.4's two
 // derived members, cache_hit_ratio (R5.2's ratio, an expression over the hit
 // and read counters) and io_time (the R9.4 io_time ruling at 5668cb3, the sum
-// of the two block-time counters). A set rather than a name, because the
+// of the two block-time counters), and R6.2's client/server ratio -- the third
+// one is A3's requirements.md:357 ruling, which answers where the ratio lives
+// with "a derived catalogue entry, the `cache_hit_ratio` pattern" rather than a
+// minted family or a DTO field. A set rather than a name, because the
 // R9.4 cell states the cost of its own amendment as "one catalogue entry plus
-// one predicate" -- this is that predicate, so a third derived member has to be
+// one predicate" -- this is that predicate, so another derived member has to be
 // named here to exist rather than quietly passing. The collector side has had
 // the same plural shape since the same ruling
 // (internal/collector/naming_catalogue_test.go:34) and its code skips on
 // e.Metric == "" generically, so only this side needed widening.
 var derivedNoMetric = map[string]bool{
-	FamilyAggregate + ".cache_hit_ratio": true,
-	FamilyAggregate + ".io_time":         true,
+	FamilyAggregate + ".cache_hit_ratio":                  true,
+	FamilyAggregate + ".io_time":                          true,
+	FamilySystem + ".pgbouncer_pools_client_server_ratio": true,
 }
 
 func TestCatalogueIsWellFormed(t *testing.T) {

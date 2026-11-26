@@ -89,11 +89,12 @@ type CatalogueEntry struct {
 	Name string
 	// Family is one of FamilyAggregate / FamilyPerQuery / FamilySystem.
 	Family string
-	// Metric is the underlying pgsi_ metric the query reads. Empty for the two
+	// Metric is the underlying pgsi_ metric the query reads. Empty for the three
 	// derived entries whose PromQL combines two metrics
-	// (aggregate.cache_hit_ratio, aggregate.io_time); the names allowed to be
-	// empty are listed in one place, TestCatalogueIsWellFormed's
-	// derivedNoMetric, so a third derived entry has to be named there to exist.
+	// (aggregate.cache_hit_ratio, aggregate.io_time, and R6.2's
+	// system.pgbouncer_pools_client_server_ratio); the names allowed to be empty
+	// are listed in one place, TestCatalogueIsWellFormed's derivedNoMetric, so
+	// another derived entry has to be named there to exist.
 	Metric string
 	// ResultType is ResultTypeVector or ResultTypeMatrix.
 	ResultType string
@@ -385,12 +386,122 @@ func DefaultCatalogue() *Catalogue {
 		})
 	}
 
+	// R6.2's pool-utilisation set: the two pools_* families its clause names, its
+	// client/server ratio, and its saturation predicate.
+	//
+	// This is the third table the one above defers: its comment says "the pools_*
+	// families R6.2 renders are a third table's problem, not this one's", and the
+	// reason is the by clause. The first table groups on `(..., datname)`, which a
+	// pgbouncer series does not have; the second groups on `(..., database)`,
+	// which pools_* series have but which is only half their label set -- the same
+	// comment measures "the 48 {database,user} series in that file are the 16
+	// cnpg_pgbouncer_pools_* families, three series each". So this table's clause
+	// is the identity labels plus `database, user`: the pair R6.2's own words use
+	// ("per (database, user)") and the pair the series carry, which neither of the
+	// two existing clauses can express.
+	//
+	// Which two of the sixteen: R6.2's clause names exactly two metrics --
+	// "clients waiting vs. servers active" -- and builds its other two renderings
+	// from those two rather than from more rows. The other fourteen (cl_active,
+	// sv_idle, sv_used, sv_tested, sv_login, cl_cancel_req, cl_active_cancel_req,
+	// cl_waiting_cancel_req, load_balance_hosts, maxwait, maxwait_us, pool_mode,
+	// sv_active_cancel, sv_wait_cancels) are R6.1's discovery list, and poolers.go
+	// renders them through PoolerView; the metrics surface gets rows only for what
+	// R6.2 asks to render, which is the same rule that left five stats_* totals out
+	// of the table above.
+	pools := []struct {
+		name   string
+		metric string
+		desc   string
+	}{
+		{"pgbouncer_pools_cl_waiting", "pgsi_pgbouncer_pools_cl_waiting",
+			"R6.2 pool utilisation: clients waiting for a server connection, per (database, user) (cnpg_pgbouncer_pools_cl_waiting)."},
+		{"pgbouncer_pools_sv_active", "pgsi_pgbouncer_pools_sv_active",
+			"R6.2 pool utilisation: server connections in use, per (database, user) (cnpg_pgbouncer_pools_sv_active)."},
+	}
+	for _, p := range pools {
+		entries = append(entries, CatalogueEntry{
+			Name:   FamilySystem + "." + p.name,
+			Family: FamilySystem,
+			Metric: p.metric,
+			// sum, not avg: these are counts per pool, so two pooler pods
+			// serving one (database, user) have six waiting clients between
+			// them, not three averaged. The stats_* table above uses avg for
+			// its non-counter rows because those rows are averages by
+			// definition; a pool count is not, and averaging it is the answer
+			// that depends on how many pods happen to be running.
+			Query:       "sum by (namespace, cluster, pod, instance_role, database, user) (" + p.metric + ")",
+			ResultType:  ResultTypeVector,
+			Endpoint:    SystemMetricsPath,
+			Description: p.desc,
+			// Both metrics are in the naming table (naming.go:685-700 mints all
+			// sixteen pools_* families) and naming_catalogue_test.go tests that
+			// table against the parsed exposition biconditionally, so the
+			// constant is as checked here as it is in the table above.
+			Implemented: true,
+		})
+	}
+
+	// The client/server ratio: R6.2's second rendering, and the third member of
+	// the empty-Metric set. A3's ruling at requirements.md:357 answers where it
+	// lives -- "a derived catalogue entry, the `cache_hit_ratio` pattern" -- and
+	// rejects the two alternatives on the record: not a minted family, because
+	// naming.go:685-700's sixteen pools_* families are tested biconditionally
+	// against the parsed exposition and a ratio no exporter emits cannot join that
+	// table; not a DTO field, because poolers.go's own header says "PoolerView has
+	// no field for any of them ... so they arrive through the metrics surface". It
+	// also rejects `cl_active / sv_active`, the pgbouncer clients-per-server
+	// convention, because that needs a series the clause does not name.
+	entries = append(entries, CatalogueEntry{
+		Name:   FamilySystem + ".pgbouncer_pools_client_server_ratio",
+		Family: FamilySystem,
+		Metric: "",
+		// The ruling's expression is `pgsi_pgbouncer_pools_cl_waiting /
+		// pgsi_pgbouncer_pools_sv_active`, "the two series the row itself names,
+		// in the order it names them". clamp_min on the denominator is the
+		// cache_hit_ratio precedent below, and for the same reason: a pool with no
+		// active server and no waiting client is otherwise 0/0, which Prometheus
+		// drops instead of answering, where 0/1 answers 0 -- the correct answer,
+		// and the finite one a chart needs. The by clause repeats on both sides
+		// because a vector division matches series by label set, so the two sides
+		// have to carry the same one (io_time below has the same shape).
+		Query: "sum by (namespace, cluster, pod, instance_role, database, user) (pgsi_pgbouncer_pools_cl_waiting)" +
+			" / clamp_min(sum by (namespace, cluster, pod, instance_role, database, user) (pgsi_pgbouncer_pools_sv_active), 1)",
+		ResultType:  ResultTypeVector,
+		Endpoint:    SystemMetricsPath,
+		Description: "R6.2 client/server ratio, derived from the two pools_* families the row names (clients waiting over servers active, per (database, user)); no metric of its own.",
+		Implemented: true,
+	})
+
+	// Pool saturation: R6.2's headline number and the ruling's third rendering.
+	// It is its own entry rather than a second reading of the cl_waiting row above
+	// because the name is what a client asks for and the PromQL answers differ --
+	// one is a count, this is a predicate over a window -- the same reason
+	// cache_hit_ratio is a name of its own rather than an alias for the hit
+	// counter.
+	entries = append(entries, CatalogueEntry{
+		Name:   FamilySystem + ".pgbouncer_pools_saturation",
+		Family: FamilySystem,
+		Metric: "pgsi_pgbouncer_pools_cl_waiting",
+		// The ruling's expression verbatim: `min_over_time(pgsi_pgbouncer_pools_cl_waiting[5m]) > 0`,
+		// "5m being the window the catalogue uses throughout". The table's by
+		// clause cannot wrap it the way it wraps the two rows above -- a range
+		// function is per-series, so grouping it would mean
+		// `min by (...) (min_over_time(...))`, which is not the expression A3
+		// ruled -- so the ruled text wins and the ungrouped form is used.
+		Query:       "min_over_time(pgsi_pgbouncer_pools_cl_waiting[5m]) > 0",
+		ResultType:  ResultTypeVector,
+		Endpoint:    SystemMetricsPath,
+		Description: "R6.2 pool saturation: a pool whose minimum cl_waiting over 5m is above zero had clients waiting for the whole window (the ruling's min_over_time expression).",
+		Implemented: true,
+	})
+
 	// The two derived entries: members of R9.4's list that are expressions over
-	// other metrics, so they have no single Metric to name. The set is also what
-	// TestCatalogueIsWellFormed allows an empty Metric for, which is the
-	// R9.4 cell's stated cost for the second of them ("one catalogue entry plus
-	// one predicate") -- the predicate is that set, and a third derived member
-	// has to be named there to exist.
+	// other metrics, so they have no single Metric to name. With R6.2's ratio
+	// above they are the set TestCatalogueIsWellFormed allows an empty Metric for,
+	// which is the R9.4 cell's stated cost for the second of them ("one catalogue
+	// entry plus one predicate") -- the predicate is that set, and another derived
+	// member has to be named there to exist.
 	//
 	// cache_hit_ratio: R5.2 names "cache hit ratio" as a *ratio*, not a gauge.
 	// The formula is the one the committed rule set already uses

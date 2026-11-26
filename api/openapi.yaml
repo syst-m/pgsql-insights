@@ -1317,6 +1317,10 @@ paths:
       - system.database_size_bytes
       - system.deadlocks
       - system.mxid_age
+      - system.pgbouncer_pools_cl_waiting
+      - system.pgbouncer_pools_client_server_ratio
+      - system.pgbouncer_pools_saturation
+      - system.pgbouncer_pools_sv_active
       - system.pgbouncer_stats_avg_bind_count
       - system.pgbouncer_stats_avg_client_parse_count
       - system.pgbouncer_stats_avg_query_count
