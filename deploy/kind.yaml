@@ -1,0 +1,98 @@
+# =============================================================================
+# pgsi — kind cluster config (R13.6 "the P5 path must work on a kind/minikube
+# cluster"; the artifact IMPLEMENTATION.md §3's Phase 9 row named as missing:
+# "R13.6's kind/minikube validation (no kind config is tracked)")
+# =============================================================================
+# Used by the dev loop CONTRIBUTING.md § "Against kind" documents:
+#
+#     kind create cluster --name pgsi-lab --config deploy/kind.yaml
+#     make deploy DEPLOY_ARGS="-f chart/values-lab.yaml"
+#     make verify
+#
+# Every key below exists to make one R13.6 clause checkable rather than asserted.
+# Validated with kind v0.33.0 (kindest/node v1.37.0) on Docker 29.9.2 /
+# macOS arm64, 2026-11-25.
+# =============================================================================
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+# The name CONTRIBUTING.md:68 already uses. It is set here as well as on the
+# command line so the documented command and the tracked file cannot drift apart
+# into two different clusters.
+name: pgsi-lab
+
+# One node. R13.6's lab mode is single-namespace and capped at 100 MB, so the
+# smallest cluster that can host a Deployment is the right shape; kind's
+# control-plane node is untainted, so the pgsi pod schedules on it without a
+# worker. No `image:` pin: kind resolves its own default node image for the
+# installed version (validated with kind v0.33.0, which resolves
+# kindest/node:v1.37.0), and pinning one here would need re-editing on every kind
+# upgrade while R13.6's claim is about the chart's lab profile, not about a
+# Kubernetes version.
+nodes:
+  - role: control-plane
+
+# No `featureGates:` block, and the reason is a measurement rather than a
+# preference. The obvious way to instrument R13.6's "< 100 MB RAM" clause is
+# `featureGates: {MetricsServer: true}`, which is what this file had; it breaks
+# cluster creation. kind renders that field into kubeadm's per-component
+# `--feature-gates` args — the create log shows it on all three control-plane
+# components:
+#
+#     apiServer:
+#       extraArgs:
+#       - name: feature-gates
+#         value: MetricsServer=true
+#     controllerManager: {feature-gates: MetricsServer=true}
+#     scheduler:         {feature-gates: MetricsServer=true}
+#
+# kube-apiserver v1.37.0 has no `MetricsServer` gate, so the apiserver never
+# binds 6443 and kubeadm dies on the wait:
+#
+#     error: error execution phase wait-control-plane: cannot obtain client
+#     without bootstrap: could not bootstrap the admin user in file admin.conf:
+#     unable to create ClusterRoleBinding: context deadline exceeded
+#
+# (measured 2026-11-25, rc=1). The same file with the block removed creates in
+# ~60 s, rc=0 — so the block, not the Docker host, was the failure.
+#
+# The memory reading comes from the node, not from the pod, and there are two
+# instruments for it. Both were run against the cluster this file created,
+# 2026-11-26, with the lab profile deployed:
+#
+#     docker exec pgsi-lab-control-plane crictl stats
+#     CONTAINER           NAME                      CPU %               MEM
+#     3c418b19145dd       pgsi                      0.00                9.683MB
+#
+#     CID=$(docker exec pgsi-lab-control-plane sh -c 'crictl ps --name pgsi -q')
+#     docker exec pgsi-lab-control-plane sh -c \
+#       "find /sys/fs/cgroup -type d -name \"cri-containerd-${CID}.scope\" \
+#          -exec cat {}/memory.current \;"
+#     9764864
+#
+# The second is the cgroup v2 file itself, and it is spelled out because this
+# file's first version guessed the path and guessed wrong: `kubepods.slice/**`
+# does not exist on kindest/node v1.37.0. The real tree is
+# `kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/
+# kubelet-kubepods-burstable-pod<uid>.slice/cri-containerd-<cid>.scope/`, and the
+# UID segment has its hyphens replaced with underscores
+# (`…-pod7b8c9520_122a_4252_9ee8_e5ef37686b97.slice`), so a `find` for the
+# hyphenated UID that `kubectl get pod -o jsonpath='{…uid}'` prints matches
+# nothing. Deriving the path from the container id, as above, is what works;
+# `crictl stats` is the primary instrument because it needs no path knowledge.
+#
+# Both are node-side reads because the R11.2 distroless image has no shell:
+# `kubectl exec deploy/pgsi -- cat /proc/self/status` fails with
+# `exec: "cat": executable file not found in $PATH` (observed here, and on the
+# reference install). The cgroup file belongs to the node, so it measures the
+# pod's working set without needing anything inside the image.
+#
+# The number, against R13.6's "< 100 MB": 9.683 MB with zero discovered targets
+# — a bare kind cluster has no Postgres, so `pgsi_store_size_bytes` is 0 —
+# against the 38 MiB measured on the reference k3s install with four clusters
+# (docs/research/live-probe.md). The limit that caps it is values-lab.yaml's
+# `limits.memory: 80Mi`, confirmed on the running pod as
+# `…/cri-containerd-<cid>.scope/memory.max` = 83886080 bytes; that limit is the
+# number R13.6's clause actually tests, and the working set is what it answers
+# with.

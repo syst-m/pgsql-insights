@@ -65,22 +65,43 @@ through the Service, which is R11.14's acceptance check and the same one
 Against kind — R14.5's named environment, and R13.6's P5 path:
 
 ```sh
-kind create cluster --name pgsi-lab
-make deploy DEPLOY_ARGS="-f chart/values-lab.yaml"   # helm merges default + lab
+kind create cluster --config deploy/kind.yaml         # the name (pgsi-lab) is in the file
+kubectl apply --server-side -f <cnpg-1.30.0.yaml>     # CRDs — see the note below
+make deploy DEPLOY_ARGS="-f chart/values-lab.yaml"    # helm merges default + lab
 make verify
 ```
 
 `make deploy` always passes `-f chart/values-default.yaml`, so the extra `-f`
 merges the lab delta on top of it rather than replacing it, which is how R11.12
-wants the profiles read. A bare kind cluster has no CloudNativePG CRDs, and the
-chart's Role asks for `clusters` and `poolers` in the `cnpg.io` group: `helm
-install` and `/healthz` work either way, but the fleet stays empty until the
-operator is installed there.
+wants the profiles read.
+
+The CloudNativePG CRDs are a prerequisite, not a nice-to-have, and the failure
+mode is louder than "the fleet stays empty". A bare kind cluster has no
+CloudNativePG CRDs, and the chart's Role asks for `clusters` and `poolers` in the
+`cnpg.io` group; discovery's first pass blocks in `cache.WaitForCacheSync` until
+every informer — the CNPG ones included — has synced
+([`internal/discovery/discovery.go:528`](internal/discovery/discovery.go)), and
+`/readyz` answers 503 until that sync sets `everSynced` (`:636`, R8.7's "true
+once discovery has produced at least one inventory sync"). So `helm install` and
+`/healthz` succeed on a CRD-less cluster, but the pod never goes Ready, and
+`make deploy`'s `kubectl rollout status deploy/pgsi --timeout=180s` exits 2 on
+the way. Observed on `pgsi-lab`: helm `STATUS: deployed`, pod `0/1 Running` for
+six minutes, `/healthz` 200 + `/readyz` 503; the moment the CRDs were applied the
+sync completed and the pod went `1/1`. The manifest for the pinned CNPG version is
+`https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.0/cnpg-1.30.0.yaml`
+— the short `…/download/v1.30.0/cnpg.yaml` form 404s for that tag — and it needs
+`--server-side`, because the two CRDs' `last-applied-configuration` exceeds the
+262144-byte client-side limit that plain `kubectl apply` hits.
 
 That path is validated against the reference environment (k3s v1.37.2+k3s1, CNPG
-1.30.0, four clusters — [`docs/research/live-probe.md`](docs/research/live-probe.md)).
-kind and minikube are R13.6's lab profile and their validation is Phase 9's
-acceptance, not something the current loop proves.
+1.30.0, four clusters — [`docs/research/live-probe.md`](docs/research/live-probe.md)),
+and now against kind too: `deploy/kind.yaml` is tracked, and on kind v0.33.0
+(kindest/node v1.37.0, Docker 29.9.2, macOS arm64, 2026-11-25) the loop above ran
+end to end — create rc=0, `make deploy` deployed the lab profile, `make verify`
+200 on `/healthz`, `/readyz`, `/api/v1/version`, `/api/v1/clusters` and
+`/metrics`, `crictl stats` 9.683 MB against R13.6's 100 MB cap. minikube is the
+other half of R13.6's sentence and is still unvalidated: there is no minikube
+config in the repo and no run recorded.
 
 ## Code layout
 
