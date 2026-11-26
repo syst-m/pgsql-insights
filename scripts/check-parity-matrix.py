@@ -524,6 +524,15 @@ def check_paths(root, tracked):
             # A3's S121: resolve the target across every shippable version, not just the worktree.
             vs = target_versions(root, r[0])
         checked += rel.endswith(".md"); code_checked += not rel.endswith(".md")
+        if s > e:
+            # A3's S133: the two content checks were `e > len(v)` and `v[s-1]` non-blank, so a
+            # range whose end precedes its start passed on both numbers existing -- at HEAD,
+            # cmd/pgsi/main.go:790-756 (de-backticked per S120: a backticked path:N in a
+            # checked file is itself a live cite, and this one is the exhibit, not a reference)
+            # had a non-blank :790 and a non-blank :756 and nothing
+            # compared the two. That form is a collapsed moved-address pair (S52 wants two cites,
+            # each with its own rev), not a range; the assertion makes the collapse fail.
+            bad.append((rel, n, kind, f"{path}:{s}-{e} — end precedes start")); continue
         if not vs:
             bad.append((rel, n, kind, f"{path}: no readable version")); continue
         why = ""
