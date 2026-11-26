@@ -3,7 +3,7 @@
  *
  * R10.3 (`requirements.md:416`) names the page in its list of fourteen; R3.12
  * (`:317`) is what the page is *about*, and this file is that requirement's UI
- * half. The route entry is `routes.ts:256-266` (`page: "tags"`,
+ * half. The route entry is `routes.ts:259-269` (`page: "tags"`,
  * `requirement: "R10.3 · R3.12 · R8.2"`, `endpoint: "GET /api/v1/insights/tags"`,
  * `path: "/c/:ns/:name/tags"`, `inNav: true`); its `component:` is `null`
  * until A4 flips it, which is the same half-pair as `99f37f0`/`a5e5be0` were
@@ -367,7 +367,7 @@ function PageHeader({
           )}
           <span>Tags</span>
         </p>
-        {/* The exact nav label, which `routes.ts:259`'s `title` is and
+        {/* The exact nav label, which `routes.ts:261`'s `title` is and
             `routes.test.tsx:53-68`'s `R10_3_TITLES` asserts. */}
         <h1 className="page-title">Tags</h1>
         <p className="page-meta" title={`${resp.meta.generatedAt} UTC`}>
@@ -537,7 +537,7 @@ const RANGE_SECONDS: Record<TimeRange, number> = {
  *  `null` when the URL names no cluster or a malformed pair. That is stricter
  *  than `listParamsFrom` (useQueries.ts:92-106), which returns `{}` for a
  *  cluster-less URL because the queries route has a fleet-wide form; this
- *  route's row is `scope: "cluster"` (`routes.ts:256-266`) and `TagsParams`
+ *  route's row is `scope: "cluster"` (`routes.ts:259-269`) and `TagsParams`
  *  takes a `namespace`/`cluster` pair, so there is no cluster-less form of this
  *  page to fall back to and a page that cannot name its cluster should say so
  *  rather than fetch a fleet-wide rollup and label it with a cluster's name.

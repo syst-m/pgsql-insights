@@ -1,5 +1,5 @@
 /* The Wait Events page — R10.9's cluster page (requirements.md:422), the tenth of
- * R10.3's fourteen (web/src/routes.ts:224-234).
+ * R10.3's fourteen (web/src/routes.ts:226-236).
  *
  * What it renders, and from what. The route row names
  * `GET /api/v1/insights/wait-events` as its `endpoint:` and `phase: "6a"`, but

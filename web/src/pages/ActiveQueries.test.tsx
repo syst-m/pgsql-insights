@@ -35,7 +35,7 @@
  * address-less URL passes every other test here.
  *
  * Rendered directly, not through `<App>` even though the shell mounts this page
- * now (`routes.ts:219`'s `component: ActiveQueriesPage`, A4's `a5e5be0`): the
+ * now (`routes.ts:221`'s `component: ActiveQueriesPage`, A4's `a5e5be0`): the
  * mount is `routes.test.tsx`'s to assert, and `PageProps<T>` exists precisely so
  * a page test can pass the props the shell will — `fixtureOverride` among them,
  * which is how most of the cases here pin a payload instead of racing a fetch.
@@ -62,7 +62,7 @@ import {
 const CFG: ClientConfig = { source: "fixture", apiBase: "", fixture: "fleet", delayMs: 0 };
 const CLUSTER_ID = "open-webui/open-webui-pg";
 
-/** The URL this page is mounted from: `routes.ts:211-220`'s
+/** The URL this page is mounted from: `routes.ts:215-225`'s
  *  `/c/:ns/:name/active`, which is `scope: "cluster"` with no other params. */
 const URL_STATE: UrlState = {
   ...DEFAULT_STATE,
@@ -571,7 +571,7 @@ describe("ActiveQueriesPage — the row expansion (R10.8's third clause)", () =>
 
 describe("ActiveQueriesPage — a URL that names no cluster", () => {
   it("renders the no-cluster frame instead of the page", () => {
-    // `routes.ts:211-220` is `scope: "cluster"`; `pg_stat_activity` is
+    // `routes.ts:215-225` is `scope: "cluster"`; `pg_stat_activity` is
     // per-instance, so there is no fleet-wide form of this page to fall back to.
     const { container, onPatch } = renderPage({
       state: { ...DEFAULT_STATE, page: "active" },

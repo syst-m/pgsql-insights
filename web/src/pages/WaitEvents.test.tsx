@@ -1,12 +1,12 @@
-/* R10.9's page shell (`requirements.md:422`, `web/src/routes.ts:224-234`).
+/* R10.9's page shell (`requirements.md:422`, `web/src/routes.ts:226-236`).
  *
  * The chart's own maths is tested in `WaitEventsChart.test.tsx`; what this file
  * owns is the page's four clauses, in the order the page renders them:
  *
  * 1. **the shell** — `data-page`, the `<h1>` the route's `title:` promises
- *    (`web/src/routes.ts:226`), and the R10.21 stamp. The `data-page`/`h1` pair
- *    is also what `routes.test.tsx` will assert when the mount flips
- *    (`component: null` at `web/src/routes.ts:230`), so it is asserted here first.
+ *    (`web/src/routes.ts:228`), and the R10.21 stamp. The `data-page`/`h1` pair
+ *    is also what `routes.test.tsx` asserts now that the mount has flipped
+ *    (`component: WaitEventsPage` at `web/src/routes.ts:232`), so it is asserted here first.
  * 2. **the selection contract** — the chart and the drill read one `buckets`
  *    array, and the drill shows the bucket the chart marks
  *    `aria-current="true"`. Clicking a bar moves both together; a page where the
@@ -45,7 +45,7 @@ import {
 const CFG: ClientConfig = { source: "fixture", apiBase: "", fixture: "fleet", delayMs: 0 };
 const CLUSTER_ID = "open-webui/open-webui-pg";
 
-/** `/c/:ns/:name/wait-events` (`web/src/routes.ts:232`) — `scope: "cluster"`,
+/** `/c/:ns/:name/wait-events` (`web/src/routes.ts:233`) — `scope: "cluster"`,
  *  and the route takes no other params, so this is the whole URL. */
 const URL_STATE: UrlState = {
   ...DEFAULT_STATE,

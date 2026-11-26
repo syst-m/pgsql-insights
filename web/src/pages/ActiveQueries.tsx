@@ -3,7 +3,7 @@
  * R10.8's sentence (`requirements.md:421`) names four things and this file owns
  * all four: the **live table** (R4.1), the **15 s auto-refresh indicator**,
  * **row expansion to the blocking chain**, and the **Terminate action behind
- * the R4.5 gate**. The route entry is `routes.ts:212-222` (`page: "active"`,
+ * the R4.5 gate**. The route entry is `routes.ts:215-225` (`page: "active"`,
  * `requirement: "R10.8"`, `endpoint: "GET /api/v1/active-queries"`,
  * `path: "/c/:ns/:name/active"`, `inNav: true`); its `component:` was flipped
  * from `null` to this file by A4 in `a5e5be0`, the other half of the pair.

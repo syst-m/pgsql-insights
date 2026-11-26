@@ -462,7 +462,7 @@ export const ACTIVE_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
  *    The body says which one the reader is looking at.
  *  · `error` names the route the page actually calls
  *    (`GET /api/v1/active-queries`), not the one its route row advertises
- *    (`GET /api/v1/insights/wait-events`, `web/src/routes.ts:228`). The copy has
+ *    (`GET /api/v1/insights/wait-events`, `web/src/routes.ts:230`). The copy has
  *    to describe the request that failed, and the advertised one does not exist
  *    yet — see the payload note on `WaitEventsPanelInput`. */
 export const WAIT_EVENTS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
@@ -540,7 +540,7 @@ export const TAGS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
  *    real content (`web/src/pages/SystemInsights.tsx`), not as a full-panel
  *    replacement, because R10.12's two warning states are banners.
  *  · `error` names the route the page would call
- *    (`GET /api/v1/insights/system`, `web/src/routes.ts:284`), not one it calls
+ *    (`GET /api/v1/insights/system`, `web/src/routes.ts:285`), not one it calls
  *    today — there is no request to report a failure about until the fetcher
  *    exists, which is the same situation `WAIT_EVENTS_COPY.error` documents at
  *    `web/src/components/StatePanel.tsx:480` for a page that reads a different route.

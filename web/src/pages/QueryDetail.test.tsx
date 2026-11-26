@@ -19,7 +19,7 @@
  *    passes it the data is the bug a render test catches and a typecheck doesn't.
  *
  * Rendered directly, not through `<App>`: the page's own props are what
- * `PageProps<T>` exists to let its test pass, and `routes.ts:204`'s
+ * `PageProps<T>` exists to let its test pass, and `routes.ts:208`'s
  * `component: QueryDetailPage` is what the shell renders for the route.
  */
 

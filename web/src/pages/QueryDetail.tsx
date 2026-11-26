@@ -40,7 +40,7 @@
  *
  * ── mounting ──────────────────────────────────────────────────────────────
  *
- * `routes.ts:204` holds the entry (`page: "query-detail"`,
+ * `routes.ts:202-214` holds the entry (`page: "query-detail"`,
  * `requirement: "R10.7"`, `path: "/c/:ns/:name/queries/:fingerprint"`) and its
  * `component:` is this file — the file-plus-entry pair that replaced the old
  * `App.tsx` if-chain. The flip A4 owed this file has happened.

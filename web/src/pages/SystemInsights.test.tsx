@@ -1,4 +1,4 @@
-/* R10.10's page shell (`requirements.md:423`, `web/src/routes.ts:280-290`).
+/* R10.10's page shell (`requirements.md:423`, `web/src/routes.ts:281-291`).
  *
  * The page has no chart and no fetcher yet — A3's ruling is that it renders
  * R10.12's unavailable state until Phase 7's DTO lands — so this file cannot
@@ -6,9 +6,9 @@
  * states today, each of which is a contract the eventual chart has to honour:
  *
  * 1. **the shell** — `data-page`, the `<h1>` the route's `title:` promises
- *    (`web/src/routes.ts:282`), and R10.21's stamp pair. The `data-page`/`h1`
- *    pair is also what `routes.test.tsx`'s `IMPLEMENTED` row will assert when
- *    A4 flips `component: null` at `web/src/routes.ts:286`, so it is asserted
+ *    (`web/src/routes.ts:283`), and R10.21's stamp pair. The `data-page`/`h1`
+ *    pair is also what `routes.test.tsx`'s `IMPLEMENTED` row asserts now that
+ *    A4 flipped it at `web/src/routes.ts:287`, so it is asserted
  *    here first — the same order `WaitEvents.test.tsx:8-11` sets.
  * 2. **R5.1's five cards** — the labels verbatim, and the one value the spec
  *    answers for a default deployment (`Log errors` → `not configured`, from
@@ -120,7 +120,7 @@ describe("SystemInsightsPage — the shell (R10.10, R10.21)", () => {
   it("renders the shell a cluster URL names", () => {
     const { container } = renderPage();
     expect(container.querySelector('[data-page="system"]')).not.toBeNull();
-    // The heading text is the route table's `title:` at `web/src/routes.ts:282`,
+    // The heading text is the route table's `title:` at `web/src/routes.ts:283`,
     // read through the fixture rather than retyped here.
     expect(screen.getByRole("heading", { level: 1, name: "System Insights" })).toBeInTheDocument();
   });

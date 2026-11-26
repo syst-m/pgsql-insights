@@ -1,5 +1,5 @@
 /* The System Insights page — R10.10's cluster page (requirements.md:423), the
- * eleventh of R10.3's fourteen (web/src/routes.ts:280-290), and the only one of
+ * eleventh of R10.3's fourteen (web/src/routes.ts:281-291), and the only one of
  * the fourteen whose Phase has not started.
  *
  * ── what it renders, and from what ──────────────────────────────────────────
@@ -167,7 +167,7 @@ export interface MetricGroup {
   key: MetricGroupKey;
   /** The tab label: the requirement's own word for the family, so the tab strip
    *  can be checked against R5.2/R5.3 by reading it (the same rule
-   *  `web/src/routes.ts:134-135` applies to nav labels). */
+   *  `web/src/routes.ts:135-136` applies to nav labels). */
   label: string;
   /** The measures the group's chart will plot, copied from the requirement's
    *  parenthetical where it has one. Stated now so the commit that draws a chart
@@ -548,7 +548,7 @@ function PageHeader({
 /** The URL names no cluster, or names one that is not a namespace/name pair.
  *
  *  Same shape as `web/src/pages/WaitEvents.tsx:235-240`'s `NoCluster`, with this
- *  route's sentence: R10.10's page is per-cluster (`web/src/routes.ts:287`'s
+ *  route's sentence: R10.10's page is per-cluster (`web/src/routes.ts:288`'s
  *  `scope: "cluster"`), because R5.1's cards and R5.7's instances are both
  *  computed per cluster and neither has a fleet-wide form. */
 function NoCluster({ state, onPatch }: SystemInsightsPageProps): ReactElement {

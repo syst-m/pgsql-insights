@@ -27,7 +27,7 @@
  * belong to until `useTags` exists.
  *
  * Rendered directly, not through `<App>` even though the shell mounts this page
- * now (`routes.ts:263`'s `component: TagsPage`, A4's `843986b`): the mount is
+ * now (`routes.ts:265`'s `component: TagsPage`, A4's `843986b`): the mount is
  * `routes.test.tsx`'s to assert, and `PageProps<T>` exists precisely so a page
  * test can pass the props the shell will without routing to it.
  */
@@ -59,7 +59,7 @@ const CLUSTER_ID = "open-webui/open-webui-pg";
 /** The unstubbed fetch, so the http-arm suite below can put it back. */
 const realFetch = globalThis.fetch;
 
-/** The URL this page is mounted from: `routes.ts:257-267`'s
+/** The URL this page is mounted from: `routes.ts:259-269`'s
  *  `/c/:ns/:name/tags`, which is `scope: "cluster"` with no other params. */
 const URL_STATE: UrlState = { ...DEFAULT_STATE, page: "tags", cluster: CLUSTER_ID };
 
@@ -119,7 +119,7 @@ describe("TagsPage — the table (R10.3's ninth page)", () => {
   it("renders the shell for a cluster URL", () => {
     const { container } = renderPage();
     expect(container.querySelector('[data-page="tags"]')).not.toBeNull();
-    // The exact `routes.ts:259` title, which `routes.test.tsx:53-68`'s
+    // The exact `routes.ts:261` title, which `routes.test.tsx:53-68`'s
     // `R10_3_TITLES` asserts for the nav and this asserts for the page.
     expect(screen.getByRole("heading", { level: 1, name: "Tags" })).toBeInTheDocument();
     expect(screen.getByTestId("tags-table")).toBeInTheDocument();
@@ -432,7 +432,7 @@ describe("TagsPage — R10.12's named states", () => {
 
 describe("TagsPage — a URL that names no cluster", () => {
   it("renders the no-cluster frame instead of the page", () => {
-    // `routes.ts:257-267` is `scope: "cluster"`; the route takes a
+    // `routes.ts:259-269` is `scope: "cluster"`; the route takes a
     // namespace/cluster pair, so there is no fleet-wide form to fall back to.
     const { container, onPatch } = renderPage({
       state: { ...DEFAULT_STATE, page: "tags" },
