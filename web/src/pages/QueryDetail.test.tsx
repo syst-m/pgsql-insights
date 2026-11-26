@@ -227,7 +227,7 @@ describe("QueryDetailPage", () => {
 
   it("renders the payload it is given, not only the fixture", () => {
     // `fixtureOverride` is the visual suite's seam and, now that
-    // `client.ts:323`'s `fetchQueryDetail` exists, the shape the fetched payload
+    // `client.ts:387`'s `fetchQueryDetail` exists, the shape the fetched payload
     // arrives in too — the page's chain is prop, then the hook's payload, then the
     // fixture. A page that renders the fixture unconditionally passes every test
     // and shows the wrong query.

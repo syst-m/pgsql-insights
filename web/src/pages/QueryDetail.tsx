@@ -190,7 +190,7 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
   return (
     // The extracted params are on the element so the extraction is observable
     // without exporting a test-only render: this is the value `useQueryDetail`
-    // passes to `client.ts:323`'s `fetchQueryDetail` as `params.fingerprint`, and
+    // passes to `client.ts:387`'s `fetchQueryDetail` as `params.fingerprint`, and
     // a page that parsed the URL into a local and never used it is the bug a test
     // should catch. The value shown in the header is the payload's own
     // fingerprint, so the two agree only if the extraction is right.
