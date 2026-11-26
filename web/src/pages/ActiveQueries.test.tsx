@@ -21,7 +21,7 @@
  *    (`active_queries.go:89`/`:97`) rendered as an enabled and a disabled
  *    control, and R4.5's *confirmed* step. The gate is R4.5, not R4.6; see the
  *    page's header for why. This clause has two halves now: the arm (fixture
- *    arm, no network) and the POST it fires (`client.ts:602`, A4's `efdabb3`),
+ *    arm, no network) and the POST it fires (`client.ts:607`, A4's `efdabb3`),
  *    and only the second one needs a `fetch` stub.
  *
  * A sixth block covers R10.18's two halves on this page — the density toggle and
@@ -229,7 +229,7 @@ describe("ActiveQueriesPage — the refresh indicator (R10.8's second clause)", 
   });
 
   it("offers no range control", () => {
-    // `client.ts:549-552`'s params are namespace+cluster only: pg_stat_activity
+    // `client.ts:554`'s params are namespace+cluster only: pg_stat_activity
     // answers "now", so a time window would be R10.15's question about the query
     // store rendered on a page that cannot ask it.
     const { container } = renderPage();
@@ -376,7 +376,7 @@ describe("ActiveQueriesPage — the Action cell (R10.8's fourth clause, R4.5's g
   });
 });
 
-/* ── 2b. the terminate POST (R4.5's mutation half, `client.ts:602`) ───────── */
+/* ── 2b. the terminate POST (R4.5's mutation half, `client.ts:607`) ───────── */
 
 describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () => {
   // The http arm, because a mutation has no `fixtureOverride` equivalent: the
@@ -439,7 +439,7 @@ describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () =
     // type, so a page that fired without arming the dialog cannot produce it. The
     // order is `search()`'s (`client.ts:193` preserves the object's own key order
     // rather than sorting), so it is part of the claim. The `/terminate` suffix is
-    // `client.ts:620`'s and the contract's (`requirements.md:332`,
+    // `client.ts:607`'s and the contract's (`requirements.md:332`,
     // `internal/api/server.go:230` (`Terminate`)): this assertion was first written against the
     // suffix-less URL the fetcher had and tightened to the exact string when A4's
     // `9790fda` added it, which is the pair the api suite asserts too at

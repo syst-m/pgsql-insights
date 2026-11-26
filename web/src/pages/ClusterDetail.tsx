@@ -26,7 +26,7 @@
  *
  * ── where the Query load series come from ──────────────────────────────────
  *
- * R8.11's batched route is the only source — `client.ts:395`'s
+ * R8.11's batched route is the only source — `client.ts:459`'s
  * `fetchQuerySeries` — and the page is the caller, because R8.11's whole claim
  * is that *one* response serves this chart, R10.6's sparkline column and
  * R10.7's detail chart. The batch needs fingerprints, and the only honest
@@ -35,7 +35,7 @@
  * series call for N fingerprints rather than N calls, which is the feeding
  * R9.13's batch exists for. `fetchQueries`' default limit is 50
  * (`internal/api/paging.go:50`'s `DefaultLimit`, passed through unclamped —
- * `client.ts:322`) and the batch's cap is 50
+ * `client.ts:342`) and the batch's cap is 50
  * (`internal/api/series.go:56`'s `MaxBatchFingerprints`, above which the server
  * answers `InvalidRequest` because R8.10 forbids the clamp), so a page that
  * renders a whole list can hand it over entire without tripping the cap; a
@@ -44,7 +44,7 @@
  * The `querySeries` prop stays as the caller's override — `Fleet.tsx:44-47`'s
  * shape, prop first, then the fetched payload, then the contract fixture so the
  * chart has something to render before the first response lands — and in
- * fixture mode both fetchers ignore their params entirely (`client.ts:400-403`
+ * fixture mode both fetchers ignore their params entirely (`client.ts:464-467`
  * for the series arm), so the prop, the fetch and the fixture answer with the
  * same three series, all three of which belong to `open-webui/open-webui-pg`;
  * the other three reference clusters still render the empty chart.
@@ -303,7 +303,7 @@ function Overview({
       </section>
       {/* R10.5(a)'s slot: the chart is 6b's (components/QueryLoadArea.tsx) and
           the batch is R8.11's — the header's "where the Query load series come
-          from" section is the whole argument (fetcher `client.ts:395`, top-N
+          from" section is the whole argument (fetcher `client.ts:342`, top-N
           from `fetchQueries`, cap 50, fixture mode ignores params). The slot
           itself only has to say what it plots: this cluster's series, folded
           into buckets per timestamp by `stackSeries`. A cluster the payload has

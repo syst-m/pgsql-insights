@@ -42,7 +42,7 @@
  *     the dimensions a row has would show this row as three columns wide.
  *
  * `TAG_COLUMNS` is exhaustive by construction: its eighteen keys are `TagView`'s
- * eighteen json tags, the same set `client.ts:467-476`'s `TagsParams` docblock
+ * eighteen json tags, the same set `client.ts:511`'s `TagsParams` docblock
  * counts when it says the route "lists all eighteen of TagView's json tags as
  * sort keys". `ColumnMenu.DEFAULTS["tags"]` shows eight of them; the menu is
  * what makes the other ten reachable, which is R10.20's contract, not this
@@ -77,7 +77,7 @@
  * *imported* from `../state/useFleet` rather than restated — written so that
  * extracting it to `state/useTags.ts` later is a cut-paste rather than a
  * rewrite. The standing ask on `web/src/api/` is otherwise unchanged by this
- * file: `fetchTags` exists (`client.ts:477`), the hook does not.
+ * file: `fetchTags` exists (`client.ts:522`), the hook does not.
  *
  * No polling. R10.8 names 15 s for Active Queries and `useQueries.ts:111`
  * defaults to 30 s; R3.7 and R8.2 name no interval at all for the tag rollup,
@@ -336,7 +336,7 @@ export function TagsPage(props: TagsPageProps): ReactElement {
 /** Breadcrumb, title, the R10.21 stamp, and R10.15's range control.
  *
  *  The range is here because the route takes it: `TagsParams` has `from`/`to`
- *  (`client.ts:467-476`), so the window is part of what the page asks for, and
+ *  (`client.ts:511`), so the window is part of what the page asks for, and
  *  R10.15's five presets are the only vocabulary for stating one. Changing it
  *  patches the URL, which re-derives `params`, which refetches — the same chain
  *  `Queries.tsx`'s header drives. */
@@ -555,7 +555,7 @@ const RANGE_SECONDS: Record<TimeRange, number> = {
  *  the *fleet table's* columns (`health`, `tps`, `diskPct`) and none of them is
  *  a tag column, so forwarding it would ask this route to sort by a field it
  *  does not have. The route's own sort vocabulary is `TagView`'s eighteen json
- *  tags (client.ts:467-476), which `UrlState` has no field for. `db` is the
+ *  tags (`client.ts:511`), which `UrlState` has no field for. `db` is the
  *  other unmapped field with no `UrlState` source, and `limit`/`cursor` are
  *  paging, which no page owns yet.
  *
@@ -619,7 +619,7 @@ export function tagsKey(params: TagsParams): string {
   return `${params.namespace ?? ""}/${params.cluster ?? ""}`;
 }
 
-/** `fetchTags` (client.ts:477) behind R10.22's refetch envelope.
+/** `fetchTags` (`client.ts:522`) behind R10.22's refetch envelope.
  *
  *  `useActiveQueries.ts`'s body, inlined for the reason the header gives: the
  *  state layer is A4's and this page's payload is the fourth one no hook there

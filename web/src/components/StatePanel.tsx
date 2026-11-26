@@ -203,7 +203,7 @@ export interface TagsPanelInput {
    *  `Envelope<TagView>` rather than a named response struct, because R8.4's
    *  envelope has exactly the two fields this route serves (`data`, `meta`) and
    *  a third key is what forced `dto.QueriesResponse` into existence for the
-   *  queries route. `client.ts:477`'s `fetchTags` returns the same type, so the
+   *  queries route. `client.ts:522`'s `fetchTags` returns the same type, so the
    *  page's prop, the fetcher's return and this input are one type. */
   tags: Envelope<TagView> | null;
   /** Set when the fetch failed. */

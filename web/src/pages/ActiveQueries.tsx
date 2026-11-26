@@ -46,7 +46,7 @@
  *
  * R4.5 also requires the action be "confirmed", so an enabled button does not
  * fire on click — it arms a Confirm/Cancel pair (`confirmPid` below), and
- * confirming fires the mutation: `terminateSession` (`client.ts:602`,
+ * confirming fires the mutation: `terminateSession` (`client.ts:607`,
  * A4's `efdabb3`). That signature is this paragraph written in the type system:
  * `confirm` is the literal `"true"`, so a caller that has not shown the dialog
  * cannot spell the argument and the button cannot fire without the step. The
@@ -356,7 +356,7 @@ export function ActiveQueriesPage(props: ActiveQueriesPageProps): ReactElement {
 /** Breadcrumb, title, the R10.21 stamp, and R10.8's auto-refresh indicator.
  *
  *  No range control: the route takes `namespace`/`cluster` and no time window
- *  (`client.ts:549-552`'s two required params), because `pg_stat_activity`
+ *  (`client.ts:554`'s two required params), because `pg_stat_activity`
  *  answers "what is running now" — a window is R10.15's question about the
  *  query store, not this route's. */
 function PageHeader({ state, resp }: { state: PageProps["state"]; resp: ActiveQueriesResponse }) {
