@@ -21,7 +21,7 @@ package main
 //
 // R12.8 (`requirements.md:475`) is the gate that makes the patch safe: the flag's
 // value names each mutation individually, and this command's action is
-// ActionNameEnableExtension. Gate closed → print the offer and refuse with exit 1.
+// api.ActionNameEnableExtension. Gate closed → print the offer and refuse with exit 1.
 // Gate open → print the offer, patch, verify. --dry-run prints the offer and exits
 // 0 without consulting the gate, which is how the offer gets inspected on a
 // cluster nobody has opted into mutating yet.
@@ -56,18 +56,6 @@ import (
 	"github.com/frankellis/pgsql-insights/internal/logx"
 )
 
-// ActionNameEnableExtension is R3.15's spec.parameters patch as it appears in
-// R12.8's --allow-actions value.
-//
-// Provisional under D13, which is the same rule `internal/api/active_queries.go:78`
-// applies to its own action name: the spec names the gate and the mutation but not
-// the string, so the string is named here, marked provisional here, and its blast
-// radius is one constant. Consolidating the two action names into one file is A2's
-// move — they own active_queries.go — so this declares the second name where it is
-// used and imports the first rather than restating it. A second `terminate` literal
-// in cmd/pgsi would be the second copy that lets the two gates disagree.
-const ActionNameEnableExtension = "enable-extension"
-
 // knownActions is the set R12.8's value draws from, which the requirement
 // enumerates in the sentence that generalised the flag: "the full set of mutations
 // the product performs: pg_terminate_backend (R4.5), the spec.parameters patch
@@ -76,9 +64,15 @@ const ActionNameEnableExtension = "enable-extension"
 //
 // It lives here because this is the package that parses the flag, and because the
 // two consumers ask different questions: the API asks "is this one action allowed"
-// (`internal/api/active_queries.go:180`), which needs a membership test, while
+// (`internal/api/active_queries.go:158`), which needs a membership test, while
 // parseAllowActions needs the whole set to validate a name it has never seen.
-var knownActions = []string{api.ActionNameTerminate, ActionNameEnableExtension}
+//
+// The set itself is api.KnownActions (`internal/api/actions.go:69`) — the single
+// home A2 built for the two names, and where this file's own
+// ActionNameEnableExtension const moved to. Aliasing rather than restating is the
+// point: a second []string in cmd/pgsi is a second list the flag's value can
+// disagree with, which is what the D13 provisional-marking rule exists to prevent.
+var knownActions = api.KnownActions
 
 // parseAllowActions is R12.8's flag value grammar.
 //
@@ -125,7 +119,7 @@ func parseAllowActions(v string) ([]string, error) {
 }
 
 // actionAllowed is the gate question this command asks: may this process perform
-// `action`. It is the same membership test active_queries.go:80 runs for R4.1's
+// `action`. It is the same membership test `internal/api/active_queries.go:158` runs for R4.1's
 // Action column, reached from the other side — that one returns the column's value
 // ("terminate" or "disabled"), this one returns a bool for a command that has to
 // choose between applying a patch and refusing.
@@ -531,12 +525,12 @@ func runEnable(args []string) int {
 	if plan.DryRun {
 		return 0
 	}
-	if !actionAllowed(actions, ActionNameEnableExtension) {
+	if !actionAllowed(actions, api.ActionNameEnableExtension) {
 		// R12.8's whole point: a read-only product does not become a mutation
 		// surface by surprise. The offer is printed above so the operator can see
 		// exactly what the gate is withholding, and the exit code is 1 — the
 		// command ran and declined, which is not the same as it failing to run.
-		fmt.Println("refused: " + ActionNameEnableExtension + " is not in --allow-actions (R12.8); add it, or re-run with --dry-run")
+		fmt.Println("refused: " + api.ActionNameEnableExtension + " is not in --allow-actions (R12.8); add it, or re-run with --dry-run")
 		return 1
 	}
 

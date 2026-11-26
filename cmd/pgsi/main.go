@@ -567,7 +567,7 @@ func runServe(args []string) int {
 	// R12.8's gate, parsed here because the docblock on api.Config.Actions
 	// (`internal/api/server.go:104`) names this flag as the field's source and
 	// until now no such flag existed: main.go declared none, so the field was
-	// always empty and actionFor (`internal/api/active_queries.go:180`) answered
+	// always empty and actionFor (`internal/api/active_queries.go:158`) answered
 	// "disabled" for every request on every deployment. Parsing the flag is the
 	// fix; enabling an action stays the operator's, through the flag.
 	actions, err := parseAllowActions(*sf.actions)

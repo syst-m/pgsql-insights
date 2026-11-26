@@ -95,13 +95,14 @@ func TestParseAllowActions(t *testing.T) {
 
 // TestKnownActionsCoversBothConsumers is the cross-package half of the gate.
 //
-// api.ActionNameTerminate is A2's constant (`internal/api/active_queries.go:78`)
-// and ActionNameEnableExtension is this file's. The API's actionFor
-// (`internal/api/active_queries.go:180`) answers for the first, runEnable's gate
-// for the second, and both read one []string off api.Config. If a name were in one
-// list and not the other, the flag would accept an action no handler implements,
-// or refuse one that does — and no test in either package would notice, because
-// each only checks its own name. This is the test that spans the two.
+// Both names are A2's now (`internal/api/actions.go:47` and `:62`) and
+// api.KnownActions (`:69`) is the set this file aliases, so the two lists this test
+// compared collapsed into one declaration — which is the fix the test was written
+// to make unnecessary. The API's actionFor (`internal/api/active_queries.go:158`)
+// answers for the first name, runEnable's gate for the second, and both read one
+// []string off api.Config. If a name were in one list and not the other, the flag
+// would accept an action no handler implements, or refuse one that does — and no
+// test in either package would notice, because each only checks its own name.
 func TestKnownActionsCoversBothConsumers(t *testing.T) {
 	t.Parallel()
 
@@ -109,8 +110,8 @@ func TestKnownActionsCoversBothConsumers(t *testing.T) {
 		t.Errorf("knownActions %v does not contain api.ActionNameTerminate (%q); the flag would refuse an action the API implements",
 			knownActions, api.ActionNameTerminate)
 	}
-	if !slices.Contains(knownActions, ActionNameEnableExtension) {
-		t.Errorf("knownActions %v does not contain ActionNameEnableExtension (%q)", knownActions, ActionNameEnableExtension)
+	if !slices.Contains(knownActions, api.ActionNameEnableExtension) {
+		t.Errorf("knownActions %v does not contain api.ActionNameEnableExtension (%q)", knownActions, api.ActionNameEnableExtension)
 	}
 
 	// actionAllowed is the membership test; it has to agree with the set for every
