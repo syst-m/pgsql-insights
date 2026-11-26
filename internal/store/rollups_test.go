@@ -1,12 +1,12 @@
 // rollups_test.go is A3's S29 test file for rollups.go: R3.7's per-dimension
 // rollups and R3.12's tags, both halves of the one dimension_rollup table.
 //
-// The five tests map to the file's five contracts rather than to its line count:
-// digest (what a row's dim_hash is, including A3's S45's kind-scoping), validate
-// (the gate: kind, presence, exclusivity), args (the 22 bind values and the column
-// list they belong to), PutDimensionRollups (batching, INSERT OR REPLACE, and the
-// validate-before-the-transaction rule), and Tags (the read: the kind filter, the
-// window, the per-cluster denominator).
+// The tests map to the file's contracts rather than to its line count: digest
+// (what a row's dim_hash is, including A3's S45's kind-scoping), validate (the
+// gate: kind, presence, exclusivity), args (the 22 bind values and the column list
+// they belong to), PutDimensionRollups (batching, INSERT OR REPLACE, and the
+// validate-before-the-transaction rule), and the four reads — Tags and R3.7's three
+// single-key rollups: the kind filter, the window, the per-cluster total.
 package store
 
 import (
@@ -779,4 +779,316 @@ func TestR313WriteGate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// singleKeyStore is the fixture the three single-key rollup tests share: two
+// clusters' query_rollup rows (the denominator — clusterLoad sums that table, not
+// dimension_rollup, so a fixture with no query rows makes every percentage zero and
+// proves nothing about which denominator a row was divided by) and one
+// dimension_rollup row per R3.7 kind.
+//
+// It opens its own store rather than calling newSeriesStore because R3.13's write
+// gate drops kind='client_address' rows unless RecordClientAddress and the default
+// Config has the flag off: without it the ClientAddresses read would be tested
+// against an empty table. The query-side seeding is seriesRollupInsert, the same
+// INSERT newSeriesStore uses, so the two fixtures cannot drift on the column list.
+func singleKeyStore(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open(Config{
+		Now:                 func() time.Time { return seriesNow },
+		RecordClientAddress: true,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	b0 := minuteBucket(seriesNow.Add(-time.Hour))
+	b1 := minuteBucket(seriesNow)
+
+	// prod/pg carries 200 ms of query load (two rows at b0); prod/pg2 carries 50 ms.
+	for _, r := range []seriesSeed{
+		{fp: fpNamed("aa"), namespace: "prod", cluster: "pg", pod: "pg-1",
+			datname: tagDB, usename: tagUser, kind: "minute", bucket: b0,
+			calls: 10, totalMs: 100, rows: 100, hit: 6, read: 2, lockMs: 4},
+		{fp: fpNamed("bb"), namespace: "prod", cluster: "pg", pod: "pg-1",
+			datname: "ledger", usename: tagUser, kind: "minute", bucket: b0,
+			calls: 5, totalMs: 100, rows: 50, hit: 6, read: 2, lockMs: 4},
+		{fp: fpNamed("cc"), namespace: "prod", cluster: "pg2", pod: "pg-1",
+			datname: tagDB, usename: "reporting", kind: "minute", bucket: b0,
+			calls: 4, totalMs: 50, rows: 40, hit: 6, read: 2, lockMs: 4},
+	} {
+		if _, err := s.DB().Exec(seriesRollupInsert,
+			r.fp, r.namespace, r.cluster, r.pod, r.datname, r.usename, r.kind, r.bucket,
+			r.calls, r.totalMs, r.rows, r.hit, r.read, r.lockMs,
+		); err != nil {
+			t.Fatalf("seed rollup %s/%d: %v", r.fp[:2], r.bucket, err)
+		}
+	}
+
+	if err := s.PutDimensionRollups(context.Background(), []DimensionRollup{
+		// appdb in prod/pg across two minutes, so the window sum is what is under
+		// test rather than a single row echoed back: 15 calls, 90 ms, 30 cpu, 6 io.
+		{Dimensions: Dimensions{Kind: KindDatabase, Datname: tagDB}, Namespace: "prod",
+			Cluster: "pg", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 10, TotalExecMs: 60, CPUMs: 20, IOWaitMs: 5,
+				RowsReturned: 100, SharedBlocksHit: 7, SharedBlocksRead: 3, LockWaitMs: 2}},
+		{Dimensions: Dimensions{Kind: KindDatabase, Datname: tagDB}, Namespace: "prod",
+			Cluster: "pg", Bucket: timeFromUnix(b1),
+			Load: DimensionLoad{Calls: 5, TotalExecMs: 30, CPUMs: 10, IOWaitMs: 1,
+				RowsReturned: 50, SharedBlocksHit: 4, SharedBlocksRead: 1, LockWaitMs: 1}},
+		// ledger in prod/pg: the second database the read has to return, and the row
+		// that makes appdb's 45% a share of something rather than a tautology.
+		{Dimensions: Dimensions{Kind: KindDatabase, Datname: "ledger"}, Namespace: "prod",
+			Cluster: "pg", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 5, TotalExecMs: 100, CPUMs: 40, IOWaitMs: 8,
+				RowsReturned: 50, SharedBlocksHit: 6, SharedBlocksRead: 2, LockWaitMs: 4}},
+		// appdb in prod/pg2: the same database in another cluster, which must divide
+		// by pg2's 50 ms and not pg's 200 ms.
+		{Dimensions: Dimensions{Kind: KindDatabase, Datname: tagDB}, Namespace: "prod",
+			Cluster: "pg2", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 4, TotalExecMs: 50, CPUMs: 20, IOWaitMs: 4,
+				RowsReturned: 40, SharedBlocksHit: 6, SharedBlocksRead: 2, LockWaitMs: 3}},
+		// The other two kinds. Their Dimensions carry no datname: validate() rejects
+		// any field the kind does not own, so these are the only shapes the write path
+		// accepts for them — and the reason the three reads cannot share one row.
+		{Dimensions: Dimensions{Kind: KindUser, Usename: tagUser}, Namespace: "prod",
+			Cluster: "pg", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 16, TotalExecMs: 160, CPUMs: 60, IOWaitMs: 12,
+				RowsReturned: 320, SharedBlocksHit: 20, SharedBlocksRead: 8, LockWaitMs: 7}},
+		{Dimensions: Dimensions{Kind: KindUser, Usename: "reporting"}, Namespace: "prod",
+			Cluster: "pg2", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 4, TotalExecMs: 50, CPUMs: 20, IOWaitMs: 4,
+				RowsReturned: 40, SharedBlocksHit: 6, SharedBlocksRead: 2, LockWaitMs: 3}},
+		{Dimensions: Dimensions{Kind: KindClientAddress, ClientAddress: tagAddress}, Namespace: "prod",
+			Cluster: "pg", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 20, TotalExecMs: 160, CPUMs: 60, IOWaitMs: 12,
+				RowsReturned: 400, SharedBlocksHit: 24, SharedBlocksRead: 8, LockWaitMs: 7}},
+		// The tag kind, which none of the three reads returns.
+		{Dimensions: fullTag, Namespace: "prod", Cluster: "pg", Bucket: timeFromUnix(b0),
+			Load: DimensionLoad{Calls: 1, TotalExecMs: 5, CPUMs: 1, IOWaitMs: 0,
+				RowsReturned: 1, SharedBlocksHit: 1, SharedBlocksRead: 0, LockWaitMs: 0}},
+	}); err != nil {
+		t.Fatalf("seed dimension rollups: %v", err)
+	}
+	return s
+}
+
+// TestDatabases is the read half of R3.7 for the database dimension: the kind filter,
+// the window sum, and the per-cluster denominator, on the view whose key field is
+// `database` (R3.7's field-name ruling at requirements.md:314 drops the _name suffix
+// that pg_stat_activity's datname would otherwise imply).
+func TestDatabases(t *testing.T) {
+	ctx := context.Background()
+	s := singleKeyStore(t)
+
+	list := func(q api.ListQuery) []dto.DatabaseView {
+		t.Helper()
+		out, err := s.Databases(ctx, q)
+		if err != nil {
+			t.Fatalf("Databases(%+v): %v", q, err)
+		}
+		return out
+	}
+	one := func(q api.ListQuery, db string) dto.DatabaseView {
+		t.Helper()
+		var found []dto.DatabaseView
+		for _, v := range list(q) {
+			if v.Database == db {
+				found = append(found, v)
+			}
+		}
+		if len(found) != 1 {
+			t.Fatalf("Databases(%+v): %d rows named %q, want 1", q, len(found), db)
+		}
+		return found[0]
+	}
+
+	t.Run("the kind filter and the window sum", func(t *testing.T) {
+		// The table holds four database-kind rows plus a user row, an address row and
+		// a tag row in the same two clusters; this read returns the two prod/pg ones.
+		if got := list(api.ListQuery{Namespace: "prod", Cluster: "pg"}); len(got) != 2 {
+			t.Fatalf("prod/pg: %d databases, want 2 (appdb, ledger) — the user, address and tag rows must not appear", len(got))
+		}
+		got := one(api.ListQuery{Namespace: "prod", Cluster: "pg"}, tagDB)
+		if got.Database != tagDB {
+			t.Errorf("database = %q, want %q", got.Database, tagDB)
+		}
+		if got.TimesCalled != 15 || !sameFloat(got.TotalExecTimeMs, 90) {
+			t.Errorf("load = %d calls / %v ms, want 15 calls / 90 ms (two minutes summed)",
+				got.TimesCalled, got.TotalExecTimeMs)
+		}
+		if !sameFloat(got.AvgExecTimeMs, 6) || !sameFloat(got.AvgRowsReturned, 10) {
+			t.Errorf("averages = %v ms / %v rows, want 6 ms / 10 rows (90/15 and 150/15)",
+				got.AvgExecTimeMs, got.AvgRowsReturned)
+		}
+		if !sameFloat(got.LoadByCPUMs, 30) || !sameFloat(got.LoadByIOWaitMs, 6) {
+			t.Errorf("cpu/io = %v / %v, want 30 / 6", got.LoadByCPUMs, got.LoadByIOWaitMs)
+		}
+		// The column R3.2 withholds per query and R3.7 grants at this level.
+		if !sameFloat(got.LockWaitMs, 3) {
+			t.Errorf("lockWaitMs = %v, want 3 (2+1, the two minutes)", got.LockWaitMs)
+		}
+	})
+
+	t.Run("the percentage is against the row's own cluster", func(t *testing.T) {
+		// appdb in prod/pg: 90 ms of a 200 ms cluster.
+		got := one(api.ListQuery{Cluster: "pg"}, tagDB)
+		if !sameFloat(got.LoadByTotalTime, 45) || !sameFloat(got.PctLoadByQueries, 45) {
+			t.Errorf("appdb in prod/pg: %v/%v, want 45/45 (100 * 90 / 200)",
+				got.LoadByTotalTime, got.PctLoadByQueries)
+		}
+		// The same database in prod/pg2, which carries 50 ms of its own query load
+		// and 50 ms of appdb's, so 100%. Pooling the two clusters (250 ms) would
+		// answer 36% for both rows — the number that belongs to neither.
+		got = one(api.ListQuery{Cluster: "pg2"}, tagDB)
+		if !sameFloat(got.LoadByTotalTime, 100) {
+			t.Errorf("appdb in prod/pg2: loadByTotalTime = %v, want 100 (100 * 50 / 50)",
+				got.LoadByTotalTime)
+		}
+		// ledger in prod/pg divides by the same 200 ms and answers 50%, so the two
+		// rows in one cluster sum to 95% and not 145% — the check that the
+		// denominator is the cluster's total rather than the row's own kind.
+		if !sameFloat(one(api.ListQuery{Cluster: "pg"}, "ledger").LoadByTotalTime, 50) {
+			t.Errorf("ledger in prod/pg: loadByTotalTime = %v, want 50 (100 * 100 / 200)",
+				one(api.ListQuery{Cluster: "pg"}, "ledger").LoadByTotalTime)
+		}
+	})
+
+	t.Run("the scope filters", func(t *testing.T) {
+		// q.DB is a filter here too, and for this method it lands on the same column
+		// the SELECT names as the key — the shared pager's one filter for all four
+		// reads, not a database-specific shortcut.
+		if got := list(api.ListQuery{Namespace: "prod", DB: "ledger"}); len(got) != 1 ||
+			got[0].Database != "ledger" {
+			t.Errorf("DB=ledger: %v, want one row for ledger", got)
+		}
+		if got := list(api.ListQuery{Namespace: "none"}); len(got) != 0 {
+			t.Errorf("namespace=none: %d rows, want 0", len(got))
+		}
+	})
+}
+
+// TestUsers is the same read keyed on usename, on the view whose key field is
+// `userName` — the camelCase side of requirements.md:314's ruling, because the field
+// names a pg_stat_activity column rather than one of R3.12's (a) tag dimensions.
+func TestUsers(t *testing.T) {
+	ctx := context.Background()
+	s := singleKeyStore(t)
+
+	list := func(q api.ListQuery) []dto.UserView {
+		t.Helper()
+		out, err := s.Users(ctx, q)
+		if err != nil {
+			t.Fatalf("Users(%+v): %v", q, err)
+		}
+		return out
+	}
+	one := func(q api.ListQuery, name string) dto.UserView {
+		t.Helper()
+		var found []dto.UserView
+		for _, v := range list(q) {
+			if v.UserName == name {
+				found = append(found, v)
+			}
+		}
+		if len(found) != 1 {
+			t.Fatalf("Users(%+v): %d rows named %q, want 1", q, len(found), name)
+		}
+		return found[0]
+	}
+
+	t.Run("the kind filter", func(t *testing.T) {
+		// Two user-kind rows exist; the database, address and tag rows in the same
+		// two clusters must not come back, and neither may a user row be invented by
+		// joining on the datname the user kind does not carry.
+		if got := list(api.ListQuery{Namespace: "prod"}); len(got) != 2 {
+			t.Fatalf("prod: %d users, want 2 (appuser, reporting)", len(got))
+		}
+	})
+
+	t.Run("the load columns", func(t *testing.T) {
+		got := one(api.ListQuery{Namespace: "prod", Cluster: "pg"}, tagUser)
+		if got.TimesCalled != 16 || !sameFloat(got.TotalExecTimeMs, 160) {
+			t.Errorf("load = %d calls / %v ms, want 16 / 160", got.TimesCalled, got.TotalExecTimeMs)
+		}
+		if !sameFloat(got.AvgExecTimeMs, 10) || !sameFloat(got.AvgRowsReturned, 20) {
+			t.Errorf("averages = %v ms / %v rows, want 10 / 20", got.AvgExecTimeMs, got.AvgRowsReturned)
+		}
+		if !sameFloat(got.LoadByCPUMs, 60) || !sameFloat(got.LoadByIOWaitMs, 12) {
+			t.Errorf("cpu/io = %v / %v, want 60 / 12", got.LoadByCPUMs, got.LoadByIOWaitMs)
+		}
+		if !sameFloat(got.LockWaitMs, 7) {
+			t.Errorf("lockWaitMs = %v, want 7", got.LockWaitMs)
+		}
+		if !sameFloat(got.LoadByTotalTime, 80) {
+			t.Errorf("loadByTotalTime = %v, want 80 (100 * 160 / 200)", got.LoadByTotalTime)
+		}
+	})
+
+	t.Run("the percentage is against the row's own cluster", func(t *testing.T) {
+		if !sameFloat(one(api.ListQuery{Cluster: "pg2"}, "reporting").LoadByTotalTime, 100) {
+			t.Errorf("reporting in prod/pg2: loadByTotalTime = %v, want 100 (100 * 50 / 50)",
+				one(api.ListQuery{Cluster: "pg2"}, "reporting").LoadByTotalTime)
+		}
+	})
+}
+
+// TestClientAddresses is the third single-key read, on the view whose key field is
+// `clientAddress`. The row it reads only exists because the fixture opens the store
+// with RecordClientAddress (R3.13's gate, tested on the write side by
+// TestR313WriteGate); with the flag off the table holds no such rows and this read
+// returns an empty slice, which is the gate's whole observable effect on this path.
+func TestClientAddresses(t *testing.T) {
+	ctx := context.Background()
+	s := singleKeyStore(t)
+
+	list := func(q api.ListQuery) []dto.ClientAddressView {
+		t.Helper()
+		out, err := s.ClientAddresses(ctx, q)
+		if err != nil {
+			t.Fatalf("ClientAddresses(%+v): %v", q, err)
+		}
+		return out
+	}
+
+	t.Run("the kind filter and the load columns", func(t *testing.T) {
+		got := list(api.ListQuery{Namespace: "prod"})
+		if len(got) != 1 {
+			t.Fatalf("prod: %d addresses, want 1 (%s)", len(got), tagAddress)
+		}
+		if got[0].ClientAddress != tagAddress {
+			t.Errorf("clientAddress = %q, want %q", got[0].ClientAddress, tagAddress)
+		}
+		if got[0].TimesCalled != 20 || !sameFloat(got[0].TotalExecTimeMs, 160) {
+			t.Errorf("load = %d calls / %v ms, want 20 / 160",
+				got[0].TimesCalled, got[0].TotalExecTimeMs)
+		}
+		if !sameFloat(got[0].AvgExecTimeMs, 8) || !sameFloat(got[0].AvgRowsReturned, 20) {
+			t.Errorf("averages = %v ms / %v rows, want 8 / 20",
+				got[0].AvgExecTimeMs, got[0].AvgRowsReturned)
+		}
+		if !sameFloat(got[0].LockWaitMs, 7) {
+			t.Errorf("lockWaitMs = %v, want 7", got[0].LockWaitMs)
+		}
+		if !sameFloat(got[0].LoadByTotalTime, 80) {
+			t.Errorf("loadByTotalTime = %v, want 80 (100 * 160 / 200)", got[0].LoadByTotalTime)
+		}
+	})
+
+	t.Run("an empty result is an empty slice, not a nil and not an error", func(t *testing.T) {
+		// A scope with no rows at all: the handler marshals this as `[]`, and a nil
+		// slice marshals as `null`, which is the difference the make() in the method
+		// exists for.
+		out, err := s.ClientAddresses(ctx, api.ListQuery{Namespace: "none"})
+		if err != nil {
+			t.Fatalf("ClientAddresses: %v", err)
+		}
+		if out == nil {
+			t.Fatal("ClientAddresses returned nil, want an empty slice")
+		}
+		if len(out) != 0 {
+			t.Fatalf("namespace=none: %d rows, want 0", len(out))
+		}
+	})
 }

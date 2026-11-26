@@ -547,3 +547,228 @@ func (s *Store) Tags(ctx context.Context, q api.ListQuery) ([]dto.TagView, error
 	}
 	return out, nil
 }
+
+// ---------------------------------------------------------------------------
+// R3.7's three single-key rollups: Databases, Users, ClientAddresses.
+//
+// Tags above reads the one kind whose label set is eight columns. The other three
+// R3.7 rollups — database, user, client address — each key on a single column of
+// the same table, so they share one read and differ only in which column they name
+// and which dto view they fill. One helper rather than three copies of the SELECT
+// list is the same argument tagRow.view makes for LoadColumns ("one function is the
+// only way to guarantee that"): three copies of the eight aggregate columns is three
+// chances for one kind's lock_wait_ms to be summed differently from the others', and
+// R3.7's rule is that all four rollups answer with the same load columns.
+//
+// The api-side assertions for these three (api.DatabasesSource and friends) are not
+// here yet: those interfaces live only in A2's internal/api/{databases,users,
+// client_addresses}.go, and a `var _ api.DatabasesSource = (*Store)(nil)` line in
+// this file cannot compile in a tree that does not have that file. They land with
+// that commit — the precedent is 62740ed, where the route commit carried its own
+// store-side assertion. The TagsSource assertion at :54 has no such problem because
+// tags.go is tracked and was committed first.
+// ---------------------------------------------------------------------------
+
+// dimensionRow is one aggregated single-key rollup: the dimension's own key, the
+// scope pair, and the eight aggregate columns, before they become a dto view.
+//
+// tagRow is the same shape for the kind whose labels are eight columns; this is the
+// version for the three kinds whose key is one column. The scope pair is here for
+// the reason tagRow carries it — the LoadByTotalTime denominator is per cluster and
+// a database seen in two clusters is two rows that must divide by two different
+// totals — and none of it is copied into the three views, none of which has a
+// namespace or cluster field of its own.
+type dimensionRow struct {
+	key       string
+	namespace string
+	cluster   string
+
+	calls                               int64
+	totalExecMs, cpuMs, ioWaitMs        float64
+	rowsReturned, sharedHit, sharedRead float64
+	lockWaitMs                          float64
+}
+
+// loadColumns is R3.2's column set for this row against its cluster's total, built
+// by the same queryListRow.loadColumns that tagRow.view calls.
+func (r dimensionRow) loadColumns(clusterTotal float64) dto.LoadColumns {
+	return queryListRow{
+		calls:        r.calls,
+		totalExecMs:  r.totalExecMs,
+		cpuMs:        r.cpuMs,
+		ioWaitMs:     r.ioWaitMs,
+		rowsReturned: r.rowsReturned,
+	}.loadColumns(clusterTotal)
+}
+
+// dimensionKeyColumn names the dimension_rollup column that holds the key for each
+// single-key kind, which is what lets the three reads share one SELECT: the kind
+// already says which column to read, so the switch is a lookup and not a branch with
+// behaviour attached.
+//
+// KindTag has no answer. Its key is a hash of eight columns rather than a column,
+// which is why it has tagRow, tagSelectSQL and its own method above rather than a
+// case here.
+func dimensionKeyColumn(kind string) (string, bool) {
+	switch kind {
+	case KindDatabase:
+		return "d.datname", true
+	case KindUser:
+		return "d.usename", true
+	case KindClientAddress:
+		return "d.client_address", true
+	}
+	return "", false
+}
+
+// dimensionSelectSQL is the SELECT behind all three reads: the key column, the scope
+// pair, and the eight aggregate columns, over the one table.
+//
+// One const with one %s — the key column — because the three reads differ in nothing
+// else, and three copies of this list is three chances for one kind's lock_wait_ms
+// to be summed differently from the others'. tagSelectSQL is the same shape with a
+// wider label set.
+const dimensionSelectSQL = `
+SELECT %s AS dimension_key, d.namespace, d.cluster,
+       SUM(d.calls)            AS calls,
+       SUM(d.total_exec_ms)    AS total_exec_ms,
+       SUM(d.cpu_ms)           AS cpu_ms,
+       SUM(d.io_wait_ms)       AS io_wait_ms,
+       SUM(d.rows_returned)    AS rows_returned,
+       SUM(d.shared_blks_hit)  AS shared_blks_hit,
+       SUM(d.shared_blks_read) AS shared_blks_read,
+       SUM(d.lock_wait_ms)     AS lock_wait_ms
+FROM dimension_rollup d
+`
+
+// dimensionGroupBy closes the aggregate and orders the result by the key, so the
+// store's output is deterministic the way tagSelectGroupBy's is. The handlers
+// re-sort with their own key; this order exists for the store's tests and for any
+// caller that does not page.
+const dimensionGroupBy = `
+GROUP BY %s, d.namespace, d.cluster
+ORDER BY d.namespace, d.cluster, %s
+`
+
+// dimensionRows is the shared read behind Databases, Users and ClientAddresses: the
+// window, the per-cluster denominators, and every row of one kind inside it.
+//
+// It returns the totals alongside the rows because the denominator is per cluster
+// and the rows are the only thing naming which cluster each one belongs to — the
+// same pairing Tags does inline at the top of its own body, factored out here so the
+// three methods cannot each get it slightly wrong.
+//
+// q.Limit is unused for the reason Tags gives: R8.10's paging is the handler's, and a
+// source that returned a page makes meta.total report the page size.
+func (s *Store) dimensionRows(ctx context.Context, kind string, q api.ListQuery) ([]dimensionRow, map[string]float64, error) {
+	keyCol, ok := dimensionKeyColumn(kind)
+	if !ok {
+		return nil, nil, fmt.Errorf("store: %s has no single-column key", kind)
+	}
+	from, to := s.window(q.From, q.To)
+
+	totals, err := s.clusterLoad(ctx, from, to, q.Namespace, q.Cluster)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	w := newWhere()
+	w.eq("d.kind", kind)
+	w.raw("d.bucket_kind = 'minute'")
+	w.raw("d.bucket >= ? AND d.bucket <= ?", unix(from), unix(to))
+	if q.Namespace != "" {
+		w.eq("d.namespace", q.Namespace)
+	}
+	if q.Cluster != "" {
+		w.eq("d.cluster", q.Cluster)
+	}
+	// q.DB filters on datname for all three, including for Databases itself, where
+	// it lands on the same column the SELECT names as the key. That is the filter
+	// Tags applies and the one the shared pager offers: asking for one database's
+	// rows is a filter, not a different query.
+	if q.DB != "" {
+		w.eq("d.datname", q.DB)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		fmt.Sprintf(dimensionSelectSQL, keyCol)+w.String()+fmt.Sprintf(dimensionGroupBy, keyCol, keyCol),
+		w.Args()...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("store: %s: %w", kind, err)
+	}
+	defer rows.Close()
+
+	var found []dimensionRow
+	for rows.Next() {
+		var r dimensionRow
+		if err := rows.Scan(
+			&r.key, &r.namespace, &r.cluster,
+			&r.calls, &r.totalExecMs, &r.cpuMs, &r.ioWaitMs,
+			&r.rowsReturned, &r.sharedHit, &r.sharedRead,
+			&r.lockWaitMs,
+		); err != nil {
+			return nil, nil, fmt.Errorf("store: %s scan: %w", kind, err)
+		}
+		found = append(found, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("store: %s rows: %w", kind, err)
+	}
+	return found, totals, nil
+}
+
+// Databases is R8.2's /insights/databases read: every database with rows in q's
+// window, each carrying R3.7's answer to "which database accounts for the most load"
+// in R3.2's columns plus the lock-wait column R3.2 withholds per query.
+func (s *Store) Databases(ctx context.Context, q api.ListQuery) ([]dto.DatabaseView, error) {
+	rows, totals, err := s.dimensionRows(ctx, KindDatabase, q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.DatabaseView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, dto.DatabaseView{
+			Database:    r.key,
+			LoadColumns: r.loadColumns(totals[clusterKey(r.namespace, r.cluster)]),
+			LockWaitMs:  r.lockWaitMs,
+		})
+	}
+	return out, nil
+}
+
+// Users is R8.2's /insights/users read, the same read keyed on usename.
+func (s *Store) Users(ctx context.Context, q api.ListQuery) ([]dto.UserView, error) {
+	rows, totals, err := s.dimensionRows(ctx, KindUser, q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.UserView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, dto.UserView{
+			UserName:    r.key,
+			LoadColumns: r.loadColumns(totals[clusterKey(r.namespace, r.cluster)]),
+			LockWaitMs:  r.lockWaitMs,
+		})
+	}
+	return out, nil
+}
+
+// ClientAddresses is R8.2's /insights/client-addresses read, the same read keyed on
+// client_address — the column R3.13's --record-client-address gates, so with the flag
+// off the table holds no such rows and this returns an empty slice rather than an
+// error (the gate is on the write path, not here).
+func (s *Store) ClientAddresses(ctx context.Context, q api.ListQuery) ([]dto.ClientAddressView, error) {
+	rows, totals, err := s.dimensionRows(ctx, KindClientAddress, q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.ClientAddressView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, dto.ClientAddressView{
+			ClientAddress: r.key,
+			LoadColumns:   r.loadColumns(totals[clusterKey(r.namespace, r.cluster)]),
+			LockWaitMs:    r.lockWaitMs,
+		})
+	}
+	return out, nil
+}
