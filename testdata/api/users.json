@@ -1,0 +1,69 @@
+{
+  "data": [
+    {
+      "userName": "app_rw",
+      "loadByTotalTime": 46.5,
+      "pctLoadByQueries": 46.5,
+      "avgExecTimeMs": 9.7,
+      "totalExecTimeMs": 429326.4,
+      "avgRowsReturned": 8.9,
+      "timesCalled": 44120,
+      "loadByCPUMs": 388120.6,
+      "loadByIOWaitMs": 41205.8,
+      "lockWaitMs": 3921.6
+    },
+    {
+      "userName": "openwebui",
+      "loadByTotalTime": 20.5,
+      "pctLoadByQueries": 20.5,
+      "avgExecTimeMs": 43.9,
+      "totalExecTimeMs": 189244.6,
+      "avgRowsReturned": 1,
+      "timesCalled": 4311,
+      "loadByCPUMs": 174622.5,
+      "loadByIOWaitMs": 14622.1,
+      "lockWaitMs": 3120.4
+    },
+    {
+      "userName": "gateway",
+      "loadByTotalTime": 14.2,
+      "pctLoadByQueries": 14.2,
+      "avgExecTimeMs": 8.1,
+      "totalExecTimeMs": 112110.5,
+      "avgRowsReturned": 14,
+      "timesCalled": 13914,
+      "loadByCPUMs": 104485.5,
+      "loadByIOWaitMs": 7625,
+      "lockWaitMs": 198.2
+    },
+    {
+      "userName": "frank",
+      "loadByTotalTime": 12.1,
+      "pctLoadByQueries": 12.1,
+      "avgExecTimeMs": 323.2,
+      "totalExecTimeMs": 305120.8,
+      "avgRowsReturned": 1.4,
+      "timesCalled": 944,
+      "loadByCPUMs": 16420.7,
+      "loadByIOWaitMs": 288700.1,
+      "lockWaitMs": 4410.9
+    },
+    {
+      "userName": "cookbook",
+      "loadByTotalTime": 6.7,
+      "pctLoadByQueries": 6.7,
+      "avgExecTimeMs": 12.5,
+      "totalExecTimeMs": 251204.5,
+      "avgRowsReturned": 18.4,
+      "timesCalled": 20096,
+      "loadByCPUMs": 214800.1,
+      "loadByIOWaitMs": 36404.4,
+      "lockWaitMs": 2810.7
+    }
+  ],
+  "meta": {
+    "total": 5,
+    "truncated": false,
+    "generatedAt": "2026-11-20T09:12:00Z"
+  }
+}

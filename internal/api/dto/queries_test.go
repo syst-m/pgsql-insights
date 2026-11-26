@@ -203,12 +203,9 @@ func TestR32ColumnSetIsComplete(t *testing.T) {
 	}
 }
 
-// TestLoadColumnsAreSharedByEveryRollup checks the claim R3.7 makes in one clause
-// — "Each rollup answers 'which X accounts for the most load' with the same load
-// columns as R3.2" — by checking the types rather than the prose. LoadColumns is
-// embedded in both QueryView (R3.2's table) and TagView (R3.7's rollup shape), so
-// "the same" is enforced by the compiler; this test is the assertion that neither
-// side later swaps in a near-copy.
+// TestLoadColumnsAreSharedByEveryRollup checks R3.7's clause — "the same load
+// columns as R3.2" — against the types: the list below is the repo's definition of
+// "every rollup", and "the same" is enforced by the compiler, not by this prose.
 func TestLoadColumnsAreSharedByEveryRollup(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -217,6 +214,9 @@ func TestLoadColumnsAreSharedByEveryRollup(t *testing.T) {
 		{"QueryView", reflect.TypeOf(QueryView{})},
 		{"TagView", reflect.TypeOf(TagView{})},
 		{"QueryDetailView", reflect.TypeOf(QueryDetailView{})},
+		{"DatabaseView", reflect.TypeOf(DatabaseView{})},
+		{"UserView", reflect.TypeOf(UserView{})},
+		{"ClientAddressView", reflect.TypeOf(ClientAddressView{})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, ok := tc.typ.FieldByName("LoadColumns")

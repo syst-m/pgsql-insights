@@ -1,0 +1,81 @@
+{
+  "data": [
+    {
+      "database": "openwebui",
+      "loadByTotalTime": 41.2,
+      "pctLoadByQueries": 41.2,
+      "avgExecTimeMs": 43.9,
+      "totalExecTimeMs": 189244.6,
+      "avgRowsReturned": 1,
+      "timesCalled": 4311,
+      "loadByCPUMs": 174622.5,
+      "loadByIOWaitMs": 14622.1,
+      "lockWaitMs": 3120.4
+    },
+    {
+      "database": "gateway",
+      "loadByTotalTime": 27.9,
+      "pctLoadByQueries": 27.9,
+      "avgExecTimeMs": 8.1,
+      "totalExecTimeMs": 112110.5,
+      "avgRowsReturned": 14,
+      "timesCalled": 13914,
+      "loadByCPUMs": 104485.5,
+      "loadByIOWaitMs": 7625,
+      "lockWaitMs": 198.2
+    },
+    {
+      "database": "freeidp",
+      "loadByTotalTime": 12.8,
+      "pctLoadByQueries": 12.8,
+      "avgExecTimeMs": 4.8,
+      "totalExecTimeMs": 94331.2,
+      "avgRowsReturned": 3.1,
+      "timesCalled": 19652,
+      "loadByCPUMs": 88120.4,
+      "loadByIOWaitMs": 6210.8,
+      "lockWaitMs": 612.4
+    },
+    {
+      "database": "orders",
+      "loadByTotalTime": 6.9,
+      "pctLoadByQueries": 6.9,
+      "avgExecTimeMs": 4.8,
+      "totalExecTimeMs": 47411.5,
+      "avgRowsReturned": 2.6,
+      "timesCalled": 9880,
+      "loadByCPUMs": 44120.9,
+      "loadByIOWaitMs": 3290.6,
+      "lockWaitMs": 288.1
+    },
+    {
+      "database": "billing",
+      "loadByTotalTime": 6.3,
+      "pctLoadByQueries": 6.3,
+      "avgExecTimeMs": 12.5,
+      "totalExecTimeMs": 251204.5,
+      "avgRowsReturned": 18.4,
+      "timesCalled": 20096,
+      "loadByCPUMs": 214800.1,
+      "loadByIOWaitMs": 36404.4,
+      "lockWaitMs": 2810.7
+    },
+    {
+      "database": "cookbook",
+      "loadByTotalTime": 4.9,
+      "pctLoadByQueries": 4.9,
+      "avgExecTimeMs": 323.2,
+      "totalExecTimeMs": 305120.8,
+      "avgRowsReturned": 1.4,
+      "timesCalled": 944,
+      "loadByCPUMs": 16420.7,
+      "loadByIOWaitMs": 288700.1,
+      "lockWaitMs": 4410.9
+    }
+  ],
+  "meta": {
+    "total": 6,
+    "truncated": false,
+    "generatedAt": "2026-11-20T09:12:00Z"
+  }
+}

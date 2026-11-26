@@ -1,0 +1,45 @@
+{
+  "data": [
+    {
+      "clientAddress": "10.44.1.19",
+      "loadByTotalTime": 54.8,
+      "pctLoadByQueries": 54.8,
+      "avgExecTimeMs": 9.4,
+      "totalExecTimeMs": 188402.6,
+      "avgRowsReturned": 12.8,
+      "timesCalled": 20042,
+      "loadByCPUMs": 165200.3,
+      "loadByIOWaitMs": 23202.3,
+      "lockWaitMs": 1980.4
+    },
+    {
+      "clientAddress": "10.44.2.7",
+      "loadByTotalTime": 33.6,
+      "pctLoadByQueries": 33.6,
+      "avgExecTimeMs": 4.8,
+      "totalExecTimeMs": 115300.9,
+      "avgRowsReturned": 3.1,
+      "timesCalled": 24021,
+      "loadByCPUMs": 107400.2,
+      "loadByIOWaitMs": 7900.7,
+      "lockWaitMs": 640.2
+    },
+    {
+      "clientAddress": "10.44.0.51",
+      "loadByTotalTime": 11.6,
+      "pctLoadByQueries": 11.6,
+      "avgExecTimeMs": 27.5,
+      "totalExecTimeMs": 44118.4,
+      "avgRowsReturned": 6.2,
+      "timesCalled": 1604,
+      "loadByCPUMs": 39800.9,
+      "loadByIOWaitMs": 4317.5,
+      "lockWaitMs": 302.8
+    }
+  ],
+  "meta": {
+    "total": 3,
+    "truncated": false,
+    "generatedAt": "2026-11-20T09:12:00Z"
+  }
+}
