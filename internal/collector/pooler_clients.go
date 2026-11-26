@@ -22,7 +22,7 @@ import (
 // The second ruling is the one that fixes the spelling: pooler.go keeps `pooler`
 // and this file takes `pooler-clients` — "hyphenated, matching instance-metrics and
 // k8s-events in the same enumeration, not pooler_clients, which no multi-word name
-// in the set uses". registry.go:95 is what forces two names (two collectors cannot
+// in the set uses". registry.go:97 is what forces two names (two collectors cannot
 // register one, because one pgsi_collector_duration_seconds{collector=...} series
 // cannot be fed by two transports), and the cost A3 accepted for the split is that
 // §3.3's table keeps 13 rows while the name set goes to 14.

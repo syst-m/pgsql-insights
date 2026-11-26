@@ -3,12 +3,12 @@
 // It is a leaf — it imports nothing, internal or external — and that is the whole
 // reason it exists. The enum was defined in internal/collector/naming.go, and
 // internal/collector/cnpgmetrics imported internal/collector for exactly one
-// field, Family.Type (cnpgmetrics/registry.go:98). That fixed the dependency
+// field, Family.Type (cnpgmetrics/registry.go:100). That fixed the dependency
 // direction as cnpgmetrics -> collector, and the comment then above that struct
 // justified it in writing: "importing it is also acyclic, since collector's
 // registry takes its collectors as a []Collector argument and does not import this
 // package back." Those are the pre-extraction words; the comment at
-// registry.go:82-95 now states the rule as it stands after the move.
+// registry.go:84-97 now states the rule as it stands after the move.
 //
 // pooler.go (R6.1, S5) is the first collector that needs the cnpg exposition
 // parser from inside the collector package, and it falsifies that sentence: a

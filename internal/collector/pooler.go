@@ -41,7 +41,7 @@ import (
 // versus a psql round-trip against 5432 — and this file is the HTTP half. The
 // second ruling is the one that fixes the name: `pooler.go` keeps `pooler`, and
 // the hyphenated `pooler-clients` goes to the other file, because
-// registry.go:95 forbids two collectors registering one name and the set's only
+// registry.go:97 forbids two collectors registering one name and the set's only
 // multi-word names are hyphenated (instance-metrics, k8s-events).
 const CollectorPooler = "pooler"
 

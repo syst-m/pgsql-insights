@@ -196,9 +196,6 @@ func TestConfigMapKeys(t *testing.T) {
 	// catches a row whose name the rule would spell differently from what the
 	// chart renders (a double dash, a stray capital).
 	for _, s := range settings {
-		if strings.ToUpper(s.Flag) != strings.ToUpper(s.Flag) {
-			continue
-		}
 		if strings.Contains(s.Flag, "--") {
 			t.Errorf("flag name %q contains a double dash; ConfigMapKey cannot derive a stable camelCase from it", s.Flag)
 		}

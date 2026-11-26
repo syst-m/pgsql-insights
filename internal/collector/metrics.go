@@ -384,7 +384,7 @@ func withLabel(labels map[string]string, k, v string) map[string]string {
 	return out
 }
 
-// labelString renders a label set as the exposition format wants it:
+// LabelString renders a label set as the exposition format wants it:
 // `{a="1",b="2"}`, names sorted, values quoted with %q, and an empty string for
 // an empty set (a sample with no labels has no braces at all, not `{}`).
 //

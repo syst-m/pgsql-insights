@@ -453,29 +453,29 @@ func knownSchema(schema string) bool {
 // two; the loop in knownSchema is fine for two and noise for 94.
 var sqlKeywords = map[string]struct{}{
 	// Postgres's reserved words (Appendix C, "reserved").
-	"all": struct{}{}, "analyse": struct{}{}, "analyze": struct{}{}, "and": struct{}{}, "any": struct{}{},
-	"array": struct{}{}, "as": struct{}{}, "asc": struct{}{}, "asymmetric": struct{}{}, "authorization": struct{}{},
-	"binary": struct{}{}, "both": struct{}{}, "case": struct{}{}, "cast": struct{}{}, "check": struct{}{},
-	"collate": struct{}{}, "collation": struct{}{}, "column": struct{}{}, "concurrently": struct{}{}, "constraint": struct{}{},
-	"create": struct{}{}, "cross": struct{}{}, "current_catalog": struct{}{}, "current_date": struct{}{}, "current_role": struct{}{},
-	"current_schema": struct{}{}, "current_time": struct{}{}, "current_timestamp": struct{}{}, "current_user": struct{}{}, "default": struct{}{},
-	"deferrable": struct{}{}, "desc": struct{}{}, "distinct": struct{}{}, "do": struct{}{}, "else": struct{}{},
-	"end": struct{}{}, "except": struct{}{}, "false": struct{}{}, "fetch": struct{}{}, "for": struct{}{},
-	"foreign": struct{}{}, "from": struct{}{}, "grant": struct{}{}, "group": struct{}{}, "having": struct{}{},
-	"in": struct{}{}, "initially": struct{}{}, "intersect": struct{}{}, "into": struct{}{}, "lateral": struct{}{},
-	"leading": struct{}{}, "limit": struct{}{}, "localtime": struct{}{}, "localtimestamp": struct{}{}, "not": struct{}{},
-	"null": struct{}{}, "offset": struct{}{}, "on": struct{}{}, "only": struct{}{}, "or": struct{}{},
-	"order": struct{}{}, "overlaps": struct{}{}, "returning": struct{}{}, "select": struct{}{}, "session_user": struct{}{},
-	"show": struct{}{}, "similar": struct{}{}, "table": struct{}{}, "then": struct{}{}, "to": struct{}{},
-	"true": struct{}{}, "union": struct{}{}, "unique": struct{}{}, "user": struct{}{}, "using": struct{}{},
-	"variadic": struct{}{}, "when": struct{}{}, "where": struct{}{}, "window": struct{}{}, "with": struct{}{},
+	"all": {}, "analyse": {}, "analyze": {}, "and": {}, "any": {},
+	"array": {}, "as": {}, "asc": {}, "asymmetric": {}, "authorization": {},
+	"binary": {}, "both": {}, "case": {}, "cast": {}, "check": {},
+	"collate": {}, "collation": {}, "column": {}, "concurrently": {}, "constraint": {},
+	"create": {}, "cross": {}, "current_catalog": {}, "current_date": {}, "current_role": {},
+	"current_schema": {}, "current_time": {}, "current_timestamp": {}, "current_user": {}, "default": {},
+	"deferrable": {}, "desc": {}, "distinct": {}, "do": {}, "else": {},
+	"end": {}, "except": {}, "false": {}, "fetch": {}, "for": {},
+	"foreign": {}, "from": {}, "grant": {}, "group": {}, "having": {},
+	"in": {}, "initially": {}, "intersect": {}, "into": {}, "lateral": {},
+	"leading": {}, "limit": {}, "localtime": {}, "localtimestamp": {}, "not": {},
+	"null": {}, "offset": {}, "on": {}, "only": {}, "or": {},
+	"order": {}, "overlaps": {}, "returning": {}, "select": {}, "session_user": {},
+	"show": {}, "similar": {}, "table": {}, "then": {}, "to": {},
+	"true": {}, "union": {}, "unique": {}, "user": {}, "using": {},
+	"variadic": {}, "when": {}, "where": {}, "window": {}, "with": {},
 	// Appendix C, "reserved (can be function or type name)", minus the members
 	// that name a pg_catalog function and so stay reportable.
-	"freeze": struct{}{}, "ilike": struct{}{}, "is": struct{}{}, "isnull": struct{}{}, "join": struct{}{},
-	"notnull": struct{}{}, "tablesample": struct{}{}, "verbose": struct{}{}, "over": struct{}{}, "partition": struct{}{},
-	"within": struct{}{}, "require": struct{}{},
+	"freeze": {}, "ilike": {}, "is": {}, "isnull": {}, "join": {},
+	"notnull": {}, "tablesample": {}, "verbose": {}, "over": {}, "partition": {},
+	"within": {}, "require": {},
 	// Non-reserved, cannot be a function or type name, and syntax not a callee.
-	"coalesce": struct{}{}, "nullif": struct{}{},
+	"coalesce": {}, "nullif": {},
 }
 
 // isSQLKeyword reports whether name is in sqlKeywords. The comparison folds case

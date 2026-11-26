@@ -359,7 +359,8 @@ func (m *MemSink) Publish(tgt Target, collector string, samples []Sample) error 
 		probes = old.probes
 		events = old.events
 	}
-	return m.putLocked(key, samples, probes, events)
+	m.putLocked(key, samples, probes, events)
+	return nil
 }
 
 // PublishProbes replaces the stored inventory for (tgt, collectorName) and leaves
@@ -382,7 +383,8 @@ func (m *MemSink) PublishProbes(tgt Target, collectorName string, probes []Probe
 		samples = old.samples
 		events = old.events
 	}
-	return m.putLocked(key, samples, probes, events)
+	m.putLocked(key, samples, probes, events)
+	return nil
 }
 
 // PublishEvents replaces the stored events for (tgt, collectorName) and leaves
@@ -405,7 +407,8 @@ func (m *MemSink) PublishEvents(tgt Target, collectorName string, events []Event
 		samples = old.samples
 		probes = old.probes
 	}
-	return m.putLocked(key, samples, probes, events)
+	m.putLocked(key, samples, probes, events)
+	return nil
 }
 
 // Events returns the stored timeline for (tgt, collectorName) and whether one is
@@ -432,7 +435,7 @@ func (m *MemSink) Events(tgt Target, collectorName string) ([]Event, bool) {
 // the order list is rebuilt rather than spliced — exist in one place and cannot
 // be written differently by the second writer, which is the failure mode a second
 // Publish method normally introduces. The caller holds m.mu.
-func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult, events []Event) error {
+func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult, events []Event) {
 	if old, ok := m.byKey[key]; ok {
 		m.used -= old.bytes
 		delete(m.byKey, key)
@@ -472,7 +475,6 @@ func (m *MemSink) putLocked(key string, samples []Sample, probes []ProbeResult, 
 		order = order[1:]
 	}
 	m.order = order
-	return nil
 }
 
 // Samples returns the stored set for (tgt, collector), or nil if nothing is

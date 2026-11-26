@@ -221,7 +221,6 @@ type decl struct {
 type declarations struct {
 	all   map[string]decl
 	order []string
-	file  string
 }
 
 func scanDeclarations(raw, at string) (*declarations, error) {

@@ -319,11 +319,11 @@ func (c *LocksCollector) CollectLocks(ctx context.Context, tgt Target) ([]LockRo
 		// query is suspect — so the rows come back with the error and the scheduler
 		// keeps serving the previous round.
 		_ = tx.Rollback()
-		return lockRows(pv, rows), Result{RoundTrips: 1},
+		return lockRows(rows), Result{RoundTrips: 1},
 			fmt.Errorf("collector %s: commit: %w", CollectorLocks, cerr)
 	}
 
-	return lockRows(pv, rows), Result{RoundTrips: 1}, nil
+	return lockRows(rows), Result{RoundTrips: 1}, nil
 }
 
 // projection builds the collector's one query for the target's major.
@@ -388,10 +388,10 @@ func LocksSamples(rows []LockRow, now time.Time) []Sample {
 // Here the argument is stronger still — the projection's column set differs by
 // major (fifteen on PG13, sixteen on PG14+), so the projection is the only place
 // that knows which fields this row could have had.
-func lockRows(pv viewProjection, rows []Row) []LockRow {
-	var out []LockRow
+func lockRows(rows []Row) []LockRow {
+	out := make([]LockRow, 0, len(rows))
 	for _, row := range rows {
-		l, ok := lockFromRow(pv, row)
+		l, ok := lockFromRow(row)
 		if !ok {
 			continue
 		}
@@ -413,7 +413,7 @@ func lockRows(pv viewProjection, rows []Row) []LockRow {
 // It does not drop a row for an empty pid, which is the difference from
 // activity.go: a pg_locks row with no pid is a real lock (a shared lock, or one the
 // startup process holds), and R4.4's table has to render it.
-func lockFromRow(pv viewProjection, row Row) (LockRow, bool) {
+func lockFromRow(row Row) (LockRow, bool) {
 	get := func(col string) string {
 		v, _ := row.Get(col)
 		return v

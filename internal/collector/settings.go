@@ -467,7 +467,7 @@ func (c *SettingsCollector) project(v pgversion.View, major int) (Projection, er
 // skips it in the fan-out loop because the transaction that ran this query *is* that
 // database's and already probed it.
 func probedDatabases(rows []Row) []string {
-	var out []string
+	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		name, ok := row.Get("datname")
 		if !ok || name == "" {

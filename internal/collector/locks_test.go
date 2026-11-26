@@ -162,7 +162,6 @@ func TestLocksCollectLocksIssuesOneQueryInOneTransaction(t *testing.T) {
 // which is the difference between testing the parser and testing a fixture.
 func TestLockFromRowPG16(t *testing.T) {
 	p := locksProjection(t, 16)
-	pv := viewProjection{view: pgversion.ViewLocks, Projection: p}
 
 	row := rowFor(p, map[string]string{
 		"locktype":           "transactionid",
@@ -183,7 +182,7 @@ func TestLockFromRowPG16(t *testing.T) {
 		"waitstart":          "2026-11-22 09:59:30+00",
 	})
 
-	got, ok := lockFromRow(pv, row)
+	got, ok := lockFromRow(row)
 	if !ok {
 		t.Fatal("lockFromRow returned ok=false for a row with a locktype")
 	}
@@ -232,10 +231,9 @@ func TestLockFromRowPG13HasNoWaitStart(t *testing.T) {
 			t.Fatal("the PG13 projection selects waitstart; the matrix says LocksPG13 has 15 columns")
 		}
 	}
-	pv := viewProjection{view: pgversion.ViewLocks, Projection: p}
 
 	row := rowFor(p, map[string]string{"locktype": "relation", "mode": "RowExclusiveLock", "granted": "t"})
-	got, ok := lockFromRow(pv, row)
+	got, ok := lockFromRow(row)
 	if !ok {
 		t.Fatal("lockFromRow returned ok=false for a valid PG13 row")
 	}
@@ -262,18 +260,17 @@ func TestLockFromRowPG13HasNoWaitStart(t *testing.T) {
 // process holds — and R4.4's table has to render it.
 func TestLockFromRowDropsAndKeepsRows(t *testing.T) {
 	p := locksProjection(t, 16)
-	pv := viewProjection{view: pgversion.ViewLocks, Projection: p}
 
 	t.Run("no locktype is dropped", func(t *testing.T) {
 		row := rowFor(p, map[string]string{"locktype": "", "mode": "AccessShare"})
-		if _, ok := lockFromRow(pv, row); ok {
+		if _, ok := lockFromRow(row); ok {
 			t.Error("lockFromRow kept a row with an empty locktype")
 		}
 	})
 
 	t.Run("no pid is kept", func(t *testing.T) {
 		row := rowFor(p, map[string]string{"locktype": "relation", "pid": "", "mode": "AccessShare", "granted": "t"})
-		got, ok := lockFromRow(pv, row)
+		got, ok := lockFromRow(row)
 		if !ok {
 			t.Fatal("lockFromRow dropped a relation lock with a NULL pid")
 		}
@@ -288,7 +285,7 @@ func TestLockFromRowDropsAndKeepsRows(t *testing.T) {
 			rowFor(p, map[string]string{"locktype": "", "mode": "AccessShare"}),
 			rowFor(p, map[string]string{"locktype": "tuple", "mode": "TupleShare", "pid": ""}),
 		}
-		if got := lockRows(pv, rows); len(got) != 2 {
+		if got := lockRows(rows); len(got) != 2 {
 			t.Errorf("lockRows returned %d rows, want 2 (one of three has no locktype)", len(got))
 		}
 	})
@@ -308,8 +305,7 @@ func TestLocksSamplesIsEmpty(t *testing.T) {
 	}
 
 	p := locksProjection(t, 16)
-	pv := viewProjection{view: pgversion.ViewLocks, Projection: p}
-	rows := lockRows(pv, []Row{
+	rows := lockRows([]Row{
 		rowFor(p, map[string]string{"locktype": "relation", "mode": "AccessShare", "granted": "t"}),
 		rowFor(p, map[string]string{"locktype": "relation", "mode": "RowExclusiveLock", "granted": "f"}),
 	})

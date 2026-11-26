@@ -491,7 +491,7 @@ func TestPoolerClientsCollectorNameIsHyphenated(t *testing.T) {
 	}
 }
 
-// TestPoolerClientsRegistryRegistration is the registry.go:95 half: the two pooler
+// TestPoolerClientsRegistryRegistration is the registry.go:97 half: the two pooler
 // collectors coexist in one registry. This is the assertion the whole two-name
 // ruling exists to satisfy — one name for two collectors is rejected there, and
 // without this test the rejection is the only thing telling you the names differ.

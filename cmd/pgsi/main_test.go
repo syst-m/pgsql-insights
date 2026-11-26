@@ -101,7 +101,7 @@ func TestNewRegistryShapes(t *testing.T) {
 		entries := reg.Enabled()
 		got := make([]string, 0, len(entries))
 		for _, e := range entries {
-			got = append(got, string(e.Desc.Name))
+			got = append(got, e.Desc.Name)
 		}
 		sort.Strings(got)
 		if len(got) != len(wantSQL) {

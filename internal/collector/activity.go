@@ -339,7 +339,7 @@ func (c *ActivityCollector) CollectSessions(ctx context.Context, tgt Target) ([]
 		}
 		switch pv.view {
 		case pgversion.ViewStatActivity:
-			sessions = sessionsFromRows(pv, c.cfg.Now(), rows)
+			sessions = sessionsFromRows(rows)
 		case pgversion.ViewWaitEvents:
 			catalogue = waitCatalogue(rows)
 		}
@@ -411,10 +411,10 @@ func (c *ActivityCollector) projections(tgt Target) ([]viewProjection, error) {
 // acceptance compares a *set of pids*, and a pid read from a map that happened to
 // drop the `pid` key would vanish from the set, which is exactly the failure the
 // requirement's ±2 s equality clause is written to catch.
-func sessionsFromRows(pv viewProjection, now time.Time, rows []Row) []Session {
+func sessionsFromRows(rows []Row) []Session {
 	out := make([]Session, 0, len(rows))
 	for _, row := range rows {
-		s, ok := sessionFromRow(pv, row, now)
+		s, ok := sessionFromRow(row)
 		if !ok {
 			continue
 		}
@@ -430,7 +430,7 @@ func sessionsFromRows(pv viewProjection, now time.Time, rows []Row) []Session {
 // (D20's S8): a pg_stat_activity row without a pid is a row whose identity the
 // contract cannot express, and R4.8's test compares pids, so keeping a row with
 // pid 0 would put a process into the set that the direct SELECT does not return.
-func sessionFromRow(pv viewProjection, row Row, now time.Time) (Session, bool) {
+func sessionFromRow(row Row) (Session, bool) {
 	get := func(col string) string {
 		v, _ := row.Get(col)
 		return v
@@ -755,7 +755,7 @@ func BlockingChains(sessions []Session) []BlockingChain {
 		byPid[sessions[i].Pid] = &sessions[i]
 	}
 
-	var out []BlockingChain
+	out := make([]BlockingChain, 0, len(sessions))
 	for i := range sessions {
 		s := &sessions[i]
 		if len(s.BlockingPids) == 0 {

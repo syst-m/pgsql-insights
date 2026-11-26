@@ -396,7 +396,7 @@ func newServeFlags(pre prescan) *serveFlags {
 	// --- R2.3 collector selection --------------------------------------------
 	//
 	// One requirement, two flags, and only one of them is declarable here.
-	// registry.go:186-189 says which one and why: --disable-collector "is a single
+	// registry.go:188-191 says which one and why: --disable-collector "is a single
 	// static flag (its value is the list, `--disable-collector=a,b`), so cmd/pgsi
 	// declares it with fs.String and splits on commas. Only the interval form has a
 	// dynamic *name*, and only it needs this function." So the interval half is

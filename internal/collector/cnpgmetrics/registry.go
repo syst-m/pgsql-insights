@@ -58,6 +58,8 @@ import "github.com/frankellis/pgsql-insights/internal/collector/metrictype"
 // numbers" without a second, ad-hoc classification written at the call site.
 type Group string
 
+// The group constants: every Group value the registry uses is named here, so a
+// family's Group field is a spelled constant rather than a string a caller writes.
 const (
 	GroupPGBouncer        Group = "pgbouncer"
 	GroupCollector        Group = "collector"
@@ -349,9 +351,7 @@ func FamiliesByGroup(g Group) []Family {
 
 // Groups returns every group the registry uses, in declaration order.
 func Groups() []Group {
-	out := make([]Group, 0, len(groupOrder))
-	for _, g := range groupOrder {
-		out = append(out, g)
-	}
+	out := make([]Group, len(groupOrder))
+	copy(out, groupOrder)
 	return out
 }
