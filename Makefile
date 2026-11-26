@@ -84,18 +84,18 @@ cover:
 	awk -v t="$$total" 'BEGIN { exit (t+0 >= 70 ? 0 : 1) }' || \
 		{ echo "FAIL: coverage $$total% is below the 70% gate (R11.11)"; exit 1; }
 
-## lint: go vet + golangci-lint when installed (R11.11)
+## lint: go vet + the pinned golangci-lint (R11.11)
 lint: vet lint-go openapi-check cardinality-check sha-check as-built-check
 
 vet:
 	go vet ./...
 
 lint-go:
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
-	else \
-		echo "golangci-lint not installed locally; go vet ran instead (CI runs golangci-lint with .golangci.yml)"; \
-	fi
+	@GOTOOLCHAIN=go$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@$(GOLANGCI_LINT) run ./...
+GO_VERSION ?= 1.26.0 # ci.yml:19's pin; GOTOOLCHAIN requires the `go` prefix, hence go$(GO_VERSION)
+GOLANGCI_LINT_VERSION ?= v1.64.8 # ci.yml:20's pin — R11.11's contract is the pin, not the major
+GOLANGCI_LINT ?= $(shell go env GOPATH 2>/dev/null)/bin/golangci-lint # go install's install dir
 
 ## openapi: regenerate api/openapi.yaml from its inputs (R8.1b).
 # The document is generated output now: internal/api/openapi_gen.go's

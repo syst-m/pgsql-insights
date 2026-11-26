@@ -126,12 +126,12 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet
         run: go vet ./...
+      - name: install golangci-lint ${{ env.GOLANGCI_LINT_VERSION }}
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@${{ env.GOLANGCI_LINT_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: golangci-lint (pinned, .golangci.yml v1 schema)
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          args: --config .golangci.yml
-          only-new-issues: false
+        run: golangci-lint run --config .golangci.yml
 
   test:
     name: unit tests
