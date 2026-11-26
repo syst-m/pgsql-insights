@@ -414,6 +414,35 @@ def resolve_path(tracked, tracked_set, citing, path):
     if cand in tracked_set: return [cand]
     return [p for p in tracked if p.endswith("/" + path)]
 
+FINDING_DOC = "docs/reviews/finding-index.md"
+FINDING_ROW_RE = re.compile(r"^\|\s*(S\d{1,3})\s*\|")
+REV_CELL_RE = re.compile(r"`([0-9a-f]{7,40})`")
+
+def split_row_esc(line):
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+
+def finding_row_revs(root):
+    """{lineno: rev} for every ledger row whose `filed in`/`fixed by` cells name a commit.
+
+    A3's S121: the header freezes a row's cites at the rev the row names -- `filed in` first,
+    `fixed by` only when `filed in` carries no rev -- and check_paths implemented none of it,
+    reading the worktree for every tracked file. Defined here rather than in the finding
+    section further down because check_paths calls path_citations long before that section.
+    """
+    out = {}
+    try:
+        lines = lines_of(root, FINDING_DOC)
+    except OSError:
+        return out
+    for n, line in enumerate(lines, 1):
+        if not FINDING_ROW_RE.match(line): continue
+        cells = split_row_esc(line)
+        for idx in (1, 4):                     # `filed in`, then `fixed by`
+            if len(cells) > idx:
+                r = REV_CELL_RE.findall(cells[idx])
+                if r: out[n] = r[0]; break     # first cell with a rev wins
+    return out
+
 def path_citations(root, tracked):
     """(file, lineno, kind, cited_path, start, end, heading, rev) for every citation in scope.
 
@@ -421,8 +450,15 @@ def path_citations(root, tracked):
     file". A3's S132: CITE_C used to inherit only the *path* from the line's first anchored cite,
     so on a row whose `filed in` column pins the rev, the bare `:N` cites were checked against
     HEAD -- and a row documenting a fix that deleted the line it quotes went red the moment any
-    commit shifted that file. The rev is now inherited with the path."""
+    commit shifted that file. The rev is now inherited with the path.
+
+    A3's S121, the other half of the same rule: a cite on a ledger row with no rev of its own
+    inherits the rev its own row names, so `check_paths` checks the row at the commit the row
+    was filed against instead of at the worktree. Rows that name no rev at all (S33, S51) get
+    None and keep being checked against the current file, which is what "the author's word"
+    means when there is no commit to pin them to."""
     out = []
+    row_revs = finding_row_revs(root) if FINDING_DOC in set(tracked) else {}
     for rel in tracked:
         if pathlib.PurePosixPath(rel).suffix not in PATH_CITE_EXTS or rel.startswith(PATH_SKIP_DIRS): continue
         for n, line in enumerate(lines_of(root, rel), 1):
@@ -441,6 +477,10 @@ def path_citations(root, tracked):
                          for m in CITE_R.finditer(line)
                          if not any(m.start() < e and s < m.end() for s, e in a_spans)]
             anchored.sort()
+            rv0 = row_revs.get(n) if rel == FINDING_DOC else None
+            if rv0 is not None:                # A3's S121: the row's rev pins its unrevved cites
+                anchored = [(o, k, p, s, e, h, rv if rv is not None else rv0)
+                            for o, k, p, s, e, h, rv in anchored]
             for _, k, p, s, e, h, rv in anchored:
                 out.append((rel, n, k, p, s, e, h, rv))
             if anchored:                       # C: bare `:N` inherits the line's first path+rev
@@ -463,6 +503,13 @@ def check_paths(root, tracked):
             target = f"{rev}:{path}"
             v = _git_show(root, target)
             if v is None:
+                # A3's S120/S121: the exemption table used to be consulted only in the else
+                # branch, so a path that is exempt because it is ambiguous stopped being exempt
+                # the moment it gained a rev. S120's statements.go:487 (de-backticked per the S120 precedent for this exact mention) is exempted for naming
+                # two files (internal/collector and internal/store); inheriting `aa41bac` from
+                # its row made the cite read `aa41bac:statements.go`, which exists at no rev.
+                if (rel, path) in PATH_EXEMPT:
+                    exempt += 1; continue
                 unresolved.append((rel, n, kind, target, 0)); continue
             vs = [v]
         else:
@@ -637,9 +684,6 @@ STATUS_CELL_RE = re.compile(
     r"^\*\*(" + "|".join(STATUS_ENUM) + r")(?: \((A[1-6])\))?\*\*(?: \u2014 .*)?$",
     re.S)
 STATUS_ROW_ID_RE = re.compile(r"^R\d+\.\d+[a-z]?$")
-
-def split_row_esc(line):
-    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
 
 def check_status_enum(root):
     """Every R-id row in IMPLEMENTATION.md's R14.8 tables, and its status cell."""
@@ -1243,8 +1287,7 @@ dump(labels_bad, lambda f, n, text, path: f"  {f}:{n} label {text!r} names {path
 # findings that exist without being cited yet, and a hard rule there would force the table to
 # invent citations to satisfy its own tool. The printed count is what stops rows quietly
 # accruing that nobody asks about.
-FINDING_DOC = "docs/reviews/finding-index.md"
-FINDING_ROW_RE = re.compile(r"^\|\s*(S\d{1,3})\s*\|")
+# FINDING_DOC and FINDING_ROW_RE are defined above path_citations, which needs them (S121).
 FINDING_CITE_RE = re.compile(r"\bA3's\s+(S\d{1,3})\b")
 # Wider than CITE_EXTS on purpose. The R-id check scans .md/.yml/.go because an R-id in a
 # .tsx file has to resolve against §4, and adding .tsx there would change what that check
