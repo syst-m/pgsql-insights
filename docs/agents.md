@@ -54,7 +54,7 @@ who owns frontend/Helm/docs, when the phase is assigned to A2).
 
 | Slot | Name | Model | Spawned for | Now owns |
 |---|---|---|---|---|
-| **A1** | `a1-backend` | opus | Cloud SQL Query/System Insights research | Go backend: discovery, collector framework, PG version matrix, `cmd/pgsi`, `api/dto` |
+| **A1** | `a1-backend` | opus | Cloud SQL Query/System Insights research | Go backend: discovery, collector framework, PG version matrix, `cmd/pgsi`, `api/dto`, `internal/api/server.go` |
 | **A2** | `a2-api-metrics` | sonnet | CloudNativePG surface research | Go API surface: HTTP handlers, OpenAPI, auth/CORS middleware, `/metrics` export, PromQL pair; **`ci.yml` and the root `Makefile`** (R11.11 makes the two files one contract — D6 and the `4e10ed4` writeup are the cost of splitting them; A4's charter excludes the Makefile, so their Makefile commits are edits outside their row) |
 | **A3** | `a3-review` | opus | Round-1 adversarial architecture review | Architecture, spec maintenance, per-phase validation, review of every spec change |
 | **A4** | `a4-frontend` | sonnet | Round-1 adversarial product review | `web/` shell + build (`App.tsx`, `routes.ts`, `web/src/api/`, `web/src/lib/`, `web/src/state/`, `styles/`, `dist`, `e2e`, `web/src/test/`, and the `web/*.config.*` + `embed.go` at the `web/` root), Helm chart, packaging, docs |
