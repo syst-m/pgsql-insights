@@ -13,7 +13,7 @@
  *
  * The rule the brief singles out, and the one this file can get wrong quietly:
  * **the hook never slices `fingerprints` to 50.** `MaxBatchFingerprints` is 50
- * (`internal/api/series.go:56`, quoted at `client.ts:426`) and the server
+ * (`internal/api/series.go:56`, quoted at `client.ts:430`) and the server
  * answers `InvalidRequest` above it rather than truncating, so a `slice(0, 50)`
  * here would turn a loud server error into a chart that silently plots 50 of 80
  * — the exact "cannot tell '30 of them have no data' from 'you were cut off'"

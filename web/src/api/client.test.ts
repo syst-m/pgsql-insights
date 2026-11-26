@@ -1669,7 +1669,7 @@ describe("the fixture payload", () => {
  * `Envelope<Row>`). Neither half reaches the request line: `efdabb3` shipped
  * `terminateSession` building `/api/v1/sessions/48213?...` for a route the
  * contract publishes as `/api/v1/sessions/{pid}/terminate`, and the suite was
- * green because `client.test.ts:1286` asserted the same suffix-less string the
+ * green because `client.test.ts:1410` asserted the same suffix-less string the
  * fetcher built — a fixture pins the body, and the bug was in the URL. A6 found
  * it from the page three commits later; `9790fda` fixed it.
  *

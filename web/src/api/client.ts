@@ -547,7 +547,7 @@ export async function fetchTags(
  *  The body is the generic `Envelope<PoolerView>` and this signature says so
  *  inline, the way `fetchTags` writes `Envelope<TagView>`: types.ts names an
  *  envelope instantiation only where Go names one too — `QuerySeriesEnvelope`
- *  mirrors `series.go:96`'s alias, and it is the one of the document's eight
+ *  mirrors `internal/api/series.go:96`'s alias, and it is the one of the document's eight
  *  `*Envelope` schemas with a TS counterpart. `dto` has no `PoolerEnvelope`
  *  alias (`api/openapi.yaml:3748` says so in as many words: the schema exists
  *  because OpenAPI 3.0 cannot `$ref` a generic), so minting a `PoolersResponse`
