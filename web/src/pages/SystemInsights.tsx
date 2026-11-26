@@ -81,10 +81,11 @@
 
 import { useMemo, useState, type ReactElement } from "react";
 
-import { FIXTURE_CLUSTERS } from "../api/fixtures";
+import { FIXTURE_CLUSTERS, FIXTURE_GENERATED_AT } from "../api/fixtures";
 import type { Envelope, FleetRow } from "../api/types";
 import { buildPath, type PageProps } from "../routes";
 import { formatNumber, formatTimestamp, NULL_VALUE } from "../lib/format";
+import { LoadSourcePending } from "../components/LoadBars";
 import {
   copyFor,
   deriveSystemPanelState,
@@ -96,7 +97,21 @@ import {
 /* ── the requirement's inventories ──────────────────────────────────────────── */
 
 /** R10.10's metric groups, in the order the two source requirements list them:
- *  R5.3's OS families first, then R5.2's DB families in R5.2's own order. */
+ *  R5.3's OS families first, then R5.2's DB families in R5.2's own order.
+ *
+ *  Dated 2026-11-25 with the content of A2's group-key ruling, which has no
+ *  markdown home yet (the Go enum is `internal/api/dto/system.go` at Phase 7;
+ *  A2 is sending A3 the text to inline in R5.2's row, `requirements.md:342`):
+ *  the ten DB tokens below are the spec's own, normalised from R5.2's three
+ *  multi-word names (`database sizes` → `sizes`, `TXID and MXID age` → `age`,
+ *  `WAL volume and generation rate` → `wal`), and the keys are bare — the
+ *  catalogue's qualified `system.<metric>` (`internal/api/promql_catalogue.go:60`
+ *  `FamilySystem`) is a prefix on a *metric* name, never on a group. The
+ *  ruling's other half is not mine to apply yet: A2 rules `os` is a page
+ *  *section* over R5.3's four families (`cpu, memory, disk, network`,
+ *  `requirements.md:343`) and that the DTO's `group` field carries the family,
+ *  so when the DTO lands this union imports from `web/src/api/types.ts` (R16.8)
+ *  and `os` stays here as the section→families mapping. */
 export type MetricGroupKey =
   | "os"
   | "transactions"
@@ -206,15 +221,24 @@ export const SUMMARY_CARDS: readonly SummaryCard[] = [
 
 /** The value a card prints.
  *
- *  Four of the five print `NULL_VALUE` while the payload is absent: R10.13's rule
- *  that a number the app does not have is printed as `—`, never as `0`.
+ *  Four of the five print `NULL_VALUE` while the payload is absent, and R10.4
+ *  (`requirements.md:417`) is the row that owns that glyph: a column whose
+ *  source phase has not run renders `—` *with a source-pending marker*. The
+ *  marker is half the rule, so the tile renders it through `LoadSourcePending`
+ *  (`web/src/components/LoadBars.tsx:127`) — the app's one marker, whose own
+ *  docblock at `web/src/components/LoadBars.tsx:120` says it is "the same
+ *  marker, not a second one"; A3's S150 (`docs/reviews/finding-index.md:184`,
+ *  filed in `06320f8`) is the finding that this file printed the glyph without
+ *  it. R10.13 (`requirements.md:426`) is the chart rule — "no chart renders as
+ *  a blank box without a one-line explanation" — and it is cited at the chart
+ *  frame below, not here.
  *
  *  The fifth is the one card the spec answers for a default deployment before any
  *  DTO exists. R5.1's [A] clause says the Log errors card "is sourced from R5.10
  *  and renders `not configured` when `--log-source=off`", and R5.10's flag
  *  defaults to `off` — so `not configured` is the requirement's stated answer
  *  today, and printing `—` there would contradict R5.1 while claiming to obey
- *  R10.13. */
+ *  R10.4. */
 export function summaryCardValue(
   card: SummaryCard,
   system: Envelope<SystemGroupView> | null,
@@ -226,6 +250,42 @@ export function summaryCardValue(
   const row = system.data.find((v) => v.group === card.group);
   return formatNumber(row === undefined ? null : row.value);
 }
+
+/** The requirement that owns a card's family — `R5.3` for the OS card, `R5.2`
+ *  for the ten DB cards, `R5.10` for the one card with no group (R5.1's [A]
+ *  clause sources Log errors from log ingestion) — which is what R10.4's marker
+ *  names as the pending source. `web/src/components/QueryTable.tsx:488` passes
+ *  the same kind of string (`source="R7.1"`). */
+export function cardSource(card: SummaryCard): string {
+  if (card.group === null) return "R5.10";
+  return METRIC_GROUPS.find((g) => g.key === card.group)?.source ?? "R5.2";
+}
+
+/** The page's full payload: one row per `METRIC_GROUPS` entry, so every grouped
+ *  card has a value to read.
+ *
+ *  Exported because `web/src/routes.test.tsx`'s `IMPLEMENTED` row needs a
+ *  payload of exactly this type and `web/src/api/fixtures.ts` cannot hold one —
+ *  its rule is that it exports the generated `testdata/api/*.json`, and a
+ *  hand-built envelope there is a non-generated shape in the R16.8-pinned
+ *  layer. The page owns the interim type, so the page owns the interim payload:
+ *  A4's mount imports this and `SystemInsights.test.tsx`'s `FULL` aliases it, so
+ *  there is one copy and not three. Dated 2026-11-25; it retires in the commit
+ *  that lands A2's Phase 7 DTO, when `testdata/api/system.json` gives
+ *  `fixtures.ts` a real `FIXTURE_SYSTEM` and the interim type moves to
+ *  `web/src/api/types.ts`. */
+export const FULL_SYSTEM_ENVELOPE: Envelope<SystemGroupView> = {
+  data: METRIC_GROUPS.map((g, i) => ({
+    group: g.key,
+    promql: `up{insights_group="${g.key}"}`,
+    value: i * 100,
+  })),
+  meta: {
+    generatedAt: FIXTURE_GENERATED_AT,
+    total: METRIC_GROUPS.length,
+    truncated: false,
+  },
+};
 
 /** R5.6's per-chart toolbar, in the requirement's order.
  *
@@ -483,20 +543,34 @@ function SummaryCards({
         <span className="card-meta">R5.1</span>
       </div>
       <div className="stat-row">
-        {SUMMARY_CARDS.map((card) => (
-          <div
-            className="stat-tile"
-            key={card.key}
-            title={
-              card.group === null
-                ? `${card.label} — sourced from R5.10 (log ingestion), not from a metric family.`
-                : `${card.label} — computed from the ${card.group} family.`
-            }
-          >
-            <div className="stat-label">{card.label}</div>
-            <div className="stat-value">{summaryCardValue(card, system)}</div>
-          </div>
-        ))}
+        {SUMMARY_CARDS.map((card) => {
+          const value = summaryCardValue(card, system);
+          return (
+            <div
+              className="stat-tile"
+              key={card.key}
+              title={
+                card.group === null
+                  ? `${card.label} — sourced from R5.10 (log ingestion), not from a metric family.`
+                  : `${card.label} — computed from the ${card.group} family.`
+              }
+            >
+              <div className="stat-label">{card.label}</div>
+              {/* R10.4's rule is the glyph *with* a marker naming the pending
+                  source (`requirements.md:417`), and `LoadSourcePending` is the
+                  app's one marker (`web/src/components/LoadBars.tsx:127`), so a
+                  card with no value renders it rather than a bare `—` — the
+                  concrete half of A3's S150. */}
+              <div className="stat-value">
+                {value === NULL_VALUE ? (
+                  <LoadSourcePending source={cardSource(card)} />
+                ) : (
+                  value
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

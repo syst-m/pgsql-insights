@@ -13,7 +13,7 @@
  * 2. **R5.1's five cards** — the labels verbatim, and the one value the spec
  *    answers for a default deployment (`Log errors` → `not configured`, from
  *    R5.1's [A] clause plus R5.10's default `off`) against the four it does not
- *    (R10.13's `—`).
+ *    (R10.4's `—`, with its source-pending marker).
  * 3. **R5.2/R5.3's eleven groups** — the tab strip's contents, order and
  *    selection, plus the R10.19 rule that each tab's hover text is derived from
  *    the same table that renders its label.
@@ -40,7 +40,9 @@ import type { SystemGroupView } from "../components/StatePanel";
 import { formatNumber, formatTimestamp, NULL_VALUE } from "../lib/format";
 import { DEFAULT_STATE, type UrlState } from "../state/urlState";
 import {
+  cardSource,
   compareOptions,
+  FULL_SYSTEM_ENVELOPE,
   METRIC_GROUPS,
   SUMMARY_CARDS,
   summaryCardValue,
@@ -90,16 +92,23 @@ function systemEnvelope(
   };
 }
 
-/** A payload covering every group, so every grouped card has a row to read. */
-const FULL = systemEnvelope(METRIC_GROUPS.map((g) => g.key));
+/** A payload covering every group, so every grouped card has a row to read.
+ *  Aliased from the page rather than rebuilt here: A4's `routes.test.tsx` mount
+ *  imports the same export, and a third copy in this file would outlive the
+ *  other two when the DTO lands. */
+const FULL = FULL_SYSTEM_ENVELOPE;
 
-/** The tile that renders a card's value, found by its label — so the test reads
- *  the pair the user sees rather than trusting the function in isolation. */
-function tileValue(container: HTMLElement, label: string): string | undefined {
-  const tile = Array.from(container.querySelectorAll(".stat-tile")).find(
+/** The tile for a card label, so the test reads the pair the user sees rather
+ *  than trusting the function in isolation. */
+function tileFor(container: HTMLElement, label: string): Element | undefined {
+  return Array.from(container.querySelectorAll(".stat-tile")).find(
     (t) => t.querySelector(".stat-label")?.textContent === label,
   );
-  return tile?.querySelector(".stat-value")?.textContent ?? undefined;
+}
+
+/** The value a tile prints, including any marker it renders beside it. */
+function tileValue(container: HTMLElement, label: string): string | undefined {
+  return tileFor(container, label)?.querySelector(".stat-value")?.textContent ?? undefined;
 }
 
 /* ── 1. the shell ──────────────────────────────────────────────────────────── */
@@ -149,17 +158,29 @@ describe("R5.1's summary cards", () => {
     }
   });
 
-  it("prints `not configured` for Log errors and `—` for the other four", () => {
+  it("prints `not configured` for Log errors and the marked `—` for the other four", () => {
     // The one card the spec answers before the DTO exists: R5.1's [A] clause
     // sources it from R5.10 and says it renders `not configured` when
     // `--log-source=off`, and R5.10's flag defaults to off. The other four have
-    // no answer yet, so they take R10.13's `—` — never `0`.
+    // no answer yet, so they take R10.4's glyph (`requirements.md:417`) — `—`
+    // *with* its source-pending marker, never `0` and never the bare dash
+    // A3's S150 (`docs/reviews/finding-index.md:184`) filed here.
     const { container } = renderPage();
     expect(container.querySelector(".stat-row")).not.toBeNull();
     for (const card of SUMMARY_CARDS) {
       const expected = card.key === "logErrors" ? "not configured" : NULL_VALUE;
+      const pending = expected === NULL_VALUE;
       expect(summaryCardValue(card, null)).toBe(expected);
-      expect(tileValue(container, card.label)).toBe(expected);
+      const tile = tileFor(container, card.label) as Element;
+      // `LoadSourcePending` renders the glyph *and* the marker inside
+      // `.stat-value`, so a pending tile's text is `—R5.3`, not `—` alone —
+      // which is the whole content of A3's S150.
+      expect(tile.querySelector(".stat-value")?.textContent).toBe(
+        pending ? `${expected}${cardSource(card)}` : expected,
+      );
+      expect(tile.querySelector(".pending-marker")?.textContent).toBe(
+        pending ? cardSource(card) : undefined,
+      );
     }
   });
 
@@ -174,7 +195,7 @@ describe("R5.1's summary cards", () => {
     }
   });
 
-  it("falls back to `—` for a card whose group has no row", () => {
+  it("falls back to the marked `—` for a card whose group has no row", () => {
     const osOnly = systemEnvelope(["os"]);
     const { container } = renderPage({ fixtureOverride: osOnly });
     const cpu = SUMMARY_CARDS.find((c) => c.key === "cpu") as SummaryCard;
@@ -183,8 +204,12 @@ describe("R5.1's summary cards", () => {
 
     // Log errors has no group at all, so once a payload exists it has no value
     // to read: R5.1's `not configured` answer belongs to the no-payload case.
+    // R10.4's marker still names the pending source — R5.10, per `cardSource`.
     const logErrors = SUMMARY_CARDS.find((c) => c.key === "logErrors") as SummaryCard;
-    expect(tileValue(container, logErrors.label)).toBe(NULL_VALUE);
+    expect(summaryCardValue(logErrors, osOnly)).toBe(NULL_VALUE);
+    const tile = tileFor(container, logErrors.label) as Element;
+    expect(tile.querySelector(".stat-value")?.textContent).toBe(`${NULL_VALUE}R5.10`);
+    expect(tile.querySelector(".pending-marker")?.textContent).toBe("R5.10");
   });
 });
 

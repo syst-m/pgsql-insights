@@ -290,12 +290,21 @@ export interface SystemPanelInput {
  *  reads a phase that a hook is driving: `phase === "idle"` means "a fetch is
  *  about to happen", so `loading` is the honest answer. Here there is no fetcher
  *  for R8.2's route — `web/src/api/client.ts` has none, which is the standing
- *  ask on A4 — so `idle` means "the app will never ask", and R10.13's rule that
- *  "the app has not asked yet" and "the store has no minutes" are different
- *  answers picks `unavailable`: a loading state would promise a frame that
- *  cannot arrive. A3's ruling on this row makes it the deliverable — "It renders
- *  R10.12's unavailable state rather than invented data … that state is the
- *  requirement, not a placeholder."
+ *  ask on A4 — so `idle` means "the app will never ask", and R10.12's rule that
+ *  a panel defines each of its four states (`requirements.md:425`) picks
+ *  `unavailable`: a loading state would promise a frame that cannot arrive.
+ *  A3's ruling on this row makes it the deliverable — "It renders R10.12's
+ *  unavailable state rather than invented data … that state is the requirement,
+ *  not a placeholder."
+ *
+ *  The rule is payload-keyed before it is phase-keyed, which is the half A3's
+ *  S150 review (`docs/reviews/finding-index.md:184`, filed in `06320f8`) asked
+ *  to have said plainly: the `system === null` arm comes first, so
+ *  `{phase: "idle", system: ONE}` returns `partial`, not `unavailable`.
+ *  `unavailable` is what a *payload-less* cluster answers, and `idle` only names
+ *  it because a page with no fetcher can never produce a payload; with a payload
+ *  and a driving phase the mid-refetch answer is `partial`, as in the other
+ *  five derivations.
  *
  *  `error` still wins over it, because a failed ask and a never-asked question
  *  are different sentences; and `partial` needs a payload to be partial about,
