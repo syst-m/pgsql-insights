@@ -1532,6 +1532,156 @@ for _row in _forms:
 print(f"finding header: {len(header_bad)} declared counts disagreeing with the parsed table")
 dump(header_bad, lambda t: f"  {t}")
 
+# --- D-id space (A3's S155) ---------------------------------------------------------------
+# requirements.md:503's R14.4 ruling is the grammar; this is the enforcement. The finding it
+# rules on: IMPLEMENTATION.md's §4 Decisions log (22 ids) and §5 Deviations from the spec (20
+# ids) share one D-id space, so twenty numbers address two rows each and a bare `D18` anywhere
+# else in the repo means nothing on its own -- which row it means is reader memory. The tier
+# parses the two tables separately, grades every `§4-D18`/`§5-D18` mention against the set that
+# section actually defines (the R-id tier's `0 not defined by §4` shape), and grades a bare
+# `D18` outside the tables as ambiguous when the number is in both sets. The dotted `D4.18` the
+# finding proposed is rejected because `D4` is itself one of the twenty colliding ids, so the
+# dotted form reads first as "D4's sub-item 18" and inherits the ambiguity it removes. The scan
+# set is tracked .md outside PATH_SKIP_DIRS, the scope check_id_cites uses; a table row's own
+# id cell is a definition, not a cite, so it is stripped before the line is scanned.
+D_SECTION_RE = re.compile(r"^##\s+(\d+)\.\s")
+D_ROW_ID_RE = re.compile(r"^\|\s*(?:\*\*)?D(\d{1,3})(?:\*\*)?\s*\|")
+D_NS_RE = re.compile(r"\u00a7([45])[\u2011 \-]D(\d{1,3})\b")
+D_BARE_RE = re.compile(r"(?<![A-Za-z0-9_\u00a7\u2011\-])D(\d{1,3})\b")
+# Every (file, token) pair where the token is defined by *both* D tables, measured from the
+# tree at the rev this tier landed -- generated, not hand-written, the way MSG_CITE_EXEMPT was.
+# The table can only shrink: a new bare mention of a shared token fails until it is spelled
+# `§4-D18`/`§5-D18` or added here with a reason, and a key whose mentions all get spelled
+# becomes an orphan exemption, which also fails.
+D_BARE_EXEMPT_KEYS = {
+    ('.claude/agents/a2-api-metrics.md', 'D13'),
+    ('.claude/agents/a3-review.md', 'D13'),
+    ('.claude/agents/a3-review.md', 'D14'),
+    ('.claude/agents/a3-review.md', 'D20'),
+    ('.claude/agents/a4-frontend.md', 'D12'),
+    ('CHANGELOG.md', 'D12'),
+    ('CHANGELOG.md', 'D13'),
+    ('CHANGELOG.md', 'D16'),
+    ('CHANGELOG.md', 'D18'),
+    ('CHANGELOG.md', 'D19'),
+    ('CHANGELOG.md', 'D20'),
+    ('IMPLEMENTATION.md', 'D1'),
+    ('IMPLEMENTATION.md', 'D10'),
+    ('IMPLEMENTATION.md', 'D11'),
+    ('IMPLEMENTATION.md', 'D12'),
+    ('IMPLEMENTATION.md', 'D13'),
+    ('IMPLEMENTATION.md', 'D14'),
+    ('IMPLEMENTATION.md', 'D15'),
+    ('IMPLEMENTATION.md', 'D16'),
+    ('IMPLEMENTATION.md', 'D17'),
+    ('IMPLEMENTATION.md', 'D18'),
+    ('IMPLEMENTATION.md', 'D19'),
+    ('IMPLEMENTATION.md', 'D20'),
+    ('IMPLEMENTATION.md', 'D3'),
+    ('IMPLEMENTATION.md', 'D5'),
+    ('IMPLEMENTATION.md', 'D6'),
+    ('IMPLEMENTATION.md', 'D9'),
+    ('README.md', 'D9'),
+    ('docs/agents.md', 'D12'),
+    ('docs/agents.md', 'D13'),
+    ('docs/agents.md', 'D6'),
+    ('docs/reviews/finding-index.md', 'D1'),
+    ('docs/reviews/finding-index.md', 'D14'),
+    ('docs/reviews/finding-index.md', 'D18'),
+    ('docs/reviews/finding-index.md', 'D19'),
+    ('docs/reviews/finding-index.md', 'D20'),
+    ('docs/reviews/finding-index.md', 'D3'),
+    ('docs/reviews/finding-index.md', 'D4'),
+    ('docs/reviews/finding-index.md', 'D5'),
+    ('docs/reviews/v0.3.0-architecture-review.md', 'D12'),
+    ('docs/reviews/v0.3.0-architecture-review.md', 'D13'),
+    ('requirements.md', 'D1'),
+    ('requirements.md', 'D12'),
+    ('requirements.md', 'D13'),
+    ('requirements.md', 'D14'),
+    ('requirements.md', 'D16'),
+    ('requirements.md', 'D18'),
+    ('requirements.md', 'D19'),
+    ('requirements.md', 'D2'),
+    ('requirements.md', 'D20'),
+    ('requirements.md', 'D3'),
+    ('requirements.md', 'D4'),
+    ('requirements.md', 'D5'),
+    ('requirements.md', 'D9'),
+}
+
+D_GRANDFATHERED = "grandfathered by the S155 ruling (2026-11-26): the bare mention predates the tier"
+D_BARE_EXEMPT = {k: D_GRANDFATHERED for k in D_BARE_EXEMPT_KEYS}
+
+
+def check_d_ids(root, exempt=None):
+    """(ns_checked, ns_bad, bare_total, bare_bad, orphans, d4, d5) for D-id citations.
+
+    d4/d5 are the id sets IMPLEMENTATION.md's two D tables define. ns_bad is every
+    `§N-D<n>` mention whose number that section does not define; bare_bad is every bare
+    `D<n>` mention outside the two tables that names nothing at all, or names a token defined
+    by both tables without an entry in `exempt`; orphans is an exemption key with no mention
+    left behind it. `exempt` is injectable so the tier can be mutation-tested against a table
+    that is not the shipped one, the way check_commit_citations does it.
+    """
+    exempt = D_BARE_EXEMPT if exempt is None else exempt
+    impl = lines_of(root, "IMPLEMENTATION.md")
+    tables, cur = {}, None
+    for line in impl:
+        m = D_SECTION_RE.match(line)
+        if m:
+            cur = int(m.group(1))
+            tables.setdefault(cur, [])
+        elif cur is not None:
+            tables[cur].append(line)
+    d4 = {m.group(1) for line in tables.get(4, []) if (m := D_ROW_ID_RE.match(line))}
+    d5 = {m.group(1) for line in tables.get(5, []) if (m := D_ROW_ID_RE.match(line))}
+    if not d4 or not d5:
+        print(f"GUARD: D-id tables parsed to \u00a74={len(d4)} ids \u00b7 \u00a75={len(d5)} ids "
+              f"-- the row shape moved, not a pass")
+        sys.exit(2)
+    shared = d4 & d5
+
+    ns_checked, ns_bad, bare_bad = 0, [], []
+    bare_all = {}
+    for rel in tracked_files(root):
+        if not rel.endswith(".md") or any(rel.startswith(d) for d in PATH_SKIP_DIRS):
+            continue
+        for i, line in enumerate(lines_of(root, rel), 1):
+            m = D_ROW_ID_RE.match(line)
+            scan = line[m.end():] if m else line
+            namespaced = list(D_NS_RE.finditer(scan))
+            for cm in namespaced:
+                ns_checked += 1
+                sec, num = cm.group(1), cm.group(2)
+                if num not in (d4 if sec == "4" else d5):
+                    ns_bad.append((rel, i, cm.group(0), f"\u00a7{sec} does not define D{num}"))
+            for cm in D_BARE_RE.finditer(D_NS_RE.sub("", scan)):
+                key = (rel, "D" + cm.group(1))
+                bare_all[key] = bare_all.get(key, 0) + 1
+
+    for (rel, tok) in sorted(bare_all):
+        num = tok[1:]
+        if (rel, tok) in exempt:
+            continue
+        if num in shared:
+            bare_bad.append((rel, tok, f"D{num} is defined by both \u00a74 and \u00a75"))
+        elif num not in d4 and num not in d5:
+            bare_bad.append((rel, tok, f"D{num} is defined by neither \u00a74 nor \u00a75"))
+    orphans = [k for k in sorted(exempt) if k not in bare_all]
+    return ns_checked, ns_bad, sum(bare_all.values()), bare_bad, orphans, d4, d5
+
+
+d_ns_checked, d_ns_bad, d_bare_total, d_bad, d_orphans, d4_ids, d5_ids = check_d_ids(root)
+print(f"d-ids: §4 defines {len(d4_ids)} ids · §5 defines {len(d5_ids)} ids · "
+      f"{len(d4_ids & d5_ids)} shared · {d_ns_checked} namespaced cites · "
+      f"{len(d_ns_bad)} unresolvable (failed) · {d_bare_total} bare mentions · "
+      f"{len(d_bad)} not exempt (failed) · {len(d_orphans)} orphan exemptions")
+dump(d_ns_bad, lambda rel, i, raw, why: f"  {rel}:{i}: `§{raw.split('§')[1]}` -- {why}", cap=10)
+dump(d_bad, lambda rel, tok, why: f"  {rel}: `{tok}` -- {why}", cap=10)
+dump(d_orphans, lambda k: f"  orphan D-id exemption: {k[0]} {k[1]} -- {D_BARE_EXEMPT[k]}", cap=10)
+
+
 # --- this file's own shape ---------------------------------------------------------------
 # dump() is the only sanctioned way to print a capped enumeration, because it prints the
 # withheld count: a summary line and the list under it cannot disagree (dump's docstring
@@ -1549,5 +1699,6 @@ sys.exit(1 if (bad or missing or cite_bad or path_bad or ambiguous or links_bad 
               or id_orphans or path_orphans or labels_bad or status_bad
               or phase_bad or ms_bad or finding_bad or unbound_notes
               or width_bad or idc_bad or ve_dangling or ve_orphans or ve_misaddressed
-              or h2_gaps or self_bad or msg_bad or msg_amb or msg_orphans) else 0)
+              or h2_gaps or self_bad or msg_bad or msg_amb or msg_orphans
+              or d_ns_bad or d_bad) else 0)
 
