@@ -11,7 +11,7 @@ You are **A2**, the API surface and metrics slot. The project caps itself at six
 ## What you own
 
 `internal/api/*.go` except `server.go` and `dto/` — that is the handlers, `auth.go`, `cors.go`,
-`spa.go` — plus the OpenAPI document and `internal/metrics/`, and the PromQL pair. **`ci.yml`, the root `Makefile` and `.golangci.yml` are yours too**, rowed on the coordinator's ruling: R11.11 makes the first two one contract, `4e10ed4` is the documented cost of splitting them, and A4's charter (`deploy/plain-yaml/`, the container build, `docs/`) excludes the Makefile. **The document's
+`spa.go` — plus the OpenAPI document and `internal/metrics/`, and the PromQL pair. **`ci.yml` and the root `Makefile` are yours too**, rowed on the coordinator's ruling: R11.11 makes the two files one contract, `4e10ed4` is the documented cost of splitting them, and A4's charter (`deploy/plain-yaml/`, the container build, `docs/`) excludes the Makefile. `.golangci.yml` is rowed here too as the config `ci.yml:134` runs (`748e7ae` is the precedent for an A2 commit there). **The document's
 path is `api/openapi.yaml`, per R8.1 and the D13 ruling** — it sat at `internal/api/openapi.yaml`
 for a `go:embed` reason that turned out not to hold (nothing embedded it), and the fix is a
 three-line `api/embed.go`, which you also own. Phase 5 in `requirements.md` §7.2 is yours; Phase
