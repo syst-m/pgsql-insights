@@ -128,7 +128,7 @@ export interface QueryDetailPageProps extends PageProps<QueryDetailView> {
    *  endpoint for the chart instead of expecting it on this object."
    *
    *  The page now asks. It calls `useQuerySeries` with a batch of one — the
-   *  fingerprint the URL names, which is `web/src/api/client.ts:384-385`'s "the
+   *  fingerprint the URL names, which is `web/src/api/client.ts:388-389`'s "the
    *  one R10.7's detail chart reuses with a batch of one" — and this prop is the
    *  caller's override, the same role `fixtureOverride` plays for the payload.
    *  When neither has one, the load panel renders R10.13's one-line explanation
@@ -147,7 +147,7 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
   const params = useMemo(() => detailParamsFrom(state), [state]);
   // The page's own extraction, not the hook file's `detailParamsFrom`: the two
   // agree on the required triple, and this one also carries A3's optional
-  // `?db=`/`?user=`, which `client.ts:381`'s `QueryDetailParams` accepts
+  // `?db=`/`?user=`, which `client.ts:385`'s `QueryDetailParams` accepts
   // structurally and the route documents. Importing the hook's version would
   // shadow this exported one and drop the two optionals A3 ruled on.
   const { state: detail } = useQueryDetail(props.cfg, params);
@@ -190,7 +190,7 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
   return (
     // The extracted params are on the element so the extraction is observable
     // without exporting a test-only render: this is the value `useQueryDetail`
-    // passes to `client.ts:387`'s `fetchQueryDetail` as `params.fingerprint`, and
+    // passes to `client.ts:391`'s `fetchQueryDetail` as `params.fingerprint`, and
     // a page that parsed the URL into a local and never used it is the bug a test
     // should catch. The value shown in the header is the payload's own
     // fingerprint, so the two agree only if the extraction is right.

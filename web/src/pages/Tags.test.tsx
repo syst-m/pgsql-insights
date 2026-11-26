@@ -169,7 +169,7 @@ describe("TagsPage — the table (R10.3's ninth page)", () => {
       ).toBe(true);
     }
     // And the column list is the type's field list, which is the one count
-    // `client.ts:511`'s docblock states as a number ("all eighteen of
+    // `client.ts:515`'s docblock states as a number ("all eighteen of
     // TagView's json tags") and so the one a rename can silently break.
     expect(TAG_COLUMNS).toHaveLength(18);
     expect(new Set(TAG_COLUMNS.map((c) => c.key)).size).toBe(18);
@@ -301,7 +301,7 @@ describe("TagsPage — the header", () => {
   });
 
   it("offers the five R10.15 presets and patches the URL on change", () => {
-    // The route takes `from`/`to` (`client.ts:511`), so the window is part
+    // The route takes `from`/`to` (`client.ts:515`), so the window is part
     // of what this page asks for; changing it patches the URL, which re-derives
     // the params, which refetches — the chain `Queries.tsx`'s header drives.
     const { onPatch } = renderPage();
@@ -339,7 +339,7 @@ describe("TagsPage — R10.12's named states", () => {
   });
 
   it("renders the contract fixture while the first fetch is in flight", () => {
-    // `?delay=` exists (`client.ts:112-115`) so R16.7 can hold a page in its
+    // `?delay=` exists (`client.ts:116-119`) so R16.7 can hold a page in its
     // pre-response frame. With no `fixtureOverride` and a slow client, the
     // payload on screen is `props.fixtureOverride ?? data.tags ?? FIXTURE_TAGS`
     // (`web/src/pages/Tags.tsx:198`), so the frame is the contract fixture and

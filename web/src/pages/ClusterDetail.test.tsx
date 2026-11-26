@@ -340,7 +340,7 @@ describe("Overview tab", () => {
 });
 
 describe("ClusterDetail query-series wiring", () => {
-  // R10.5(a)'s data half. The fetcher is `client.ts:342` and the batch it
+  // R10.5(a)'s data half. The fetcher is `client.ts:346` and the batch it
   // returns is `fetchQueries`' top-N (cap 50, and R8.10 forbids clamping it
   // silently); what the page decides, and so what these tests cover, is only
   // which of the batch's series reach the chart and what the chart does with

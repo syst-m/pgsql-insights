@@ -393,7 +393,7 @@ describe("resolveExtensionInstalled — R3.1's report joined to the route (R10.2
   // The json's four rows, imported rather than read back through
   // `FIXTURE_QUERIES`: that export's presence array is the builder's `[]` until
   // the fixtures move lands, so a test built on it would change meaning under the
-  // commit it is meant to survive. `client.test.ts:861` imports the same array.
+  // commit it is meant to survive. `client.test.ts:864` imports the same array.
   const fixture = apiQueriesJson.pgStatStatements;
   const at = (cluster: string): UrlState => ({ ...DEFAULT_STATE, page: "queries", cluster });
   const withRows = (rows: QueryView[]) => ({

@@ -283,7 +283,7 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
    *  fingerprint.
    *
    *  The page fetches its own batch now — `useQuerySeries` over the fingerprints
-   *  in the payload it is rendering, the batch-of-N `client.ts:384-385` names as
+   *  in the payload it is rendering, the batch-of-N `client.ts:388-389` names as
    *  this column's source — and this prop is the caller's override, the same role
    *  `fixtureOverride` plays for the rows. It cannot become a field on
    *  `QueryResponse`: R16.8 pins `web/src/api/types.ts` to the Go DTO and the DTO
@@ -298,7 +298,7 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
  *  `series` prop takes.
  *
  *  The envelope carries one entry per fingerprint that has data
- *  (`client.ts:362-367`), so indexing a 50-row page's batch to 37 entries is the
+ *  (`client.ts:366-371`), so indexing a 50-row page's batch to 37 entries is the
  *  normal answer. A later entry for the same fingerprint wins over an earlier
  *  one, which is what R5.7's per-pod entries (`QuerySeries.pod`) make possible:
  *  the table row asks for the cluster-aggregated one, and the last one in the
@@ -358,12 +358,12 @@ export function QueriesPage(props: QueriesPageProps) {
   const databases = useMemo(() => databaseOptions(resp.queries), [resp.queries]);
 
   // R8.11's batch for the sparkline column: every fingerprint in the served
-  // payload, in one call (`client.ts:384-385`'s batch-of-N). It is fed from
+  // payload, in one call (`client.ts:388-389`'s batch-of-N). It is fed from
   // `resp.queries` and not from `rows` for the reason the banner below draws for
   // the same pair — a filter is a view over the served set, so typing in the
   // search box must not change what was asked for. The params are memoised for
   // the load-identity reason above. An empty list is `InvalidRequest`
-  // (`client.ts:362-367`), so the call only means something once the payload has
+  // (`client.ts:366-371`), so the call only means something once the payload has
   // rows; its error is not this page's error state (the rows' own is, via
   // `panel`), and the column degrades to `—`.
   const seriesParams = useMemo(

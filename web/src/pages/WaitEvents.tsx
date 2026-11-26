@@ -4,7 +4,7 @@
  * What it renders, and from what. The route row names
  * `GET /api/v1/insights/wait-events` as its `endpoint:` and `phase: "6a"`, but
  * there is no such DTO yet — the coordinator's ruling on this page is: "render it
- * from `ActiveQueriesResponse` (`web/src/api/client.ts:559`), grouped. No A2 path,
+ * from `ActiveQueriesResponse` (`web/src/api/client.ts:619`), grouped. No A2 path,
  * no A1 DTO." So the page calls the *active-queries* fetcher through the same
  * `useActiveQueries` hook the Active Queries page uses, and groups the sessions
  * client-side with `waitBuckets`
