@@ -123,7 +123,7 @@ jobs:
       - name: license manifest (R15.3)
         run: make licenses-check
       - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        run: test -z "$(gofmt -s -l .)" || { gofmt -s -l .; exit 1; }
       - name: go vet
         run: go vet ./...
       - name: install golangci-lint ${{ env.GOLANGCI_LINT_VERSION }}
