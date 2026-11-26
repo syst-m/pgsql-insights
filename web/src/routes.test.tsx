@@ -111,6 +111,15 @@ const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknow
     fixture: FIXTURE_ACTIVE_QUERIES,
     heading: "Active Queries",
   },
+  // R10.9's wait-events page, mounted by the `component:` flip that followed
+  // `be7f042`. Its props are `PageProps<ActiveQueriesResponse>` and the fixture
+  // is the same `testdata/api/active-queries.json` the chart's suite groups.
+  {
+    page: "wait-events",
+    location: `/c/${CLUSTER}/wait-events`,
+    fixture: FIXTURE_ACTIVE_QUERIES,
+    heading: "Wait Events",
+  },
   // R10.3's tags page, mounted by the `component:` flip that followed
   // `0c8f53e`. Its props are `PageProps<Envelope<TagView>>` plus an optional
   // `extensionInstalled` (`Tags.tsx:162`), whose own docblock documents the

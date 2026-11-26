@@ -57,6 +57,7 @@ import { FleetPage } from "./pages/Fleet";
 import { QueryDetailPage } from "./pages/QueryDetail";
 import { QueriesPage } from "./pages/Queries";
 import { TagsPage } from "./pages/Tags";
+import { WaitEventsPage } from "./pages/WaitEvents";
 import type { UrlState } from "./state/urlState";
 
 /** The 14 pages R10.3 names. This is the canonical declaration; `state/urlState.ts`
@@ -227,7 +228,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.9",
     endpoint: "GET /api/v1/insights/wait-events",
     phase: "6a",
-    component: null,
+    component: WaitEventsPage,
     scope: "cluster",
     path: "/c/:ns/:name/wait-events",
     inNav: true,
