@@ -7,7 +7,7 @@
  * A3's endpoint ruling on this row (requirements.md:423) names two routes and
  * neither has a handler: `/api/v1/insights/system` for the group aggregate and
  * `/api/v1/insights/system/{metric}` for each tab's series — R8.2's pair, filed
- * at api/x-planned-paths.yaml:150-151. `web/src/api/client.ts` has no fetcher
+ * at api/x-planned-paths.yaml:147-148. `web/src/api/client.ts` has no fetcher
  * for either (the standing ask on A4), so the page cannot ask. That is R10.12's
  * *unavailable* state, and the ruling is explicit that the state is the
  * deliverable: "It renders R10.12's unavailable state rather than invented data

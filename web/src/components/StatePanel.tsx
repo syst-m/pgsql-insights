@@ -534,7 +534,7 @@ export const TAGS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
  *
  *  · `unavailable` is the state the page renders today, and the copy has to say
  *    why without implying an outage: the route exists in the manifest
- *    (`api/x-planned-paths.yaml:150`) and has no handler, so nothing has been
+ *    (`api/x-planned-paths.yaml:147`) and has no handler, so nothing has been
  *    fetched — which is R5.3's "never render a blank chart without saying why"
  *    applied to a whole page. The page renders this pair as a `.banner` over its
  *    real content (`web/src/pages/SystemInsights.tsx`), not as a full-panel
