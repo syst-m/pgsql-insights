@@ -99,19 +99,12 @@ import {
 /** R10.10's metric groups, in the order the two source requirements list them:
  *  R5.3's OS families first, then R5.2's DB families in R5.2's own order.
  *
- *  Dated 2026-11-25 with the content of A2's group-key ruling, which has no
- *  markdown home yet (the Go enum is `internal/api/dto/system.go` at Phase 7;
- *  A2 is sending A3 the text to inline in R5.2's row, `requirements.md:342`):
- *  the ten DB tokens below are the spec's own, normalised from R5.2's three
- *  multi-word names (`database sizes` → `sizes`, `TXID and MXID age` → `age`,
- *  `WAL volume and generation rate` → `wal`), and the keys are bare — the
- *  catalogue's qualified `system.<metric>` (`internal/api/promql_catalogue.go:60`
- *  `FamilySystem`) is a prefix on a *metric* name, never on a group. The
- *  ruling's other half is not mine to apply yet: A2 rules `os` is a page
- *  *section* over R5.3's four families (`cpu, memory, disk, network`,
- *  `requirements.md:343`) and that the DTO's `group` field carries the family,
- *  so when the DTO lands this union imports from `web/src/api/types.ts` (R16.8)
- *  and `os` stays here as the section→families mapping. */
+ *  The key vocabulary is ruled in `requirements.md:342` (R5.2's ten DB tokens,
+ *  with its three multi-word names normalised to `sizes`, `age`, `wal`) and
+ *  `requirements.md:343` (R5.3's four OS families are one page *section* keyed
+ *  `os`, not four groups). When `internal/api/dto/system.go` lands at Phase 7
+ *  this union imports from `web/src/api/types.ts` (R16.8) and `os` stays here
+ *  as the section→families mapping. */
 export type MetricGroupKey =
   | "os"
   | "transactions"
