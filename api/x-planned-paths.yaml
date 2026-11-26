@@ -19,7 +19,7 @@
 # one that enumerates the route, with the other named in the entry's own comment.
 # Two keys exist today, `x-planned-paths:` at :56 and `r8.2-catalogue:` at :145 — one
 # container and one requirement — and the four requirement keys that used to be here
-# are retirement notes, not keys: r4.5-actions (:156), r8.3-promql-pair (:178), and
+# are retirement notes, not keys: r4.5-actions (:153), r8.3-promql-pair (:175), and
 # r8.11-batched-series and r8.7-debug at the foot of the file. That closes the
 # spelling: `planned_r8_2:`, `R8.2:` and a bare `catalogue:` are all unavailable,
 # because a key named for a page rather than a requirement is how one route ends up
@@ -30,7 +30,7 @@
 # `GET /api/v1/poolers` is a failure rather than a style choice (measured on a copy
 # of the generated document: adding that one line under r8.2-catalogue exits 1 with
 # `'GET /api/v1/poolers' is not a route path`). Set membership is the whole claim; a
-# status field is what rots, so the ten entries carry their requirement ids in
+# status field is what rots, so the seven entries carry their requirement ids in
 # trailing comments and nothing that can disagree with the code.
 #
 # The assertion, and what enforces it. Per requirement key: that key's entries plus
@@ -144,9 +144,6 @@ x-planned-paths:
   # that share one source cannot be staged apart.
   r8.2-catalogue:
     - /api/v1/insights/wait-events          # R4.3, R10.9 (was: R4, R10.7)
-    - /api/v1/insights/databases            # R3.7, R10.3 (was: R10.8)
-    - /api/v1/insights/users                # R3.7, R10.3 (was: R10.9)
-    - /api/v1/insights/client-addresses     # R3.7, R6.4, R10.3 (was: R6, R10.12)
     - /api/v1/insights/system               # R5, R10.10 (was: R5, R10.13)
     - /api/v1/insights/system/{metric}      # R8.2, R10.10 (was: R8.2, R10.13)
     - /api/v1/insights/recommendations      # R8.2

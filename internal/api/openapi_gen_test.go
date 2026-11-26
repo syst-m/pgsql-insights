@@ -156,11 +156,14 @@ func TestRouteTable(t *testing.T) {
 		"GET /api/v1/active-queries",
 		"GET /api/v1/clusters",
 		"GET /api/v1/clusters/{namespace}/{name}",
+		"GET /api/v1/insights/client-addresses",
+		"GET /api/v1/insights/databases",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/insights/queries/{fingerprint}",
 		"GET /api/v1/insights/queries/{fingerprint}/plans",
 		"GET /api/v1/insights/tags",
+		"GET /api/v1/insights/users",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
 		"GET /api/v1/poolers",
@@ -185,16 +188,16 @@ func TestRouteTable(t *testing.T) {
 	}
 
 	// The constant-resolution case, called out separately because it is the one
-	// a grep-based generator gets wrong. Twelve of the twenty-three distinct paths
+	// a grep-based generator gets wrong. Fifteen of the twenty-eight distinct paths
 	// in `want` are registered as a method concatenated onto a path constant
-	// — ten in server.go (ActiveQueriesPath, SessionsTerminatePath,
-	// ClusterDetailPath, QueriesPath,
-	// QuerySeriesPath, QueryDetailPath, QueryPlansPath, TagsPath, PoolersPath and
-	// PoolerDetailPath) and two in promql.go (QueryMetricsPath and
+	// — thirteen in server.go (ActiveQueriesPath, SessionsTerminatePath,
+	// ClusterDetailPath, QueriesPath, QuerySeriesPath, QueryDetailPath,
+	// QueryPlansPath, TagsPath, PoolersPath, PoolerDetailPath, DatabasesPath,
+	// UsersPath and ClientAddressPath) and two in promql.go (QueryMetricsPath and
 	// SystemMetricsPath, each registered twice, GET and POST) — and this loop names
-	// all twelve. The other eleven are plain strings, which the `want` comparison
-	// above already pins; this loop exists for the twelve a text-only generator would
-	// read as `"GET "`.
+	// all fifteen. The other thirteen are plain strings, which the `want`
+	// comparison above already pins; this loop exists for the fifteen a text-only
+	// generator would read as `"GET "`.
 	//
 	// The comment here used to say "five of these paths", and name
 	// GET /api/v1/metrics/query as "the control — it is a literal in promql.go".
@@ -205,18 +208,22 @@ func TestRouteTable(t *testing.T) {
 	// — which is the project's own R16.8 argument, turned on the test suite. The
 	// "all nine" that sentence carried was stale in the same way: the loop below it
 	// had ten entries, and the poolers commit's two server.go registrations
-	// (PoolersPath, PoolerDetailPath) make it twelve. Counted with
+	// (PoolersPath, PoolerDetailPath) make it twelve; R3.7's three (DatabasesPath,
+	// UsersPath, ClientAddressPath) make it fifteen. Counted with
 	// `grep -o 'mux.HandleFunc("[A-Z]* "+[A-Za-z]*' internal/api/server.go | sort`
 	// rather than carried forward.
 	for _, s := range []string{
 		"GET /api/v1/active-queries",
 		"POST /api/v1/sessions/{pid}/terminate",
 		"GET /api/v1/clusters/{namespace}/{name}",
+		"GET /api/v1/insights/client-addresses",
+		"GET /api/v1/insights/databases",
 		"GET /api/v1/insights/queries",
 		"GET /api/v1/insights/queries/series",
 		"GET /api/v1/insights/queries/{fingerprint}",
 		"GET /api/v1/insights/queries/{fingerprint}/plans",
 		"GET /api/v1/insights/tags",
+		"GET /api/v1/insights/users",
 		"GET /api/v1/metrics/query",
 		"GET /api/v1/metrics/system",
 		"GET /api/v1/poolers",

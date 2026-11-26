@@ -559,15 +559,17 @@ func (s *Store) Tags(ctx context.Context, q api.ListQuery) ([]dto.TagView, error
 // only way to guarantee that"): three copies of the eight aggregate columns is three
 // chances for one kind's lock_wait_ms to be summed differently from the others', and
 // R3.7's rule is that all four rollups answer with the same load columns.
-//
-// The api-side assertions for these three (api.DatabasesSource and friends) are not
-// here yet: those interfaces live only in A2's internal/api/{databases,users,
-// client_addresses}.go, and a `var _ api.DatabasesSource = (*Store)(nil)` line in
-// this file cannot compile in a tree that does not have that file. They land with
-// that commit — the precedent is 62740ed, where the route commit carried its own
-// store-side assertion. The TagsSource assertion at :54 has no such problem because
-// tags.go is tracked and was committed first.
 // ---------------------------------------------------------------------------
+
+// The three assertions the banner above deferred to "that commit": they ride in it,
+// which is the 62740ed shape — the route commit carries its own store-side assertion
+// rather than leaving the store to guess when the api interfaces appear. All three
+// signatures are exactly what the store's own headers predicted (Databases at :725,
+// Users at :742, ClientAddresses at :762, each (context.Context, api.ListQuery)
+// returning its dto view slice), so no SQL in this file moved.
+var _ api.DatabasesSource = (*Store)(nil)
+var _ api.UsersSource = (*Store)(nil)
+var _ api.ClientAddressesSource = (*Store)(nil)
 
 // dimensionRow is one aggregated single-key rollup: the dimension's own key, the
 // scope pair, and the eight aggregate columns, before they become a dto view.

@@ -261,6 +261,28 @@ type Config struct {
 	// applies here too.
 	Tags TagsSource
 
+	// Databases, Users and ClientAddresses are R3.7's three remaining per-dimension
+	// rollups — GET /api/v1/insights/databases, /users and /client-addresses,
+	// implemented in databases.go, users.go and client_addresses.go. R3.7's fourth,
+	// the by-application-name rollup, is the Tags field above (requirements.md:314's
+	// ruling names `application` as TagView's dimension spelling, and
+	// requirements.md:359 (R6.4) letters the four as (a) the session list and (b) the
+	// by-client-address rollup, with the routes at requirements.md:380).
+	//
+	// They are three fields because they are three interfaces over one store table:
+	// the rows all live in store.DimensionRollup (rollups.go:307), and the
+	// store's per-dimension accessors are separate methods, so a build that wires the
+	// databases rollup and not the users rollup is a build the Config can express —
+	// the same reason Tags sits beside Queries rather than inside it.
+	//
+	// All three follow the list-route rule (200 with an empty list when nil), not the
+	// keyed-route rule Terminate documents, and each default is applied in its own
+	// accessor rather than in New, the way Tags and the five fields above it do it;
+	// their shared typed-nil caveat (2b63f1e) applies to all three.
+	Databases       DatabasesSource
+	Users           UsersSource
+	ClientAddresses ClientAddressesSource
+
 	// Metrics is the collector self-observability state whose two R2.2 families
 	// (pgsi_collector_duration_seconds, pgsi_collector_errors_total) /metrics
 	// renders alongside pgsi_build_info — R9.8's composition, and the call
@@ -520,6 +542,23 @@ func (s *Server) Handler() http.Handler {
 	// checkable, and the promotion deletes the line in both files because the
 	// generator re-emits the planned manifest into the document).
 	mux.HandleFunc("GET "+TagsPath, s.handleTags)
+	// R3.7's three remaining rollups (databases.go, users.go, client_addresses.go),
+	// mounted beside the fourth they complete. The block above orders routes by path,
+	// and two of these three break that order to stay with their requirement:
+	// `/insights/client-addresses` and `/insights/databases` sort before
+	// `/insights/queries`, and `/insights/users` after `/insights/tags`, where it
+	// already sits. The grouping is stated here rather than left to be rediscovered,
+	// for the reason the pooler pair gives for landing in one commit ("a list route
+	// and its detail route that share one source cannot be staged apart") — three
+	// routes that are one requirement's remaining half land together, and splitting
+	// them to satisfy the alphabetical rule would put one commit's work in two places.
+	// The paths come from DatabasesPath, UsersPath and ClientAddressPath so these
+	// lines, the three annotation entries and api/openapi.yaml cannot spell them three
+	// ways (R14.7), and the three api/x-planned-paths.yaml lines they occupy are
+	// deleted in this same commit.
+	mux.HandleFunc("GET "+DatabasesPath, s.handleDatabases)
+	mux.HandleFunc("GET "+UsersPath, s.handleUsers)
+	mux.HandleFunc("GET "+ClientAddressPath, s.handleClientAddresses)
 	// R6's pooler pair (poolers.go), promoted from api/x-planned-paths.yaml's
 	// r8.2-catalogue in the same commit that registers them: the two paths move out
 	// of the planned manifest and into `paths` together, because R14.7 counts one

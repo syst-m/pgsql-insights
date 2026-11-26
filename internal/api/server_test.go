@@ -205,7 +205,12 @@ func TestUnknownRoutesAndMethods(t *testing.T) {
 	// poolers.go's handlePoolerDetail validates the two path params — non-empty,
 	// then not percent-encoded — before it consults the gate, so the pattern-shaped
 	// /api/v1/poolers/{namespace}/{name} answers 400 on the percent-encoding rule
-	// and tells us nothing about readiness.
+	// and tells us nothing about readiness. R3.7's dimension trio joins the list for the
+	// same reason and needs no such caveat: unlike the query-detail and pooler-detail
+	// URLs above, these three routes have no path params and no required query params
+	// (R8.4's shared set is entirely optional), so a bare GET reaches the gate rather
+	// than the parameter validator — which is why they are listed by constant and not
+	// with a constructed query string.
 	for _, path := range []string{
 		"/api/v1/clusters",
 		"/api/v1/clusters/default/pg1",
@@ -214,6 +219,9 @@ func TestUnknownRoutesAndMethods(t *testing.T) {
 		"/api/v1/insights/queries/843923b9a0257cf80f1dff554e7dc8fdfc05f489328e8376513124dfb42996e3?namespace=open-webui&cluster=open-webui-pg",
 		"/api/v1/poolers",
 		"/api/v1/poolers/default/rev-proxy-pg-pooler",
+		DatabasesPath,
+		UsersPath,
+		ClientAddressPath,
 	} {
 		if rec := do(t, s, http.MethodGet, path); rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("GET %s = %d, want 503 (registered, not yet ready)", path, rec.Code)
