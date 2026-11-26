@@ -162,7 +162,7 @@ jobs:
             "${{ env.IMAGE_REPO }}:${{ steps.version.outputs.tag }}"
 
       # ---- the SBOM (R15.2: "a GitHub Release per tag with the SBOM attached")
-      # A3 ruled this on 2026-11-25 (requirements.md:514): the release SBOM is
+      # A3 ruled this on 2026-11-25 (`requirements.md:514`): the release SBOM is
       # image-scoped and is NOT R15.3's committed `docs/licenses/` audit, so it is
       # generated here with the pinned syft below, written to dist/ and attached to the
       # GitHub Release. A build output, not a committed contract, so it gets no checker.
