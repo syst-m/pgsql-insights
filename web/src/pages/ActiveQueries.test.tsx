@@ -443,7 +443,7 @@ describe("ActiveQueriesPage — the terminate POST (R4.5's mutation half)", () =
     // `internal/api/server.go:230` (`Terminate`)): this assertion was first written against the
     // suffix-less URL the fetcher had and tightened to the exact string when A4's
     // `9790fda` added it, which is the pair the api suite asserts too at
-    // `client.test.ts:1411-1414` (the URL string at :1288, the method at :1290).
+    // `client.test.ts:1567-1570` (the URL string at :1568, the method at :1570).
     await waitFor(() =>
       expect(stub.calls).toContain(
         `POST /api/v1/sessions/${ROW_41288.pid}/terminate?namespace=open-webui&cluster=open-webui-pg&confirm=true`,
