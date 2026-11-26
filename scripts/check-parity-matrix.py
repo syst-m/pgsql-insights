@@ -1250,7 +1250,10 @@ FINDING_CITE_RE = re.compile(r"\bA3's\s+(S\d{1,3})\b")
 # .tsx file has to resolve against §4, and adding .tsx there would change what that check
 # accepts. A finding id only has to resolve against the ledger, which is cheap and closed, so
 # the six S-cites living in web/src/**.tsx -- S21, S22, S23 -- are in scope here.
-FINDING_EXTS = CITE_EXTS | {".tsx", ".ts"}
+# .py joined the set for A3's S164: PATH_CITE_EXTS (:235) has read .py since S118, so an
+# `A3's S118` in this file's own comments was a fact the finding tier never counted --
+# 10 of the 74 rows the gate called "never cited" are cited here.
+FINDING_EXTS = CITE_EXTS | {".tsx", ".ts", ".py"}
 
 def finding_ledger():
     p = root / FINDING_DOC
@@ -1271,9 +1274,12 @@ def finding_cites():
         p = root / rel
         if not p.is_file(): continue
         if p.suffix not in FINDING_EXTS and p.name not in CITE_NAMES: continue
-        for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
-            for m in FINDING_CITE_RE.finditer(line):
-                out.append((rel, n, m.group(1)))
+        # A3's S165: the regex's \s+ spans a newline, so a cite written as
+        # `A3's_newline_S97` matched only when the whole file was scanned at once; the
+        # per-line loop split it in half and lost it. Scan the text, derive the line.
+        text = p.read_text(errors="replace")
+        for m in FINDING_CITE_RE.finditer(text):
+            out.append((rel, text.count("\n", 0, m.start()) + 1, m.group(1)))
     return out
 
 ledger_ids = finding_ledger()
