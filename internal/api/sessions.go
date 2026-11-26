@@ -13,12 +13,12 @@
 //   - "→ pg_terminate_backend(pid)" — the SQL. It is not in this file: the
 //     function runs on a Postgres instance, and this package's rule is that a
 //     handler owns the HTTP half and a source owns the data half
-//     (active_queries.go:121's ActiveQueriesSource, clusters.go's ClusterSource,
+//     (active_queries.go:99's ActiveQueriesSource, clusters.go's ClusterSource,
 //     query_plans.go's QueryPlansSource). TerminateSession is that seam here,
 //     and it is narrower than the three of them for a reason the interface's own
 //     docblock gives.
 //   - "gated behind --allow-actions=true (default false)" — R12.8's
-//     Config.Actions, read through the same actionFor active_queries.go:180
+//     Config.Actions, read through the same actionFor active_queries.go:158
 //     already uses to fill R4.1's `Action` column. One function answers "is
 //     terminate allowed" for both routes, which is the point: the column the
 //     list renders and the route behind it cannot disagree, and a second gate
@@ -251,7 +251,7 @@ func (s *Server) handleTerminateSession(w http.ResponseWriter, r *http.Request) 
 
 	// --- the R12.8 gate ---------------------------------------------------
 	//
-	// actionFor is active_queries.go:180's, shared rather than restated: the
+	// actionFor is active_queries.go:158's, shared rather than restated: the
 	// list's `Action` column and this route's gate are one answer about one flag,
 	// and R4.1's whole reason for rendering `disabled` is that the column must not
 	// be blank while the action behind it is unbuilt. A column that says

@@ -3,7 +3,7 @@
 //
 // # Which requirement asks for this, and what this route is not
 //
-// requirements.md:378 (R8.2) names both paths — `/poolers` and
+// requirements.md:380 (R8.2) names both paths — `/poolers` and
 // `/poolers/{ns}/{name}` — and until this commit their only home was
 // api/x-planned-paths.yaml:141-142, under `r8.2-catalogue:`, where the entry
 // carries the comment `# R6; PoolerView is already defined (R8.2 reuses it)`.

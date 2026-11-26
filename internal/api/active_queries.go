@@ -68,34 +68,12 @@ import (
 //
 // The frontend already carries this exact string in its route table, so the
 // constant is not choosing a spelling; it is the Go side of one that was picked
-// when R8.2's catalogue listed `/active-queries` (requirements.md:378).
+// when R8.2's catalogue listed `/active-queries` (requirements.md:380).
 const ActiveQueriesPath = "/api/v1/active-queries"
 
-// The two values R4.1's `Action` column can carry on the wire, and the name
-// R12.8 uses for the action behind them.
-//
-// The spec names the column and the gate but not the strings, so these are
-// provisional names under D13/R9.11's rule — name it, mark it provisional in the
-// file itself, bound the blast radius. The bound here is one constant pair and
-// one function (actionFor): if R12.8's flag ends up spelling the action
-// differently, ActionNameTerminate changes, the fixture's three rows change, and
-// nothing else in the response shape moves.
-const (
-	// ActionNameTerminate is R4.5's `pg_terminate_backend` action as it appears
-	// in R12.8's `--allow-actions` value. R12.8 generalised the flag from
-	// "terminate session only" to a set in which each mutation is "individually
-	// named in the flag's value, not covered by one global boolean", which is why
-	// this is a name in a list and not a bool on Config.
-	ActionNameTerminate = "terminate"
-
-	// ActionDisabled is what the column carries when the gate is off — which is
-	// the default, so it is what every row answers on a stock server. R4.1's rule
-	// is that the column "renders disabled with a link to the R12.8 gate … so the
-	// column is never silently blank", and an empty string is exactly the silent
-	// blank that sentence forbids. The UI renders the link; the value says why
-	// there is no action.
-	ActionDisabled = "disabled"
-)
+// The action names this route's `Action` column carries — ActionNameTerminate and
+// ActionDisabled — are declared in actions.go, the single home for R12.8's
+// action-name vocabulary (R16.8's one-copy rule, applied across the package's files).
 
 // ActiveQueriesSource is the read side of the session list as this route needs
 // it: given a cluster, the response body minus its meta.
