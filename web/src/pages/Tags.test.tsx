@@ -73,8 +73,8 @@ const TAG_PARTIAL = FIXTURE_TAGS.data[2]!; // cookbook — action + route, no co
 
 /** Every render starts from the documented default column set.
  *
- *  `useColumnVisibility` (`../components/ColumnMenu.tsx:194`) reads a persisted
- *  selection from `browserStorage()` (`../components/ThemeToggle.tsx:61`) before
+ *  `useColumnVisibility` (`web/src/components/ColumnMenu.tsx:194`) reads a persisted
+ *  selection from `browserStorage()` (`web/src/components/ThemeToggle.tsx:61`) before
  *  it falls back to `DEFAULTS.tags` (`ColumnMenu.tsx:124`), and any test that
  *  drives the ColumnMenu writes one. Without this clear, a test renders whatever
  *  the previous test left in storage — which is why the R10.18 windowing case

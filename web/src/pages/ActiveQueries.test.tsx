@@ -80,8 +80,8 @@ const ROW_41102 = FIXTURE_ACTIVE_QUERIES.data[1]!;
 
 /** Every render starts from the documented default column set.
  *
- *  `useColumnVisibility` (`../components/ColumnMenu.tsx:194`) reads a persisted
- *  selection from `browserStorage()` (`../components/ThemeToggle.tsx:61`) before
+ *  `useColumnVisibility` (`web/src/components/ColumnMenu.tsx:194`) reads a persisted
+ *  selection from `browserStorage()` (`web/src/components/ThemeToggle.tsx:61`) before
  *  it falls back to `DEFAULTS["active-queries"]` (`ColumnMenu.tsx:95`, the nine
  *  this file's header names), and any test that drives the ColumnMenu writes one.
  *  Without this clear, a test renders whatever the previous test left in storage —
