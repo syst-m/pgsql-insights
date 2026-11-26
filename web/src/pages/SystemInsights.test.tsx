@@ -13,7 +13,9 @@
  * 2. **R5.1's five cards** — the labels verbatim, and the one value the spec
  *    answers for a default deployment (`Log errors` → `not configured`, from
  *    R5.1's [A] clause plus R5.10's default `off`) against the four it does not
- *    (R10.4's `—`, with its source-pending marker).
+ *    (R10.4's `—`, with its source-pending marker), and the family each card
+ *    joins — `requirements.md:343` clause (4)'s fourteen-member union, which
+ *    A3's S151 filed because two of them joined `os` instead of `cpu`/`disk`.
  * 3. **R5.2/R5.3's eleven groups** — the tab strip's contents, order and
  *    selection, plus the R10.19 rule that each tab's hover text is derived from
  *    the same table that renders its label.
@@ -43,6 +45,7 @@ import {
   cardSource,
   compareOptions,
   FULL_SYSTEM_ENVELOPE,
+  METRIC_FAMILIES,
   METRIC_GROUPS,
   SUMMARY_CARDS,
   summaryCardValue,
@@ -195,12 +198,55 @@ describe("R5.1's summary cards", () => {
     }
   });
 
-  it("falls back to the marked `—` for a card whose group has no row", () => {
+  it("gives the CPU and Disk cards different numbers (A3's S151)", () => {
+    // S151 (`docs/reviews/finding-index.md:185`): both cards said `group: "os"`,
+    // so one `os` row answered R5.1's two OS cards with one string, and the
+    // fixture builder's single `(group, index) => i * 100` meant no assertion
+    // paired a card with a *distinct* OS value. They now join `cpu` and `disk`,
+    // so a payload with per-family rows answers them separately.
+    const payload = systemEnvelope(
+      ["cpu", "memory", "disk", "network"],
+      (_g, i) => 1000 + i * 7,
+    );
+    const { container } = renderPage({ fixtureOverride: payload });
+    const cpu = SUMMARY_CARDS.find((c) => c.key === "cpu") as SummaryCard;
+    const disk = SUMMARY_CARDS.find((c) => c.key === "disk") as SummaryCard;
+    expect(cpu.group).toBe("cpu");
+    expect(disk.group).toBe("disk");
+    const cpuValue = tileValue(container, cpu.label);
+    const diskValue = tileValue(container, disk.label);
+    expect(cpuValue).toBe(formatNumber(1000));
+    expect(diskValue).toBe(formatNumber(1014));
+    expect(cpuValue).not.toBe(diskValue);
+  });
+
+  it("sources the four OS families from R5.3 and the ten DB ones from R5.2", () => {
+    // The fourteen-member union `requirements.md:343` clause (4) rules, checked
+    // through the table that types `SummaryCard.group` — the artifact the S151
+    // ruling names, so the split is asserted, not just written down.
+    const families = Object.entries(METRIC_FAMILIES);
+    expect(families).toHaveLength(14);
+    expect(families.filter(([, source]) => source === "R5.3").map(([key]) => key).sort()).toEqual([
+      "cpu",
+      "disk",
+      "memory",
+      "network",
+    ]);
+    expect(families.filter(([, source]) => source === "R5.2")).toHaveLength(10);
+  });
+
+  it("falls back to the marked `—` for a card whose family has no row", () => {
+    // Since S151 the CPU card joins `cpu`, not `os`, so a payload with only the
+    // section row leaves it without a value: R10.4's glyph with its marker,
+    // naming R5.3 — the requirement that owns the family.
     const osOnly = systemEnvelope(["os"]);
     const { container } = renderPage({ fixtureOverride: osOnly });
     const cpu = SUMMARY_CARDS.find((c) => c.key === "cpu") as SummaryCard;
-    const row = osOnly.data.find((v) => v.group === cpu.group) as SystemGroupView;
-    expect(tileValue(container, cpu.label)).toBe(formatNumber(row.value));
+    expect(cpu.group).toBe("cpu");
+    expect(summaryCardValue(cpu, osOnly)).toBe(NULL_VALUE);
+    const cpuTile = tileFor(container, cpu.label) as Element;
+    expect(cpuTile.querySelector(".stat-value")?.textContent).toBe(`${NULL_VALUE}R5.3`);
+    expect(cpuTile.querySelector(".pending-marker")?.textContent).toBe("R5.3");
 
     // Log errors has no group at all, so once a payload exists it has no value
     // to read: R5.1's `not configured` answer belongs to the no-payload case.

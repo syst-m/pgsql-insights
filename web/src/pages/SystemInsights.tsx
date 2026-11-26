@@ -102,7 +102,10 @@ import {
  *  The key vocabulary is ruled in `requirements.md:342` (R5.2's ten DB tokens,
  *  with its three multi-word names normalised to `sizes`, `age`, `wal`) and
  *  `requirements.md:343` (R5.3's four OS families are one page *section* keyed
- *  `os`, not four groups). When `internal/api/dto/system.go` lands at Phase 7
+ *  `os`, not four groups). That ruling's clause (4) splits the page's two
+ *  vocabularies: this union is the *navigation* one — eleven members, and it
+ *  never gains `cpu` — while the families R5.1's cards join are
+ *  `MetricFamilyKey` below. When `internal/api/dto/system.go` lands at Phase 7
  *  this union imports from `web/src/api/types.ts` (R16.8) and `os` stays here
  *  as the section→families mapping. */
 export type MetricGroupKey =
@@ -117,6 +120,48 @@ export type MetricGroupKey =
   | "age"
   | "wal"
   | "checkpoints";
+
+/** The family vocabulary `requirements.md:343` clause (4) splits out of it: the
+ *  fourteen names the DTO's union will carry — R5.3's four plus R5.2's ten —
+ *  and the requirement each one comes from. `SummaryCard.group` is typed with
+ *  this, so the CPU card can join `cpu` without the tab strip gaining a cpu tab
+ *  (A3's S151, `docs/reviews/finding-index.md:185`). The `Record` is the
+ *  checker: tsc fails if a family is missing from the table or extra to the
+ *  union, which is exactly the class of bug S151 filed — a card naming a group
+ *  that resolves to the wrong number. Interim until R16.8's mirror in
+ *  `web/src/api/types.ts` replaces it. */
+export type MetricFamilyKey =
+  | "cpu"
+  | "memory"
+  | "disk"
+  | "network"
+  | "transactions"
+  | "tuples"
+  | "blocks"
+  | "temp"
+  | "deadlocks"
+  | "backends"
+  | "sizes"
+  | "age"
+  | "wal"
+  | "checkpoints";
+
+export const METRIC_FAMILIES: Record<MetricFamilyKey, "R5.3" | "R5.2"> = {
+  cpu: "R5.3",
+  memory: "R5.3",
+  disk: "R5.3",
+  network: "R5.3",
+  transactions: "R5.2",
+  tuples: "R5.2",
+  blocks: "R5.2",
+  temp: "R5.2",
+  deadlocks: "R5.2",
+  backends: "R5.2",
+  sizes: "R5.2",
+  age: "R5.2",
+  wal: "R5.2",
+  checkpoints: "R5.2",
+};
 
 export interface MetricGroup {
   key: MetricGroupKey;
@@ -197,18 +242,21 @@ export interface SummaryCard {
   /** R5.1's label, verbatim — including the `P99 | P50` form it prints, which is
    *  the requirement's own spelling and not a chart option. */
   label: string;
-  /** The family the card's value is computed from, and so the group whose
-   *  payload answers it. `null` for Log errors, which R5.1 sources from R5.10 —
-   *  a log ingestion, not one of R5.2/R5.3's metric families — so no metric
-   *  group's aggregate can answer it. */
-  group: MetricGroupKey | null;
+  /** The family the card's value is computed from, and so the payload row that
+   *  answers it. `MetricFamilyKey`, not `MetricGroupKey`: `requirements.md:343`
+   *  clause (4) gives the card the family vocabulary so the CPU card joins `cpu`
+   *  while the tab strip keeps its eleven sections (A3's S151). `null` for Log
+   *  errors, which R5.1 sources from R5.10 — a log ingestion, not one of
+   *  R5.2/R5.3's metric families — so no metric family's aggregate can
+   *  answer it. */
+  group: MetricFamilyKey | null;
 }
 
 export const SUMMARY_CARDS: readonly SummaryCard[] = [
-  { key: "cpu", label: "CPU utilization P99 | P50", group: "os" },
+  { key: "cpu", label: "CPU utilization P99 | P50", group: "cpu" },
   { key: "connections", label: "Peak connections", group: "backends" },
   { key: "txid", label: "Transaction ID utilization", group: "age" },
-  { key: "disk", label: "Disk utilization", group: "os" },
+  { key: "disk", label: "Disk utilization", group: "disk" },
   { key: "logErrors", label: "Log errors", group: null },
 ];
 
@@ -244,18 +292,22 @@ export function summaryCardValue(
   return formatNumber(row === undefined ? null : row.value);
 }
 
-/** The requirement that owns a card's family — `R5.3` for the OS card, `R5.2`
- *  for the ten DB cards, `R5.10` for the one card with no group (R5.1's [A]
- *  clause sources Log errors from log ingestion) — which is what R10.4's marker
- *  names as the pending source. `web/src/components/QueryTable.tsx:488` passes
- *  the same kind of string (`source="R7.1"`). */
+/** The requirement that owns a card's family, read out of `METRIC_FAMILIES` —
+ *  the same table that types `SummaryCard.group`, so there is no fallback left
+ *  to paper over a family the union gained without a ruling (the `?? "R5.2"`
+ *  this replaces is what made `cpu` answer `R5.2`). `R5.10` for the one card
+ *  with no group (R5.1's [A] clause sources Log errors from log ingestion) —
+ *  which is what R10.4's marker names as the pending source.
+ *  `web/src/components/QueryTable.tsx:488` passes the same kind of string
+ *  (`source="R7.1"`). */
 export function cardSource(card: SummaryCard): string {
   if (card.group === null) return "R5.10";
-  return METRIC_GROUPS.find((g) => g.key === card.group)?.source ?? "R5.2";
+  return METRIC_FAMILIES[card.group];
 }
 
-/** The page's full payload: one row per `METRIC_GROUPS` entry, so every grouped
- *  card has a value to read.
+/** The page's full payload: one row per family in `METRIC_FAMILIES` plus the
+ *  `os` section row the tab strip selects by default — every `group` value the
+ *  page can ask about, so every card and every tab has a row to read.
  *
  *  Exported because `web/src/routes.test.tsx`'s `IMPLEMENTED` row needs a
  *  payload of exactly this type and `web/src/api/fixtures.ts` cannot hold one —
@@ -267,15 +319,17 @@ export function cardSource(card: SummaryCard): string {
  *  that lands A2's Phase 7 DTO, when `testdata/api/system.json` gives
  *  `fixtures.ts` a real `FIXTURE_SYSTEM` and the interim type moves to
  *  `web/src/api/types.ts`. */
+const FULL_GROUPS: readonly string[] = [...Object.keys(METRIC_FAMILIES), "os"];
+
 export const FULL_SYSTEM_ENVELOPE: Envelope<SystemGroupView> = {
-  data: METRIC_GROUPS.map((g, i) => ({
-    group: g.key,
-    promql: `up{insights_group="${g.key}"}`,
+  data: FULL_GROUPS.map((group, i) => ({
+    group,
+    promql: `up{insights_group="${group}"}`,
     value: i * 100,
   })),
   meta: {
     generatedAt: FIXTURE_GENERATED_AT,
-    total: METRIC_GROUPS.length,
+    total: FULL_GROUPS.length,
     truncated: false,
   },
 };
