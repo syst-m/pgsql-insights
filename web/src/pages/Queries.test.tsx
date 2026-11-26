@@ -441,7 +441,7 @@ describe("resolveExtensionInstalled — R3.1's report joined to the route (R10.2
 
   it("a payload with no row for the route's cluster says nothing", () => {
     // Zero matching rows is `undefined`, not `false`: the payload has not
-    // answered for this cluster, and `StatePanel.tsx:110` renders unknown as the
+    // answered for this cluster, and `StatePanel.tsx:111` renders unknown as the
     // plain empty. This is the shape every pre-R3.1 response had.
     const rows: ExtensionPresenceView[] = [
       { namespace: "ai-api-gateway", cluster: "rev-proxy-pg", database: "gateway", installed: true },

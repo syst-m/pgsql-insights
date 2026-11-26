@@ -33,6 +33,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   FLEET_COPY,
+  PANEL_GLYPHS,
   QUERY_COPY,
   STATE_FIXTURES,
   SYSTEM_COPY,
@@ -364,5 +365,24 @@ describe("deriveSystemPanelState", () => {
     const system = systemEnvelope([ONE, TWO], { loading: ["cookbook"] });
     const copy = copyFor("partial", { meta: system.meta, data: system.data }, SYSTEM_COPY);
     expect(copy?.body).toBe(partialBanner({ meta: system.meta, data: system.data }));
+  });
+});
+
+
+describe("PANEL_GLYPHS", () => {
+  // R10.23's generalisation, tested where it renders. `StatusGlyph.test.tsx`
+  // covers the primitive; what this file owns is that every named state
+  // actually gets one, so a state with copy but no glyph cannot ship.
+  it("gives every state in the vocabulary a glyph and renders it", () => {
+    expect(Object.keys(PANEL_GLYPHS).sort()).toEqual([...NAMED_STATES, "ready"].sort());
+    for (const state of NAMED_STATES) {
+      const { container } = render(<StatePanel state={state} />);
+      const section = container.querySelector(`section.state-panel[data-state="${state}"]`);
+      expect(section).not.toBeNull();
+      const chip = section?.querySelector("span.status-chip[data-state]");
+      expect(chip?.getAttribute("data-state")).toBe(state);
+      expect(chip?.querySelector("svg.status-glyph")).not.toBeNull();
+      expect(chip?.textContent).toBe(PANEL_GLYPHS[state].label);
+    }
   });
 });

@@ -21,7 +21,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { StatusChip, StatusGlyph } from "./StatusGlyph";
+import { Glyph, StatusChip, StatusGlyph } from "./StatusGlyph";
+import { PANEL_GLYPHS } from "./StatePanel";
 import { HEALTH_ORDER, presentationFor } from "../api/health";
 import type { ClusterHealth } from "../api/types";
 
@@ -149,3 +150,63 @@ describe("StatusChip", () => {
     }
   });
 });
+
+describe("Glyph -- the generalised primitive", () => {
+  // R10.23's subject is every state, not every health, and `Glyph` is the
+  // generalisation IMPLEMENTATION.md:1140 still names as open. The health block
+  // above covers `StatusGlyph`; this one covers the primitive drawn directly
+  // from a presentation, which is how `StatePanel.tsx`'s `PANEL_GLYPHS` now
+  // reaches it. The property is the same one the health block asserts -- a
+  // distinct shape per state -- asserted one level down so it holds for the
+  // second vocabulary too, not just the first.
+  const panels = Object.entries(PANEL_GLYPHS);
+
+  it("draws a distinct shape for every panel state", () => {
+    const drawn = panels.map(
+      ([, p]) => render(<Glyph p={p} />).container.querySelector("svg.status-glyph path")?.getAttribute("d"),
+    );
+    expect(drawn.every((d) => typeof d === "string" && d.length > 0)).toBe(true);
+    expect(new Set(drawn).size).toBe(panels.length);
+  });
+
+  it("names and colours every presentation it is handed", () => {
+    for (const [state, p] of panels) {
+      const { container } = render(<Glyph p={p} attrs={{ "data-state": state }} />);
+      const svg = container.querySelector("svg.status-glyph") as SVGSVGElement | null;
+      expect(svg).not.toBeNull();
+      expect(svg?.getAttribute("role")).toBe("img");
+      expect(svg?.getAttribute("aria-label")).toBe(p.label);
+      expect(svg?.getAttribute("data-state")).toBe(state);
+      expect(svg?.style.color).toBe(p.token);
+      expect(p.token).toMatch(/^var\(--/);
+      expect(p.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps the two vocabularies' shapes one shared vocabulary", () => {
+    // `GlyphShape` is the union `api/health.ts` declares, widened by `ring`.
+    // Typing the expectation rather than deriving it is the point: a seventh
+    // shape added to the union has to appear in one of the two tables, and the
+    // day it does not, this is the test that says so.
+    const used = new Set<string>([
+      ...HEALTH_ORDER.map((h) => presentationFor(h).glyph),
+      ...panels.map(([, p]) => p.glyph),
+    ]);
+    expect([...used].sort()).toEqual(["circle", "cross", "dash", "ring", "square", "triangle"]);
+  });
+
+  it("draws the ring as an annulus, not a filled disc", () => {
+    // The one shape with no health counterpart. Two subpaths -- outer circle
+    // clockwise, inner counter-clockwise -- are what the nonzero fill rule
+    // needs to leave a hole; a single `A` would give a disc indistinguishable
+    // from `healthy`'s circle at 10px.
+    const d = render(<Glyph p={PANEL_GLYPHS.unavailable} size={10} />)
+      .container.querySelector("svg.status-glyph path")
+      ?.getAttribute("d") as string;
+    const subpaths = d.split("M").filter((s) => s.trim().length > 0);
+    expect(subpaths.length).toBe(2);
+    expect(d).toContain("A 5 5 0 1 1");
+    expect(d).toContain("A 3.2 3.2 0 1 0");
+  });
+});
+

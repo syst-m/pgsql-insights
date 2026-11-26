@@ -23,6 +23,7 @@ import type {
 } from "../api/types";
 import { CLUSTER_NOUN, partialBanner, type BannerNoun, type BannerSource } from "../api/envelope";
 import { FIXTURE_EMPTY, FIXTURE_PARTIAL, FIXTURE_UNAVAILABLE } from "../api/fixtures";
+import { Glyph, type GlyphPresentation } from "./StatusGlyph";
 
 export type PanelState = "loading" | "empty" | "partial" | "unavailable" | "ready" | "error";
 
@@ -543,7 +544,7 @@ export const TAGS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
  *    (`GET /api/v1/insights/system`, `web/src/routes.ts:285`), not one it calls
  *    today — there is no request to report a failure about until the fetcher
  *    exists, which is the same situation `WAIT_EVENTS_COPY.error` documents at
- *    `web/src/components/StatePanel.tsx:480` for a page that reads a different route.
+ *    `web/src/components/StatePanel.tsx:481` for a page that reads a different route.
  *
  *  `partial`'s fixed body is what renders, not R10.22's composed one: `copyFor`
  *  composes only when a `BannerSource` is passed, and the page passes none —
@@ -602,6 +603,22 @@ export function copyFor(
   }
   return copy;
 }
+/** R10.23's non-colour encoding for the panel states themselves: the
+ *  health vocabulary's table is `api/health.ts`'s `PRESENTATION`, and this is
+ *  the second one `StatusGlyph.tsx`'s generalised `Glyph` draws -- the half of
+ *  R10.23 IMPLEMENTATION.md:1140 still calls open. Six states, six shapes, so
+ *  no two share a glyph and the set property the test holds is the same
+ *  property the health table has. `partial` is a triangle rather than a yellow
+ *  dot because `--status-warning` is below 3:1 on the light surface: the shape
+ *  is what carries it. */
+export const PANEL_GLYPHS: Record<PanelState, GlyphPresentation> = {
+  loading: { label: "Loading", token: "var(--text-muted)", glyph: "dash" },
+  empty: { label: "Empty", token: "var(--text-muted)", glyph: "square" },
+  partial: { label: "Partial", token: "var(--status-warning)", glyph: "triangle" },
+  unavailable: { label: "Unavailable", token: "var(--status-serious)", glyph: "ring" },
+  ready: { label: "Ready", token: "var(--status-good)", glyph: "circle" },
+  error: { label: "Error", token: "var(--status-critical)", glyph: "cross" },
+};
 
 export interface StatePanelProps {
   state: PanelState;
@@ -619,6 +636,10 @@ export function StatePanel({ state, error, onAction, copy: copyTable }: StatePan
   if (copy === null) return null;
   return (
     <section className="state-panel" data-state={state} role="status" aria-live="polite">
+      <span className="status-chip" data-state={state}>
+        <Glyph p={PANEL_GLYPHS[state]} attrs={{ "data-state": state }} />
+        {PANEL_GLYPHS[state].label}
+      </span>
       <h2 className="state-title">{copy.title}</h2>
       <p className="state-body">{state === "error" && error ? `${copy.body} ${error}` : copy.body}</p>
       {copy.action !== undefined && (

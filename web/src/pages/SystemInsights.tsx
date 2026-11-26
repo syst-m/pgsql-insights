@@ -450,7 +450,7 @@ export function SystemInsightsPage(props: SystemInsightsPageProps): ReactElement
   // `unavailable` and `partial` render as a banner over the body and `ready`
   // renders the body alone: R10.12's rule that the two warning states are a
   // banner over real content rather than a replacement for it
-  // (`web/src/components/StatePanel.tsx:606-607` says so for the pair). Here the
+  // (`web/src/components/StatePanel.tsx:623-624` says so for the pair). Here the
   // content is the inventory the requirement states, and the banner is the
   // sentence that says why none of it has numbers.
   const options = compareOptions(cluster);

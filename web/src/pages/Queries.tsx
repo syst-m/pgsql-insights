@@ -205,7 +205,7 @@ export function routeCluster(resp: QueryResponse, state: UrlState): string {
  *  nil (unknown beats false — an unreported database is not a missing one),
  *  **false** if any row is false and none is nil, **true** only when every row
  *  is true. Zero matching rows is also nil: a payload that says nothing about
- *  this cluster has not said it lacks the extension, and `StatePanel.tsx:110`
+ *  this cluster has not said it lacks the extension, and `StatePanel.tsx:111`
  *  renders that as the plain empty rather than R10.27's screen.
  *
  *  The route's databases are every row whose `namespace`/`cluster` pair matches
@@ -274,7 +274,7 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
    *  **false** if any row is `&false` and none is nil, **true** only when every
    *  row is `&true`. "Installed everywhere" is the conservative reading: any
    *  database lacking it makes this panel's data partial, and
-   *  `StatePanel.tsx:108` renders that as `unavailable` rather than a false
+   *  `StatePanel.tsx:109` renders that as `unavailable` rather than a false
    *  "installed and quiet". The per-database rows are in the payload once the
    *  type lands, so surfacing them per database later is a rendering change, not
    *  another API change. */
