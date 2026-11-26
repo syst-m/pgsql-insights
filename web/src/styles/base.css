@@ -484,7 +484,7 @@ th[aria-sort="descending"] .caret {
   white-space: nowrap;
 }
 
-.status-chip .glyph {
+.status-chip .status-glyph {
   width: 10px;
   height: 10px;
   flex: none;
