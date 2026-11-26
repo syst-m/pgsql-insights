@@ -170,6 +170,14 @@ jobs:
       - name: build (tsc --noEmit + vite build, R10.1)
         run: npm run build
         working-directory: web
+      # R10.23's palette gate. The script existed with no caller — IMPLEMENTATION.md:1140
+      # says so in the ledger's own words ("appears in neither the Makefile nor CI (0 hits in
+      # both), so it exists as a command, not as a gate") and §4:1413 recorded one run in
+      # prose. `make palette-check` is the gate (R11.11: CI runs no command the Makefile
+      # lacks); it lives in this job because node is pinned here (setup-node@v4, node 22) and
+      # the artifact it reads, web/src/styles/tokens.css, is a web asset.
+      - name: chart palette validation (R10.23)
+        run: make palette-check
       # R11.4's second number, reported separately from the image size.
       - name: SPA bundle size (R11.4)
         run: |

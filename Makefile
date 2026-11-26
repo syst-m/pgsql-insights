@@ -40,7 +40,7 @@ REGISTRY ?= 10.10.111.134:5000
 REPO     ?= frankellis/pgsql-insights
 TAG      ?= dev
 
-.PHONY: all build test cover vet lint lint-go openapi openapi-check tidy-check web test-web typecheck-web \
+.PHONY: all build test cover vet lint lint-go openapi openapi-check tidy-check web test-web typecheck-web palette-check \
        helm-lint render render-check kustomize rules-check image image-size push-local licenses \
        licenses-check licenses-selftest deploy verify clean help
 
@@ -75,6 +75,30 @@ test-web: web typecheck-web
 	@cd web && npx playwright install --with-deps chromium
 	@cd web && npm run test:e2e
 
+## palette-check: validate the chart palettes in web/src/styles/tokens.css in both modes (R10.23, D12).
+# scripts/validate_palette.js is the dataviz bundle's validator, vendored and recorded in
+# IMPLEMENTATION.md §4 D12 and named by the A4 charter (.claude/agents/a4-frontend.md:37). The
+# ledger row this closes is IMPLEMENTATION.md:1140's own sentence: the script "appears in neither
+# the Makefile nor CI (0 hits in both), so it exists as a command, not as a gate" — §4:1413
+# records a run in prose ("Palette validated, not eyeballed", worst adjacent ΔE 9.1) with no
+# caller, the same shape R15.3 fixed for `make licenses`.
+#
+# The hex lists are extracted from tokens.css rather than written here: a literal palette in this
+# Makefile would be a second copy of the palette contract (the defect class cardinality-check's
+# docblock names), and the script takes its palette as argv — it has no --from-css mode, so the
+# caller has to derive it. The light extraction reproduces §4's recorded set byte-for-byte
+# (#2a78d6,#eb6834,#1baf7a,#eda100,#e87ba4,#008300,#4a3aa7,#e34948, surface #fcfcfb); the dark
+# set comes from the :root[data-theme="dark"] block. Both modes exit 0 at this commit.
+TOKENS ?= web/src/styles/tokens.css
+PALETTE_LIGHT := $(shell awk '/^:root \{/,/^\}/' $(TOKENS) | awk -F': ' '/--series-[1-8]:/ {sub(/;.*/,"",$$2); print $$2}' | paste -sd, -)
+SURFACE_LIGHT := $(shell awk '/^:root \{/,/^\}/' $(TOKENS) | awk -F': ' '/--surface-1:/ {sub(/;.*/,"",$$2); print $$2}')
+PALETTE_DARK := $(shell awk '/^:root\[data-theme="dark"\] \{/,/^\}/' $(TOKENS) | awk -F': ' '/--series-[1-8]:/ {sub(/;.*/,"",$$2); print $$2}' | paste -sd, -)
+SURFACE_DARK := $(shell awk '/^:root\[data-theme="dark"\] \{/,/^\}/' $(TOKENS) | awk -F': ' '/--surface-1:/ {sub(/;.*/,"",$$2); print $$2}')
+
+palette-check:
+	@node scripts/validate_palette.js "$(PALETTE_LIGHT)" --mode light --surface "$(SURFACE_LIGHT)"
+	@node scripts/validate_palette.js "$(PALETTE_DARK)" --mode dark --surface "$(SURFACE_DARK)"
+
 ## cover: coverage report against the 70% gate on internal/... (R11.11)
 cover:
 	@mkdir -p dist
@@ -85,7 +109,7 @@ cover:
 		{ echo "FAIL: coverage $$total% is below the 70% gate (R11.11)"; exit 1; }
 
 ## lint: go vet + the pinned golangci-lint (R11.11)
-lint: vet lint-go openapi-check cardinality-check sha-check as-built-check
+lint: vet lint-go openapi-check cardinality-check sha-check as-built-check palette-check
 
 vet:
 	go vet ./...
