@@ -274,7 +274,7 @@ describe("parseQuerySeries", () => {
    *  when the fixture landed the assertions below would not change, only where the
    *  object came from. They did not change, with one exception worth naming: two of
    *  them hardcoded the old fingerprint (see `PREFIX`). A1's `8b046ef` added the
-   *  JSON and the Go test that guards it, `fixtures.ts:109` is the TS half, and
+   *  JSON and the Go test that guards it, `fixtures.ts:115` is the TS half, and
    *  `18ae97d` made the openapi example that file's bytes — so the example, the
    *  fixture and this test are one object now, which is the whole point of R16.8.
    *

@@ -27,19 +27,24 @@
  */
 
 import apiActiveQueriesJson from "../../../testdata/api/active-queries.json";
+import apiClientAddressesJson from "../../../testdata/api/client-addresses.json";
 import apiClustersJson from "../../../testdata/api/clusters.json";
+import apiDatabasesJson from "../../../testdata/api/databases.json";
 import apiQueryDetailJson from "../../../testdata/api/query-detail.json";
 import apiQueryPlansJson from "../../../testdata/api/query-plans.json";
 import apiQuerySeriesJson from "../../../testdata/api/query-series.json";
 import apiQueriesJson from "../../../testdata/api/queries.json";
 import apiSessionsTerminateJson from "../../../testdata/api/sessions-terminate.json";
 import apiTagsJson from "../../../testdata/api/tags.json";
+import apiUsersJson from "../../../testdata/api/users.json";
 
 import { emptyEnvelope, toFleetResponse, toQueriesResponse, type RowExtras } from "./envelope";
 import type {
   ActiveQueriesResponse,
+  ClientAddressView,
   ClusterMetrics,
   ClusterView,
+  DatabaseView,
   Envelope,
   Finding,
   FleetResponse,
@@ -50,6 +55,7 @@ import type {
   QuerySeriesEnvelope,
   TagView,
   TerminateResponse,
+  UserView,
 } from "./types";
 
 /** The drift check, in one line.
@@ -135,6 +141,22 @@ export const FIXTURE_ACTIVE_QUERIES: ActiveQueriesResponse = apiActiveQueriesJso
  *  here. One object, four fields, no `meta` — the non-envelope case the
  *  interface above explains, and the reason there is no `data` array to pin. */
 export const FIXTURE_TERMINATE_SESSION: TerminateResponse = apiSessionsTerminateJson;
+
+/** GET /api/v1/insights/databases — R3.7's by-database rollup. Six rows whose
+ *  `loadByTotalTime` column sums to exactly 100.0: the dimension partitions the query
+ *  population, which is the invariant the by-user and by-client-address fixtures share
+ *  and `tags.json` deliberately does not (its rows overlap, so it sums to 241.1).
+ *  Assigned, not cast: the same one-line drift check `FIXTURE_ENVELOPE` is. */
+export const FIXTURE_DATABASES: Envelope<DatabaseView> = apiDatabasesJson;
+
+/** GET /api/v1/insights/users — R3.7's by-user rollup. Five rows, same 100.0
+ *  partition invariant. */
+export const FIXTURE_USERS: Envelope<UserView> = apiUsersJson;
+
+/** GET /api/v1/insights/client-addresses — R3.7's by-client-address rollup, the
+ *  surface R6.4's (b) names for the pooler-attribution fix. Three rows, one of them
+ *  the literal `local` that `--pooler-attribution=cloudsql` renders. */
+export const FIXTURE_CLIENT_ADDRESSES: Envelope<ClientAddressView> = apiClientAddressesJson;
 
 /** Now read from the contract instead of being a second copy of it. The old
  *  value ("2026-11-20T11:04:12Z") was invented here; the contract's is

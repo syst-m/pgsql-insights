@@ -348,7 +348,7 @@ export async function fetchQueries(
     // The one query fixture the contract has, and the params are ignored on this
     // arm exactly as `fetchFleet` ignores them when serving a fleet fixture:
     // R10.12's named states are fleet-side, so there is no named set to choose
-    // between here. The two arms reach `QueryResponse` (types.ts:1002) by
+    // between here. The two arms reach `QueryResponse` (types.ts:1049) by
     // different functions — this one returns the `FIXTURE_QUERIES` constant, which
     // fixtures.ts builds with `toQueriesResponse(apiQueriesJson,
     // apiQueriesJson.pgStatStatements)`, and the http arm parses with
@@ -449,7 +449,7 @@ export type QuerySeriesParams = {
  *  column and the one R10.7's detail chart reuses with a batch of one.
  *
  *  Returns `QuerySeriesEnvelope` — `dto.QuerySeriesEnvelope` verbatim, the
- *  alias over `Envelope<QuerySeries>` (types.ts:707), not a re-typed copy of
+ *  alias over `Envelope<QuerySeries>` (types.ts:716), not a re-typed copy of
  *  it — because the route serves the generic envelope and the alias is its
  *  published name on both sides. `points` is `[]` and never null (R8.3):
  *  `parseEnvelope(json, parseQuerySeries)` is what enforces it, since

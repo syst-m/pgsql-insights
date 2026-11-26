@@ -21,7 +21,7 @@ import { expect, test } from "@playwright/test";
 import type { FixtureName } from "../src/api/client";
 // The R16.8 contract file, imported rather than retyped — see the query-detail
 // entry below. The attribute is what makes the same import work in Node and in
-// Vite; `fixtures.ts:80` (`FIXTURE_QUERY_DETAIL`) is the app-side alias for it.
+// Vite; `fixtures.ts:86` (`FIXTURE_QUERY_DETAIL`) is the app-side alias for it.
 import apiQueryDetailJson from "../../testdata/api/query-detail.json" with { type: "json" };
 
 /** One screenshot target: the name the baseline png is keyed on, and the URL

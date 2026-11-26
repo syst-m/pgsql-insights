@@ -257,7 +257,7 @@ export function parseQueryView(raw: unknown): QueryView {
  *
  *  The inherited half is checked by `parseQueryView`, not restated. The dto
  *  embeds `QueryView` in `QueryDetailView` (queries.go:241) and the TS mirror
- *  extends it (types.ts:582), so the six identity fields and the eight
+ *  extends it (types.ts:591), so the six identity fields and the eight
  *  `LoadColumns` get exactly the checks the list route applies to them — one
  *  copy of the field list, which is R16.8's whole point.
  *
@@ -372,7 +372,7 @@ function checkQuerySeriesPoint(raw: unknown, where: string, index: number): void
 /** Check one `/insights/tags` row and name it in the error.
  *
  *  The mirror of `dto.TagView` (queries.go:540), and the parser `fetchTags`'s
- *  http arm needs so that arm stops casting: `fixtures.ts:115` has typed the
+ *  http arm needs so that arm stops casting: `fixtures.ts:121` has typed the
  *  tags fixture `Envelope<TagView>` since the fixture landed, and
  *  `parseEnvelope(json, parseTagView)` is what makes the live arm return the type
  *  the fixture arm already returns. That is R16.8's point applied to the client:
@@ -739,7 +739,7 @@ export function parseTerminateResponse(raw: unknown): TerminateResponse {
 }
 
 /** Check one row of R3.1's presence report — `ExtensionPresenceView` at
- *  types.ts:537, `dto/queries.go:270` as of `e4ea88c`.
+ *  types.ts:546, `dto/queries.go:270` as of `e4ea88c`.
  *
  *  `installed` is the only place the third state lives, and the reason `null` is a
  *  contract error here rather than the not-known encoding: the Go field is `*bool`
@@ -878,7 +878,7 @@ export function toFleetResponse(env: Envelope<ClusterView>, extras: Record<strin
  *  endpoint costs a row parser and a builder, not a new shape family.
  *
  *  `pgStatStatements` is the second parameter for the same reason `toFleetResponse`
- *  takes `extras`: `Envelope<T>` is `data` + `meta` and "nothing else" (types.ts:156),
+ *  takes `extras`: `Envelope<T>` is `data` + `meta` and "nothing else" (types.ts:165),
  *  and a per-route key beside `data` belongs to the route, not to the shared shell.
  *  The default of `[]` keeps the envelope-only call sites — `emptyEnvelope`, the
  *  fixture before its `-update`, every test that builds a page from an envelope

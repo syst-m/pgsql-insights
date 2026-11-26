@@ -53,6 +53,15 @@
  *                   `testdata/api/active-queries.json` and
  *                   `testdata/api/sessions-terminate.json`, imported by
  *                   fixtures.ts.
+ *                   The fifth block — `DatabaseView`, `UserView` and
+ *                   `ClientAddressView` — mirrors
+ *                   `internal/api/dto/dimensions.go` (A1's `82d73e7`, R3.7's
+ *                   by-database, by-user and by-client-address rollups). Its
+ *                   pins are `testdata/api/databases.json`, `users.json` and
+ *                   `client-addresses.json`, imported by fixtures.ts; the three
+ *                   routes are still `api/x-planned-paths.yaml:147-149`, so the
+ *                   types land ahead of the handlers and `client.ts` gains no
+ *                   fetcher until A2 serves them.
  *
  *   presentation  — `FleetRow`, what the Fleet table actually draws: a
  *                   ClusterView plus the fields the UI computes or owns and
@@ -906,6 +915,44 @@ export interface TerminateResponse {
   terminated: boolean;
   actor: string;
   target: string;
+}
+
+/* ── wire: internal/api/dto/dimensions.go ───────────────────────────────── */
+
+/** One row of `GET /api/v1/insights/databases` — R3.7's by-database rollup, the
+ *  row R10.3's Databases page renders. Mirrors `dto.DatabaseView`. */
+export interface DatabaseView extends LoadColumns {
+  /** `datname`. */
+  database: string;
+  /** R3.7's lock wait, sourced at rollup level from `pg_locks` +
+   *  `pg_stat_activity`. The per-query view has no source for this (see
+   *  `LoadColumns`), the rollup does, and that asymmetry is the spec's. */
+  lockWaitMs: number;
+}
+
+/** One row of `GET /api/v1/insights/users` — R3.7's by-user rollup, the row
+ *  R10.3's Users page renders. Mirrors `dto.UserView`. */
+export interface UserView extends LoadColumns {
+  /** `usename`. */
+  userName: string;
+  /** R3.7's lock wait, sourced at rollup level from `pg_locks` +
+   *  `pg_stat_activity`; R3.7 names the database/user level explicitly. */
+  lockWaitMs: number;
+}
+
+/** One row of `GET /api/v1/insights/client-addresses` — R3.7's by-client-address
+ *  rollup, and one of the two surfaces R6.4 names as in scope for its
+ *  pooler-attribution fix ("...and (b) the R3.7 by-client-address rollup, which
+ *  Cloud SQL itself models as a separate dimension"). Mirrors
+ *  `dto.ClientAddressView`. */
+export interface ClientAddressView extends LoadColumns {
+  /** `client_addr`. Under `--pooler-attribution=cloudsql` this is the literal
+   *  `local` Google renders; under `pgbouncer` it is the real address
+   *  `SHOW CLIENTS` maps the backend to. */
+  clientAddress: string;
+  /** R3.7's lock wait, sourced at rollup level from `pg_locks` +
+   *  `pg_stat_activity`. */
+  lockWaitMs: number;
 }
 
 /* ── presentation ────────────────────────────────────────────────────────── */
