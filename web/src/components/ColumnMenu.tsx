@@ -121,6 +121,18 @@ export const DEFAULTS: Record<string, readonly string[]> = {
   // against one category, `totalExecTimeMs` is `avgExecTimeMs × timesCalled`,
   // and `loadByCPUMs` / `loadByIOWaitMs` / `lockWaitMs` are the three
   // breakdowns of a total already on screen.
+  // The Wait Events page (R10.9). Its chart draws buckets, not rows, so this set
+  // governs the session table under the chart; it is `WAIT_EVENTS_DEFAULTS`
+  // (web/src/pages/WaitEvents.tsx:93), the same pairing `fleet` has with
+  // `COLUMNS` and `queries` has with `QUERY_COLUMNS`.
+  "wait-events": [
+    "pid",
+    "waitEvent",
+    "query",
+    "status",
+    "database",
+    "action",
+  ],
   tags: [
     "tagHash",
     "application",

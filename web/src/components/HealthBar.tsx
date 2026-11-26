@@ -76,7 +76,7 @@ export function measureText(text: string, fontSize = LABEL_FONT): number {
 /** A rect with square left corners and `r`-rounded right corners: the bar's
  *  overall shape, so the rounded end lands on the data end and the baseline
  *  stays square (marks-and-anatomy). */
-function dataEndPath(w: number, h: number, r: number): string {
+export function dataEndPath(w: number, h: number, r: number): string {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   if (radius === 0) return `M 0 0 H ${w} V ${h} H 0 Z`;
   return [

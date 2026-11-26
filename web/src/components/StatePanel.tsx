@@ -154,6 +154,48 @@ export function deriveActivePanelState(input: ActivePanelInput): PanelState {
   return "ready";
 }
 
+export interface WaitEventsPanelInput {
+  phase: FetchPhase;
+  /** The last good payload, if any. Present during a background refetch.
+   *
+   *  The same `ActiveQueriesResponse` the Active Queries page renders. The
+   *  ruling on this route is that there is no wait-events DTO — the page groups
+   *  this payload rather than fetching its own — so this field is the payload the
+   *  chart buckets, and when a `WaitEventsResponse` lands it becomes a sixth
+   *  input beside this one rather than a rename of it. */
+  active: ActiveQueriesResponse | null;
+  /** Set when the fetch failed. */
+  error?: string;
+}
+
+/** The Wait Events page's rule (R10.9).
+ *
+ *  The fifth derivation over the one `PanelState` union — after `:41`, `:92`,
+ *  `:139` and the tags one below — and it is the same six lines as
+ *  `deriveActivePanelState` apart from the field name, for the reason those two
+ *  are the same as `deriveQueryPanelState`: the rule is over a payload *shape*
+ *  (a phase, a nullable payload, an optional error) and there are now five
+ *  shapes. A generic over `data` is the alternative the file already rejected.
+ *
+ *  `unavailable` is unreachable here for the same reason it is on the Active
+ *  Queries page: the read needs only `CONNECT`, so there is no
+ *  extension-not-installed case to render, and the key stays because the copy
+ *  table is a `Record` over every non-ready state. */
+export function deriveWaitEventsPanelState(input: WaitEventsPanelInput): PanelState {
+  const { phase, active } = input;
+
+  if (phase === "idle" || phase === "loading") {
+    return active === null ? "loading" : "partial";
+  }
+  if (phase === "error") {
+    return active === null ? "error" : "partial";
+  }
+  if (active === null) return "loading";
+  if (active.data.length === 0) return "empty";
+  if (partialBanner({ meta: active.meta, data: active.data }) !== null) return "partial";
+  return "ready";
+}
+
 export interface TagsPanelInput {
   phase: FetchPhase;
   /** The last good payload, if any. Present during a background refetch.
@@ -334,6 +376,46 @@ export const ACTIVE_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   error: {
     title: "Could not load the active sessions",
     body: "GET /api/v1/active-queries did not answer for this cluster.",
+    action: "Retry",
+  },
+};
+
+/** The Wait Events page's copy table (R10.9).
+ *
+ *  Fifth table, same six states. Two cells are worth reading rather than
+ *  copying:
+ *
+ *  · `empty` is not the Active Queries page's good news. "No active sessions"
+ *    there means nothing is running; here the chart also has nothing to bucket,
+ *    and the two readings differ because a session can be idle *and* waiting.
+ *    The body says which one the reader is looking at.
+ *  · `error` names the route the page actually calls
+ *    (`GET /api/v1/active-queries`), not the one its route row advertises
+ *    (`GET /api/v1/insights/wait-events`, `web/src/routes.ts:228`). The copy has
+ *    to describe the request that failed, and the advertised one does not exist
+ *    yet — see the payload note on `WaitEventsPanelInput`. */
+export const WAIT_EVENTS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
+  loading: {
+    title: "Reading pg_stat_activity",
+    body: "The first read for this cluster has not answered yet.",
+  },
+  empty: {
+    title: "No sessions to bucket",
+    body: "The cluster reported no sessions, so there is nothing to group by wait event. A session that is not waiting is still its own bucket when other sessions exist; with no sessions at all the chart has no bar to draw.",
+    action: "Refresh",
+  },
+  partial: {
+    title: "Partial results",
+    body: "The read returned fewer sessions than the scorecard counts, so the buckets are built from a page of the answer rather than all of it.",
+  },
+  unavailable: {
+    title: "pg_stat_activity is not readable",
+    body: "The cluster answered but returned no session set. The read needs only CONNECT, so this is RBAC or a paused instance rather than a missing extension.",
+    action: "Retry",
+  },
+  error: {
+    title: "Could not load the sessions",
+    body: "GET /api/v1/active-queries did not answer for this cluster. The Wait Events route has no endpoint of its own yet, so this page reads the Active Queries payload and groups it.",
     action: "Retry",
   },
 };
