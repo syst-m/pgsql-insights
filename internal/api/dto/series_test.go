@@ -177,7 +177,7 @@ func TestQuerySeriesFixtureCoversBothLabelShapes(t *testing.T) {
 			withPod++
 			// api/openapi.yaml's QuerySeries.instanceRole is `enum: [primary,
 			// replica]` — narrower than InstanceRole, which adds "unhealthy"
-			// for R1.2's up-but-postgres-not-running pod. types.ts:655 names
+			// for R1.2's up-but-postgres-not-running pod. types.ts:732 names
 			// that: a series belongs to an instance that was primary or replica
 			// at sample time, and "unhealthy" is not a role a series can belong
 			// to. A fixture value outside the enum is a payload the document
