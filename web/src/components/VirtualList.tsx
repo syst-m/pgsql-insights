@@ -1,12 +1,12 @@
 /* R10.18 — virtualization and density, as one primitive.
  *
- * `requirements.md:430` (R10.18) requires "**Table virtualization + density
+ * `requirements.md:431` (R10.18) requires "**Table virtualization + density
  * toggle** (compact / comfortable) on every table that can exceed 100 rows, so
  * R10.14's budget survives a 500-row page."
  *
  * Two things follow from the wording that decide the shape of this file:
  *
- * 1. **"every table"**, not "the big tables". R8.10 (`requirements.md:387`) caps
+ * 1. **"every table"**, not "the big tables". R8.10 (`requirements.md:388`) caps
  *    a page at `?limit=` 500, so every list endpoint can return more than 100
  *    rows and therefore every table in the app needs this. That is why it is a
  *    primitive rather than a detail of the Queries table — and it is the reason

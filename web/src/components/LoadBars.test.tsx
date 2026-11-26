@@ -63,13 +63,13 @@ describe("LoadBar", () => {
 });
 
 describe("the two non-bar states", () => {
-  it("renders R3.2's lock-wait literal exactly as `requirements.md:308` spells it", () => {
+  it("renders R3.2's lock-wait literal exactly as `requirements.md:309` spells it", () => {
     expect(LOCK_WAIT_NA).toBe("n/a (no per-query source, §5)");
     const { container } = render(<LoadNotApplicable text={LOCK_WAIT_NA} />);
     expect(container.textContent).toBe(LOCK_WAIT_NA);
   });
 
-  it("renders the Gap marker exactly as `requirements.md:308` spells it", () => {
+  it("renders the Gap marker exactly as `requirements.md:309` spells it", () => {
     expect(ANALYZE_LATENCY_GAP).toBe("deferred (Gap — auto_explain, §5)");
   });
 

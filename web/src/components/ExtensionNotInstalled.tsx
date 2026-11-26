@@ -20,7 +20,7 @@
  * Everything rendered is from the spec, because an empty screen is the easiest
  * place in the product to invent something:
  *
- *  - the four steps and their order are R3.15's (`requirements.md:321`):
+ *  - the four steps and their order are R3.15's (`requirements.md:322`):
  *    **detect** (R3.1) → **offer** (UI action + `pgsi enable
  *    pg-stat-statements --cluster X`, gated behind R12.8's `--allow-actions`) →
  *    **patch** `spec.parameters.shared_preload_libraries` (documented diff,
@@ -34,7 +34,7 @@
  *    extension "pg_stat_statements" is not loaded` — because
  *    `shared_preload_libraries` is postmaster-level and empty by default on all
  *    three reachable clusters);
- *  - the "expected, not an incident" framing is K2's (`requirements.md:811`) and
+ *  - the "expected, not an incident" framing is K2's (`requirements.md:812`) and
  *    R10.12's own distinction between "no source configured" and "the collector
  *    ran and failed" — the former is expected on every reachable cluster, the
  *    latter is an incident.

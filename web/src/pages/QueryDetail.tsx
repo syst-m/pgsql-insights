@@ -26,7 +26,7 @@
  * The route addresses `(namespace, cluster, fingerprint)` plus optional `?db=`
  * and `?user=`; with both omitted the header's `database` and `user` name the
  * highest-`total_exec_ms` `(datname, usename)` pair that fingerprint has in that
- * cluster, ties broken lexicographically (`requirements.md:418`, A3's ruling on
+ * cluster, ties broken lexicographically (`requirements.md:419`, A3's ruling on
  * the question `internal/api/query_detail.go:93` routed). Two things follow, and
  * both are handled by keeping param extraction in one exported function:
  *

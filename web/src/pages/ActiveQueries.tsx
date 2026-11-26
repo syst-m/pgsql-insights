@@ -1,6 +1,6 @@
 /* The Active Queries page (R10.8).
  *
- * R10.8's sentence (`requirements.md:420`) names four things and this file owns
+ * R10.8's sentence (`requirements.md:421`) names four things and this file owns
  * all four: the **live table** (R4.1), the **15 s auto-refresh indicator**,
  * **row expansion to the blocking chain**, and the **Terminate action behind
  * the R4.5 gate**. The route entry is `routes.ts:212-222` (`page: "active"`,
@@ -28,7 +28,7 @@
  *
  * ── the Action cell, and which requirement gates it ────────────────────────
  *
- * The gate is **R4.5** (`requirements.md:331`, `--allow-actions`, generalized
+ * The gate is **R4.5** (`requirements.md:332`, `--allow-actions`, generalized
  * by R12.8 at `:473`) — not R4.6, which is the idle-in-transaction-age and
  * `backend_type` row at `:331` and which this page satisfies with two columns
  * (`transactionDurationSeconds`, `backendType`) rather than with a button.

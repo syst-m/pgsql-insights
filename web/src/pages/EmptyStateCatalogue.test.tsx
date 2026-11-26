@@ -1,6 +1,6 @@
 /* R10.28's empty-state catalogue, as one artifact instead of as prose.
  *
- * `requirements.md:440` is a list: "an enumerated, designed state for every
+ * `requirements.md:441` is a list: "an enumerated, designed state for every
  * combination the reference environment produces — healthy 2-instance,
  * single-instance, Pending replica, **CrashLoopBackOff on a CR that reports
  * healthy** (R1.2), no Pooler, PG16 vs PG17 column differences, and

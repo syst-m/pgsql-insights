@@ -1,13 +1,13 @@
 /* R10.6 — the inline load bars, and the three states that are not bars.
  *
- * `requirements.md:418` (R10.6) names them outright: the Queries page is "the R3.2
+ * `requirements.md:419` (R10.6) names them outright: the Queries page is "the R3.2
  * table with sparklines per row …, **inline load bars**, filter chips …". So the
  * form is named by the requirement and not chosen here — which settles the
  * dataviz `choosing-a-form` question ("a single value wants a stat tile, not a
  * one-bar chart"): inside a table cell the requirement's answer is a meter, and
  * a meter is the form for a value with a known whole.
  *
- * ── Which columns are bars, from `requirements.md:308` (R3.2) ──────────────
+ * ── Which columns are bars, from `requirements.md:309` (R3.2) ──────────────
  *
  *   Load by total time   bar    per-query sourced
  *   % load by Queries    bar    per-query sourced
@@ -19,12 +19,12 @@
  *   Analyze latency      —      deferred, marked **Gap** (Cloud SQL sources it
  *                                from auto_explain)
  *
- * The lock-wait cell is the part worth a comment. `requirements.md:308` says the
+ * The lock-wait cell is the part worth a comment. `requirements.md:309` says the
  * column "has **no per-query source** (`pg_stat_statements` has no lock-time
  * column — §5 divergence table) and renders `n/a (no per-query source, §5)`",
- * and `requirements.md:676` repeats it as 6b's acceptance test ("Queries page
+ * and `requirements.md:677` repeats it as 6b's acceptance test ("Queries page
  * renders the R3.2 column set exactly (incl. `Load by lock wait` = `n/a`)").
- * `requirements.md:858-861` records the ruling: A4 argued all three load columns
+ * `requirements.md:859-862` records the ruling: A4 argued all three load columns
  * were unavailable per query, A3 showed IO wait *is* derivable, so only lock
  * wait is missing. The coordinator's ruling on my proposal is that the field is
  * absent from the DTO and the UI supplies the literal — which is the same shape
@@ -32,12 +32,12 @@
  * `LOCK_WAIT_NA` below is that single source so the string can't drift.
  *
  * It must not be rendered as `—`. `—` is R10.4's marker for "source has not run
- * yet" (`requirements.md:416`); this source will never run. The two states mean
+ * yet" (`requirements.md:417`); this source will never run. The two states mean
  * opposite things and share a glyph only in a careless implementation.
  *
  * ── R10.19 interaction contract, for this chart type ──────────────────────
  *
- * R10.20's sibling R10.19 (`requirements.md:431`) requires the contract "stated
+ * R10.20's sibling R10.19 (`requirements.md:432`) requires the contract "stated
  * per chart type rather than left to the library default":
  *   - tooltip: the column name and the exact value, e.g. `Load by IO wait —
  *     842 ms`; a derived column also names its source, because "derived" is the
@@ -67,7 +67,7 @@
 
 import { NULL_VALUE } from "../lib/format";
 
-/** R3.2's literal, verbatim from `requirements.md:308`. Exported so the table,
+/** R3.2's literal, verbatim from `requirements.md:309`. Exported so the table,
  *  the tests and the acceptance cell all agree on one spelling. */
 export const LOCK_WAIT_NA = "n/a (no per-query source, §5)";
 
@@ -122,7 +122,7 @@ export function LoadNotApplicable({ text }: { text: string }) {
  *  *re-validated*, not first validated, when the source lands.
  *
  *  Distinct from `LoadNotApplicable` on purpose: `—` means "not yet", the `n/a`
- *  literal means "not ever". R10.4 (`requirements.md:416`) defines the marker for
+ *  literal means "not ever". R10.4 (`requirements.md:417`) defines the marker for
  *  the Fleet columns; this is the same marker, not a second one. */
 export function LoadSourcePending({ source }: { source: string }) {
   return (

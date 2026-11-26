@@ -113,7 +113,7 @@ describe("the documented default set (R10.20)", () => {
     // columns and the documented default are the same list, so a column added to
     // one and not the other fails here.
     //
-    // The set is R3.2's thirteen (`requirements.md:308`) *including* the two it
+    // The set is R3.2's thirteen (`requirements.md:309`) *including* the two it
     // marks as having no per-query value. An earlier default omitted them —
     // nine keys, on the reading that a column rendering `n/a (no per-query
     // source, §5)` doesn't need to be on by default. §9's 6b acceptance is the

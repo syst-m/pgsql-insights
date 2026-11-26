@@ -1,6 +1,6 @@
 /* The Queries table (R10.6) — and the reason `useVirtualWindow` exists.
  *
- * `requirements.md:418` (R10.6) is one sentence with five features in it: "the
+ * `requirements.md:419` (R10.6) is one sentence with five features in it: "the
  * R3.2 table with sparklines per row (served by R8.11's batched endpoint, not 50
  * requests), inline load bars, filter chips (database, user, tag), search over
  * normalized text, and a saved-view concept". This file is the table; the chips
@@ -18,7 +18,7 @@
  *
  * ── columns ────────────────────────────────────────────────────────────────
  *
- * `QUERY_COLUMNS` is R3.2's thirteen (`requirements.md:308`), in R3.2's order and
+ * `QUERY_COLUMNS` is R3.2's thirteen (`requirements.md:309`), in R3.2's order and
  * with R3.2's names, plus R10.6's fourteenth (the per-row sparkline) appended
  * last so the thirteen keep the order §9's 6b acceptance asserts. It is the same
  * list `ColumnMenu`'s `DEFAULTS.queries` documents — the two are one fact and
@@ -110,7 +110,7 @@ export type QueryColumnKey = QuerySortKey | "loadByLockWait" | "analyzeLatency" 
 export interface QueryColumn {
   key: QueryColumnKey;
   /** R3.2's own wording for the column, so the header can be checked against
-   *  `requirements.md:308` by reading it. */
+   *  `requirements.md:309` by reading it. */
   label: string;
   /** Right-align and use tabular figures — every numeric column. */
   numeric?: boolean;
@@ -132,7 +132,7 @@ export interface QueryColumn {
  *
  *  R10.6 names the sparkline in the same sentence as the table itself ("the R3.2
  *  table with sparklines per row, served by R8.11's batched endpoint, not 50
- *  requests"), but R3.2's own list at `requirements.md:308` does not have such a
+ *  requests"), but R3.2's own list at `requirements.md:309` does not have such a
  *  column, so it is appended after the thirteen rather than inserted among them —
  *  §9's 6b acceptance checks the thirteen's order, and an insertion in the middle
  *  of that list fails it for a column the requirement never ordered.
