@@ -1,0 +1,199 @@
+# R15.2 — the release half: the `:vX.Y.Z` + `:latest` image pair and a GitHub
+# Release per tag with the SBOM attached (requirements.md:513).
+#
+# Why a second workflow file and not a `release` job inside ci.yml (the
+# coordinator's ruling, 2026-11-26): ci.yml's trigger is `push: branches: [main]`
+# + `pull_request: branches: [main]` + `workflow_dispatch` (:8-13), and a tag push
+# matches none of the three — so cutting v0.1.0 today runs no pipeline at all,
+# which is the half of R15.2 its row calls "gated on that merge". Adding
+# `tags: [v*]` to ci.yml instead would run all six of its jobs on the tag and
+# take the *PR* build path (:239's `if: github.ref != 'refs/heads/main'` is true
+# for a tag ref), building an OCI tarball and publishing nothing. A separate file
+# needs no edit to A2's ci.yml at all, and it keeps ci.yml's `:dev`/`:sha` publish
+# path (:243-250) apart from R15.2's `:vX.Y.Z`/`:latest` path — the same
+# two-version-space split requirements.md:513 draws for the spec and the product.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+# No workflow_dispatch, unlike ci.yml:13. This file derives the published tag from
+# GITHUB_REF_NAME, and a dispatched run's ref is whatever branch you pick —
+# dispatching against main would try to publish `:main`. ci.yml can afford the
+# input because its published version is a constant (:246 hardcodes 0.1.0-dev).
+permissions:
+  # ci.yml:15-16 sets `contents: read`, and that block is per-workflow, not
+  # repo-wide — it is not inherited here, and creating a Release needs write.
+  contents: write
+
+env:
+  # Duplicated from ci.yml:28 because GitHub's `env:` is per-workflow. The assert
+  # step below is what keeps the two copies honest: it compares the tag-derived
+  # version against chart/Chart.yaml, and chart/values.yaml's registry default
+  # against this repo string, so a drift between ci.yml's and this file's copy
+  # fails the release instead of publishing an image the chart cannot pull.
+  IMAGE_REPO: ghcr.io/frankellis/pgsql-insights
+  HELM_VERSION: "v4.3.1"
+  # Pinned for the reason ci.yml:22-24 gives for GO_LICENSES_VERSION — "an
+  # unpinned resolver changes the license strings it reports, and the report is a
+  # committed file". A release artifact is more so: the SBOM attached to v0.1.0 has
+  # to be reproducible after the fact, and syft's output is not stable across
+  # versions (the file inventory of a distroless base changes with its parser).
+  SYFT_VERSION: "v1.57.2"
+
+jobs:
+  release:
+    name: publish and release (R15.2)
+    runs-on: ubuntu-latest
+    # A tag points at a commit that already went through ci.yml — its
+    # `push: branches: [main]` trigger ran when that commit landed on main, and
+    # ci.yml's image job has `needs: [build, lint, test, web, helm]` (:226). This
+    # job runs no gates of its own beyond the asserts below, which mirrors ci.yml's
+    # own main-path publish step (:243-250): it builds and pushes without
+    # re-running the R11.4 size gate that the PR path runs at :249. The practice
+    # that closes the gap is cutting the tag only on a commit whose ci.yml run is
+    # green, not a setting in this file.
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- the version string: written once, on the tag; derived or asserted
+      # everywhere else ----------------------------------------------------
+      # requirements.md:513 — "`:vX.Y.Z` resolves to `:v0.1.0` + `:latest`". The
+      # tag carries the `v`; the binary's ldflags string and Chart.yaml's
+      # appVersion do not (ci.yml:246 publishes `0.1.0-dev`, not `v0.1.0-dev`, and
+      # D6 keeps the two forms distinct). So the tag is the only place the release
+      # version is authored, and every other copy is derived from it or checked
+      # against it — which is the R15.2 "named and versioned from day one" clause
+      # made mechanical.
+      - name: derive the version from the tag
+        id: version
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          # The trigger's `v*` glob admits `vabc`, `v1.2` and `v0.1.0-dev`; this
+          # admits exactly vX.Y.Z and stops the job before it tags an image `:vabc`.
+          # The shape is R15.2's, not a style choice — requirements.md:513 names the
+          # scheme as `:vX.Y.Z`, and ci.yml:246 publishes the dev string `0.1.0-dev`
+          # from main, so a `-dev` tag reaching here would publish a second copy of
+          # the dev build as if it were a release. Pre-releases (v0.2.0-rc1) are
+          # rejected for the same reason: R15.2 has no prerelease tier, so adding one
+          # is a spec change before it is a workflow change.
+          if ! printf '%s' "$ref" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$ref' is not a vX.Y.Z version (R15.2's tag scheme)"
+            exit 1
+          fi
+          echo "tag=$ref" >> "$GITHUB_OUTPUT"
+          echo "version=${ref#v}" >> "$GITHUB_OUTPUT"
+
+      # ---- the chart half of R15.2's sentence -----------------------------
+      # chart/Chart.yaml:10 says "Chart version — bumped by the release pipeline,
+      # never by hand during development", and this file *is* that pipeline. A
+      # tag-triggered run cannot bump a file the tag already points at without
+      # stranding the tag on the pre-bump commit, so the bump happens in the
+      # release-prep commit and this step asserts it happened. That converts
+      # R15.2's "Helm chart version vs. appVersion policy" from a paragraph into a
+      # check: an image tagged v0.1.0 whose chart still says 0.1.0-dev fails here.
+      #
+      # It reads chart/Chart.yaml with a regex rather than `helm show chart`: helm
+      # 4.3.1 has no `--format` flag on `show chart` (measured locally at
+      # helm v4.3.1+gc0d08d0 — `unknown flag: --format`, rc=1), and its stdout is a
+      # re-serialised document, not the file. The two fields are checked
+      # separately, not collapsed, because R15.2's ruling makes them two version
+      # spaces and Chart.yaml's own comments give them different rules (:10 "Chart
+      # version — bumped by the release pipeline, never by hand during
+      # development"; :12 "The pgsi binary version this chart ships (R11.3 keeps
+      # this in sync with the ldflags-injected version and the OCI labels)"):
+      #
+      #   appVersion must equal the tag's version — that is R11.3's sync rule, and
+      #     the field that can drift silently, since the image tag comes from git
+      #     and this string is edited by hand.
+      #   version must exist and not be a -dev string — the release pipeline's own
+      #     bump, asserted rather than assumed, without requiring it to equal
+      #     appVersion (a chart-only fix to app 0.1.0 ships chart 0.1.1).
+      - name: assert Chart.yaml agrees with the tag
+        run: |
+          python3 - chart/Chart.yaml "${{ steps.version.outputs.version }}" <<'PY'
+          import re, sys
+          path, want = sys.argv[1], sys.argv[2]
+          text = open(path, encoding="utf-8").read()
+          got = dict(re.findall(r'^(version|appVersion):\s*"?([^"\n]+)"?',
+                               text, re.M))
+          app = got.get("appVersion")
+          if app != want:
+              sys.exit(f"FAIL: chart/Chart.yaml appVersion={app!r}, tag says "
+                       f"{want!r} — R11.3 keeps appVersion in sync with the "
+                       f"ldflags-injected version, and this build injects the tag")
+          ver = got.get("version")
+          if ver is None or ver.endswith("-dev"):
+              sys.exit(f"FAIL: chart/Chart.yaml version={ver!r} — a release tag "
+                       f"needs the released chart version (Chart.yaml:10: bumped "
+                       f"by the release pipeline, never by hand during "
+                       f"development)")
+          print(f"ok: appVersion={app} matches tag {want}; chart version={ver}")
+          PY
+
+      - name: Set up Helm ${{ env.HELM_VERSION }}
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      # ---- the image ------------------------------------------------------
+      - name: Set up BuildKit
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container   # same as ci.yml:243; required for multi-arch
+      - name: Log in to ghcr.io
+        run: >-
+          echo "${{ secrets.GITHUB_TOKEN }}"
+          | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: build and push :vX.Y.Z and :latest
+        # R11.2's two platforms and D6's full-SHA COMMIT, both copied from
+        # ci.yml:245-246 so the release image is built the same way the :dev image
+        # is; only VERSION differs, and it comes from the tag rather than from the
+        # 0.1.0-dev constant ci.yml uses.
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="${{ steps.version.outputs.version }}" \
+            --build-arg COMMIT="${GITHUB_SHA}" \
+            -t "${{ env.IMAGE_REPO }}:${{ steps.version.outputs.tag }}" \
+            -t "${{ env.IMAGE_REPO }}:latest" \
+            --push .
+          docker buildx imagetools inspect \
+            "${{ env.IMAGE_REPO }}:${{ steps.version.outputs.tag }}"
+
+      # ---- the SBOM (R15.2: "a GitHub Release per tag with the SBOM attached")
+      # A3 owns which artifact satisfies this clause — their ruling is pending on
+      # the choice between this (syft on the built image, SPDX JSON) and attaching
+      # R15.3's committed `docs/licenses/` audit. This is the step that changes if
+      # they rule the latter; nothing else in the file does.
+      - name: SBOM the published image (syft, pinned)
+        uses: anchore/sbom-action@v0.24.4
+        with:
+          image: ${{ env.IMAGE_REPO }}:${{ steps.version.outputs.tag }}
+          registry-login: true
+          registry: ghcr.io
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          syft-version: ${{ env.SYFT_VERSION }}
+          format: spdx-json
+          output-file: dist/pgsi-${{ steps.version.outputs.version }}.spdx.json
+          upload-artifact: false
+
+      # ---- the chart package ----------------------------------------------
+      # R15.2 names the chart as a distribution artifact; `helm package` derives
+      # its filename from Chart.yaml's version, which the assert step just tied to
+      # the tag, so the asset name cannot drift from the release it is attached to.
+      - name: package the chart
+        run: |
+          mkdir -p dist
+          helm package ./chart --destination dist
+
+      # ---- the GitHub Release ---------------------------------------------
+      - name: create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "pgsi ${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            dist/pgsi-*.spdx.json dist/pgsi-*.tgz
