@@ -231,13 +231,13 @@ export interface QueriesPageProps extends PageProps<QueryResponse> {
   /** R3.1's per-database `pg_stat_statements` presence, for R10.27's
    *  not-installed screen.
    *
-   *  Not on `QueryResponse` today, and not on `PageProps` — it belongs to the
-   *  cluster. It is a prop here rather than a field invented on the payload
-   *  because R16.8 pins `api/types.ts` to the Go DTO field-for-field: adding a
-   *  field to `QueryResponse` without adding it to `dto/queries.go` is a parity
-   *  break, and adding it to `PageProps` is an edit to A4's file. Optional, and
-   *  absent-means-unknown, so `routes.ts` mounting this component with plain
-   *  `PageProps<any>` needs no change to pass.
+   *  It is on the payload now — `web/src/api/types.ts:1055` declares
+   *  `pgStatStatements: ExtensionPresenceView[]` (A4's `79d4c4f`), so the
+   *  sentence that opened here, "Not on `QueryResponse` today, and not on
+   *  `PageProps`", is stale and deleted rather than reworded; the paragraph
+   *  below carries the type's history. The prop stays because `PageProps`
+   *  is A4's file and a caller with the fact outside the payload needs a
+   *  place to pass it. Optional, so `routes.ts` needs no change to pass.
    *
    *  The named type that replaces it, as written by A1 in `dto/queries.go` and
    *  confirmed by A2 on 2026-11-24 — the shape went through three forms in one

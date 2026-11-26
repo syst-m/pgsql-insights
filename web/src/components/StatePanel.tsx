@@ -85,7 +85,7 @@ export interface QueryPanelInput {
  *  this window had no queries" (R10.12's plain empty), and nothing in
  *  `QueryResponse` or `Meta` says which — R3.1's per-database presence is a
  *  `pg_extension` read that `dto/clusters.go` does not expose.
- *  `QueryPanelInput.extensionInstalled` is the interim source of that fact: the
+ *  `QueryPanelInput.extensionInstalled` is the source of that fact: the
  *  page takes it as a prop, defaults it to *unknown*, and unknown renders the
  *  plain empty. The R10.27 screen renders on an explicit `false`, which is what
  *  `pages/Queries.test.tsx` passes to render it. */
@@ -210,7 +210,7 @@ export interface TagsPanelInput {
   error?: string;
   /** R3.1's per-database presence. The tags envelope does not carry it —
    *  `dto.ExtensionPresenceView` is on the *queries* route — so this is the
-   *  same interim `QueryPanelInput.extensionInstalled` is, with the same
+   *  same shape `QueryPanelInput.extensionInstalled` has, with the same
    *  default of *unknown*. */
   extensionInstalled?: boolean;
 }

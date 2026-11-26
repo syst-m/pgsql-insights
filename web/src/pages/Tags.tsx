@@ -94,7 +94,7 @@
  * and this is a page-level one, so the catalogue is the one place both kinds
  * are listed.
  *
- * `extensionInstalled` is the interim `pages/Queries.tsx:45` carries too. The
+ * `extensionInstalled` is the sibling of the prop `pages/Queries.tsx:45` carries.
  * tags envelope has no presence field — R3.1's per-database detection is
  * `dto.ExtensionPresenceView`, which A1 added at `dto/queries.go:268` for the
  * *queries* route — so `unavailable` renders on an explicit `false` and every
