@@ -1,4 +1,4 @@
-/* The Query Detail hook — `fetchQueryDetail` (client.ts:323) behind R10.22's
+/* The Query Detail hook — `fetchQueryDetail` (`client.ts:387`) behind R10.22's
  * refetch envelope.
  *
  * Copied from `useFleet.ts` (read 2026-11-23, the 76-line file as of `dd0b1ed`):
