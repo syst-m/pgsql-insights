@@ -77,19 +77,19 @@ type DatabaseView struct {
 // UserName is pg_roles.rolname as pg_stat_activity surfaces it in `usename`,
 // spelled `userName` as it is at internal/api/dto/sessions.go:103.
 //
-// Flagged for A3: TagView (queries.go:624) spells the same column `user`. The two
-// are not reconcilable by editing one and re-running -update — TagView's name comes
-// from R3.12's dimension list, which names the PG columns (`application_name`,
-// `usename`, `datname`) and whose struct drops each `_name` suffix
-// (application_name→application, usename→user, datname→database), while
-// SessionView's comes from the column itself. This struct follows SessionView:
-// R3.7's rollup groups on the role, not on a tag dimension, and `user` is a
-// reserved word in the language the field name is derived from. `userName` is also
-// the majority spelling — internal/api/dto/sessions.go:103 and
-// web/src/api/types.ts:813 both use it, and TagView is the only `user` in the
-// repo. The divergence is a finding for A3 to rule on, not a precedent to copy a
-// third time; renaming either one is a breaking change to web/src/api/types.ts and
-// belongs in the same commit as the fixture regeneration.
+// Ruled by A3 in requirements.md:314 (filed as A3's S153): there are two
+// vocabularies and what the field names decides which applies. A field naming an
+// R3.12 tag dimension takes the dimension name with the `_name` suffix dropped —
+// application, user, database (`internal/api/dto/queries.go:334`,
+// `internal/api/dto/queries.go:633`); a field naming a column read from
+// pg_stat_activity or pg_roles takes the column's camelCase form — applicationName,
+// userName, database (`internal/api/dto/sessions.go:101-103`, `internal/api/dto/dimensions.go:63`,
+// `internal/api/dto/dimensions.go:95`). `database` is the one spelling both print,
+// so the divergence stays invisible until the user/application pair. This struct is
+// in the second vocabulary: R3.7's rollup groups on the role as pg_stat_activity
+// reports it, not on a tag dimension, so `userName` is right here and TagView's
+// `user` is right there. No rename — each is correct inside its own vocabulary, and
+// renaming either is a breaking change to web/src/api/types.ts.
 type UserView struct {
 	// UserName is usename — R3.7's "by user".
 	UserName string `json:"userName"`
