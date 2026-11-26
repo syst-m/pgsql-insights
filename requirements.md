@@ -763,7 +763,7 @@ specifically; the `at 9` half is now covered by this rule rather than by the row
 | R8 | 8.1, 8.7 → **1a** *(partial)* · 8.2, 8.4, 8.5 → **3** *(partial)* · 8.1–8.9, 8.10, 8.11 → **5** *(full surface; re-validates the 1a and 3 partials)* · 8.1b, 8.1c → **5** *(the OpenAPI generation + CI clauses split out of 8.1 by D13)* |
 | R9 | 9.2–9.4, 9.7 (partial), 9.12 → **2** · 9.1, 9.6, 9.8–9.11 → **4** · 9.5, 9.5b → **3** · 9.7 (complete) → **7** · 9.13 → **6b** |
 | R10 | 10.1, 10.2, 10.4 *(inventory columns)*, 10.12, 10.16 *(page, sort)* → **1b** · 10.3, 10.4 *(metric columns + top finding)*, 10.13, 10.14, 10.15, 10.17, 10.24 → **5** · 10.8, 10.9, 10.25, 10.26 → **6a** · 10.5 *(Query load)*, 10.6, 10.7, 10.18–10.23, 10.27, 10.28 → **6b** · 10.5 *(Resource load, R5.1 cards, topology)*, 10.10 → **7** · 10.11 → **8** |
-| R11 | 11.1–11.7, 11.9–11.16 → **0** · **11.8 → 2** · (11.6 also re-validated at **5** and **9**) |
+| R11 | 11.1–11.5, 11.7, 11.9–11.16 → **0** · **11.8 → 2** · **11.6 → 0** *(also re-validated at **5** and **9**)* |
 | R12 | 12.1–12.3 → **0** *(also re-validated at **1a**)* · 12.4, 12.5 → **2** · 12.6–12.9 → **0** |
 | R13 | 13.9, 13.10 → **0** · 13.1, 13.2, 13.5, 13.11 → **2** · 13.7, 13.8 → **1a** · 13.4 → **4** · 13.3 → **4** · 13.6 → **9** |
 | R14 | 14.1 → **0** · 14.8 → **0** (updated every phase) · 14.3–14.7 → **9** · 14.2 → **every phase** · 14.9 → **1a** (first applies at the 1a/1b split) · 14.10 → **1a** (the sweep covers internal/query and internal/store, both Phase 1a) |
