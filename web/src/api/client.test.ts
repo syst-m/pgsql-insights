@@ -25,12 +25,14 @@ import {
   FIXTURE_GENERATED_AT,
   FIXTURE_TAGS,
   FIXTURE_TERMINATE_SESSION,
+  FIXTURE_POOLERS,
 } from "./fixtures";
 import {
   ApiError,
   FIXTURES,
   fetchActiveQueries,
   fetchFleet,
+  fetchPoolers,
   fetchQueries,
   fetchQueryDetail,
   fetchQuerySeries,
@@ -47,6 +49,7 @@ import {
   parseEnvelope,
   parseErrorBody,
   parseExtensionPresenceView,
+  parsePoolerView,
   parseQueriesResponse,
   parseQuerySeries,
   parseSessionView,
@@ -274,7 +277,7 @@ describe("parseQuerySeries", () => {
    *  when the fixture landed the assertions below would not change, only where the
    *  object came from. They did not change, with one exception worth naming: two of
    *  them hardcoded the old fingerprint (see `PREFIX`). A1's `8b046ef` added the
-   *  JSON and the Go test that guards it, `fixtures.ts:115` is the TS half, and
+   *  JSON and the Go test that guards it, `fixtures.ts:117` is the TS half, and
    *  `18ae97d` made the openapi example that file's bytes — so the example, the
    *  fixture and this test are one object now, which is the whole point of R16.8.
    *
@@ -286,7 +289,7 @@ describe("parseQuerySeries", () => {
 
   /** The row-identifying prefix, derived rather than spelled out.
    *
-   *  `envelope.ts:357` builds it as `raw.fingerprint.slice(0, 12)`. Two of the
+   *  `envelope.ts:451` builds it as `raw.fingerprint.slice(0, 12)`. Two of the
    *  cases below hardcoded `9f86d081884c` — the openapi example's fingerprint —
    *  so the moment the object came from the fixture instead, those two went red
    *  while every other assertion in the block stayed green. Deriving it from
@@ -1227,6 +1230,127 @@ describe("fetchTags", () => {
   });
 });
 
+describe("parsePoolerView", () => {
+  const rows = FIXTURE_POOLERS.data;
+  const row = rows[0]!;
+
+  it("parses the row the contract fixture ships and returns it unchanged", () => {
+    // One row, and it is the pooler `clusters.json` nests inside
+    // ai-api-gateway/rev-proxy-pg — the whole fleet's pgbouncer population, since
+    // R1.4 attaches one pooler per cluster that has one. `poolers.json` is derived
+    // from `clusters.json` (R16.8), so this assertion is the TS-side half of the
+    // pair the Go `TestPoolersServesTheFrozenFixture` byte-compares.
+    expect(rows).toHaveLength(1);
+    for (const r of rows) expect(parsePoolerView(r)).toEqual(r);
+  });
+
+  it("names the row by namespace/name in a missing-field error", () => {
+    // The row-identity rule every other parser follows: a bad row in a one-row
+    // payload still says which one, and the identity pair is the row's own.
+    const { readyInstances: _dropped, ...rest } = row;
+    expect(() => parsePoolerView(rest)).toThrow(ContractError);
+    expect(() => parsePoolerView(rest)).toThrow(
+      /pooler ai-api-gateway\/rev-proxy-pg-pooler: missing required field "readyInstances"/,
+    );
+  });
+
+  it("rejects a required count typed as a string, the shape a quoted number makes", () => {
+    expect(() => parsePoolerView({ ...row, instances: "2" })).toThrow(
+      /pooler ai-api-gateway\/rev-proxy-pg-pooler: field "instances" is string, expected number/,
+    );
+  });
+
+  it("accepts the seven omitempty fields absent and rejects one typed as a number", () => {
+    // The fixture row carries all seven, so the all-absent case has to be built:
+    // a pooler mid-rollout has a name, two counts and nothing else (clusters.go
+    // marks each of the seven omitempty, so absence is the documented state, not a
+    // gap). Then one present-but-mistyped field is policed, the way the tags
+    // parser polices one (a) and one (b) dimension.
+    const bare = { name: "cookbook-pg-pooler", namespace: "cookbook", instances: 1, readyInstances: 0 };
+    expect(parsePoolerView(bare)).toEqual(bare);
+    expect(() => parsePoolerView({ ...row, poolMode: 3 })).toThrow(
+      /pooler ai-api-gateway\/rev-proxy-pg-pooler: field "poolMode" is number, expected string/,
+    );
+  });
+
+  it("rejects a parameters value typed as a number, which is not the contract's map of strings", () => {
+    // R6.2's pool sizing reads these three keys, and pgbouncer's own config is a
+    // map of strings (clusters.go:388), so `"default_pool_size": 20` — the number
+    // — is a server bug a page would otherwise render as a plausible `20`.
+    expect(() =>
+      parsePoolerView({ ...row, parameters: { ...row.parameters, default_pool_size: 20 } }),
+    ).toThrow(
+      /pooler ai-api-gateway\/rev-proxy-pg-pooler: parameters\["default_pool_size"\] is number, expected string/,
+    );
+  });
+
+  it("rejects pods typed as an object, and accepts the key absent", () => {
+    // `pods` is omitempty (clusters.go:390), so absence is legal and the type is
+    // the only check; the entries themselves are not validated, for the reason
+    // `parseQuerySeries:574` gives for the arrays that are not a row's payload.
+    expect(() => parsePoolerView({ ...row, pods: {} })).toThrow(
+      /pooler ai-api-gateway\/rev-proxy-pg-pooler: field "pods" is object, expected array/,
+    );
+    const { pods: _dropped, ...rest } = row;
+    expect(parsePoolerView(rest)).toEqual(rest);
+  });
+});
+
+describe("fetchPoolers", () => {
+  const empty = { data: [], meta: { total: 0, truncated: false, generatedAt: FIXTURE_GENERATED_AT } };
+
+  it("GETs the contract path with the params it was given", async () => {
+    stub(empty);
+    await fetchPoolers(http, { namespace: "ai-api-gateway", limit: 50 });
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe(
+      "/api/v1/poolers?namespace=ai-api-gateway&limit=50",
+    );
+  });
+
+  it("sends no query string at all when every param is unset", async () => {
+    // Every param on this route is optional, so an unset one is absent from the URL
+    // rather than empty — asserted per fetcher because each route's param list is
+    // its own contract.
+    stub(empty);
+    await fetchPoolers(http);
+    expect(vi.mocked(globalThis.fetch).mock.calls[0]?.[0]).toBe("/api/v1/poolers");
+  });
+
+  it("passes a limit above the maximum through instead of clamping it (R8.10)", async () => {
+    stub(empty);
+    await fetchPoolers(http, { limit: 5000 });
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain("limit=5000");
+  });
+
+  it("returns the parsed envelope for a valid 200", async () => {
+    stub(FIXTURE_POOLERS);
+    // The fixture object itself, so the http arm and the fixture arm are shown to
+    // agree on the type by construction rather than by assertion.
+    await expect(fetchPoolers(http)).resolves.toEqual(FIXTURE_POOLERS);
+  });
+
+  it("throws ContractError on a 200 whose body is not an envelope", async () => {
+    // The `poolers` key where the wire says `data`: the presentation-shape body a
+    // hand-written client would send, and the class `parseEnvelope` exists for.
+    stub({ generatedAt: FIXTURE_GENERATED_AT, poolers: [] });
+    await expect(fetchPoolers(http)).rejects.toThrow(ContractError);
+  });
+
+  it("throws on a row the parser rejects", async () => {
+    stub({
+      data: [{ name: "rev-proxy-pg-pooler", namespace: "ai-api-gateway" }],
+      meta: { total: 1, truncated: false, generatedAt: FIXTURE_GENERATED_AT },
+    });
+    await expect(fetchPoolers(http)).rejects.toThrow(
+      /pooler ai-api-gateway\/rev-proxy-pg-pooler: missing required field "instances"/,
+    );
+  });
+
+  it("serves the poolers fixture on the fixture arm", async () => {
+    await expect(fetchPoolers(fixture)).resolves.toEqual(FIXTURE_POOLERS);
+  });
+});
+
 describe("parseSessionView", () => {
   const rows = FIXTURE_ACTIVE_QUERIES.data;
   const row = rows[0]!;
@@ -1646,6 +1770,11 @@ describe("every fetcher path is a contract path", () => {
       name: "fetchTags",
       body: emptyBody,
       call: () => fetchTags(http, { namespace: "open-webui", limit: 50 }),
+    },
+    {
+      name: "fetchPoolers",
+      body: FIXTURE_POOLERS,
+      call: () => fetchPoolers(http, { namespace: "ai-api-gateway", limit: 50 }),
     },
     {
       name: "fetchActiveQueries",

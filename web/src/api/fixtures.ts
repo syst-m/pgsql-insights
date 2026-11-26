@@ -30,6 +30,7 @@ import apiActiveQueriesJson from "../../../testdata/api/active-queries.json";
 import apiClientAddressesJson from "../../../testdata/api/client-addresses.json";
 import apiClustersJson from "../../../testdata/api/clusters.json";
 import apiDatabasesJson from "../../../testdata/api/databases.json";
+import apiPoolersJson from "../../../testdata/api/poolers.json";
 import apiQueryDetailJson from "../../../testdata/api/query-detail.json";
 import apiQueryPlansJson from "../../../testdata/api/query-plans.json";
 import apiQuerySeriesJson from "../../../testdata/api/query-series.json";
@@ -50,6 +51,7 @@ import type {
   FleetResponse,
   FleetRow,
   PlanSampleView,
+  PoolerView,
   QueryDetailView,
   QueryResponse,
   QuerySeriesEnvelope,
@@ -157,6 +159,19 @@ export const FIXTURE_USERS: Envelope<UserView> = apiUsersJson;
  *  surface R6.4's (b) names for the pooler-attribution fix. Three rows, one of them
  *  the literal `local` that `--pooler-attribution=cloudsql` renders. */
 export const FIXTURE_CLIENT_ADDRESSES: Envelope<ClientAddressView> = apiClientAddressesJson;
+
+/** GET /api/v1/poolers — R8.2's pgbouncer poolers, flattened out of the cluster
+ *  nesting (`api/openapi.yaml:969` `listPoolers`, `da2d4dc`). One row and
+ *  `meta.total: 1` equal to `data.length`, so the page is whole — the pairing
+ *  every envelope fixture is asserted on rather than trusted. Assigned, not
+ *  cast: the same one-line drift check `FIXTURE_ENVELOPE` is, so a json tag
+ *  renamed on `dto.PoolerView` (clusters.go:363) fails the typecheck here. The
+ *  row is byte-identical to the one `clusters.json` nests inside
+ *  `ai-api-gateway/rev-proxy-pg` — the derivation R16.8 demands of this fixture
+ *  and `TestPoolersServesTheFrozenFixture` byte-compares on the Go side — so
+ *  this import is the TS-side half of the proof the two cannot disagree. */
+export const FIXTURE_POOLERS: Envelope<PoolerView> = apiPoolersJson;
+
 
 /** Now read from the contract instead of being a second copy of it. The old
  *  value ("2026-11-20T11:04:12Z") was invented here; the contract's is

@@ -1,21 +1,22 @@
 /* Where the pages get their data from.
  *
- * Seven routes, two sources, one interface (R1.5's contract):
+ * Eight routes, two sources, one interface (R1.5's contract):
  *
  *   http     — GET /api/v1/… on the same origin as the page, plus the one POST
  *              (R4.5's terminate, the only route in the contract that changes
  *              anything). Because the Go binary serves the SPA itself (R10.1),
  *              same-origin is the normal case and no CORS or base-URL config is
- *              needed. The seven routes here are seven of the twenty-three the
+ *              needed. The eight routes here are eight of the twenty-three the
  *              contract marks `x-status: implemented`
  *              (`grep -c 'x-status: implemented' api/openapi.yaml`: 22 at
- *              `62740ed`, 23 since `db265b6` — the twenty-third is
+ *              `62740ed`, 23 since `db265b6`, 28 at `ce5a166` — the twenty-third is
  *              `/sessions/{pid}/terminate`, whose entry landed the same day as
  *              this fetcher and is the reason the count moved): `/clusters`,
  *              `/insights/queries`,
  *              `/insights/queries/{fp}`, `/insights/queries/series`,
  *              `/insights/tags` (`62740ed`), `/active-queries` (`e6a4921`) and
- *              `/sessions/{pid}/terminate` — one fetcher each, and every one of
+ *              `/sessions/{pid}/terminate` and `/poolers` (`da2d4dc`) — one
+ *              fetcher each, and every one of
  *              them takes its params from the route's own `parameters:` list
  *              rather than from a shape invented here. The earlier wording here
  *              ("the four routes are the four the contract marks implemented")
@@ -52,12 +53,14 @@ import {
   FIXTURE_UNAVAILABLE,
   FIXTURE_TAGS,
   FIXTURE_TERMINATE_SESSION,
+  FIXTURE_POOLERS,
 } from "./fixtures";
 import {
   ContractError,
   parseActiveQueriesResponse,
   parseEnvelope,
   parseErrorBody,
+  parsePoolerView,
   parseQueryDetailView,
   parseQueriesResponse,
   parseQuerySeries,
@@ -70,6 +73,7 @@ import type {
   ErrorCode,
   Envelope,
   FleetResponse,
+  PoolerView,
   QueryDetailView,
   QueryResponse,
   QuerySeriesEnvelope,
@@ -533,6 +537,62 @@ export async function fetchTags(
   }
   const json = await getJSON(cfg, `/api/v1/insights/tags${search(params)}`, opts);
   return parseEnvelope(json, parseTagView);
+}
+
+/* ── the poolers route ────────────────────────────────────────────────────── */
+
+/** `GET /api/v1/poolers` — R8.2's pgbouncer poolers, flattened out of the
+ *  cluster nesting (`da2d4dc`).
+ *
+ *  The body is the generic `Envelope<PoolerView>` and this signature says so
+ *  inline, the way `fetchTags` writes `Envelope<TagView>`: types.ts names an
+ *  envelope instantiation only where Go names one too — `QuerySeriesEnvelope`
+ *  mirrors `series.go:96`'s alias, and it is the one of the document's eight
+ *  `*Envelope` schemas with a TS counterpart. `dto` has no `PoolerEnvelope`
+ *  alias (`api/openapi.yaml:3748` says so in as many words: the schema exists
+ *  because OpenAPI 3.0 cannot `$ref` a generic), so minting a `PoolersResponse`
+ *  here would be the invention `TerminateResponse`'s header forbids — a name
+ *  invented on this side for a body the contract never names — and
+ *  `QuerySeriesEnvelope`'s header forbids in the same breath: a name that exists
+ *  so a document has something to `$ref` must not become a second hand-written
+ *  copy of R8.4's envelope. This route also has no presentation layer to need
+ *  one (no `PoolerRow`: nothing here is computed the way `health` is), which is
+ *  the difference between `fetchTags` and `fetchFleet` and the reason the tags
+ *  fetcher is the shape copied.
+ *
+ *  The eight params are R8.4's uniform list, field-for-field what `TagsParams`
+ *  declares, and the reason for a second type is the reason `TagsParams` gives
+ *  for not sharing with `QueryListParams`: the routes' `sort` vocabularies
+ *  differ. This route accepts the seven keys `poolersQuerySpec` lists
+ *  (`internal/api/poolers.go:107` — namespace, name, cluster, type, poolMode,
+ *  phase, instances) where tags' entry lists eighteen, so one shared type would
+ *  be a stricter contract than either published one. `limit` passes through
+ *  unclamped for R8.10's reason, stated on `QueryListParams`. */
+export type PoolersParams = {
+  namespace?: string;
+  cluster?: string;
+  db?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  sort?: string;
+  cursor?: string;
+};
+
+export async function fetchPoolers(
+  cfg: ClientConfig,
+  params: PoolersParams = {},
+  opts: FetchOptions = {},
+): Promise<Envelope<PoolerView>> {
+  if (cfg.source === "fixture") {
+    // Params ignored on this arm, as every fixture arm ignores them: there is
+    // one poolers fixture — the one pooler `clusters.json` nests inside
+    // ai-api-gateway/rev-proxy-pg — so there is nothing to select between.
+    await delay(cfg);
+    return FIXTURE_POOLERS;
+  }
+  const json = await getJSON(cfg, `/api/v1/poolers${search(params)}`, opts);
+  return parseEnvelope(json, parsePoolerView);
 }
 
 /* ── the active-queries route ─────────────────────────────────────────────── */

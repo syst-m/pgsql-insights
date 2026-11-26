@@ -30,6 +30,7 @@ import {
   type FleetRow,
   type FleetResponse,
   type Meta,
+  type PoolerView,
   type QueryDetailView,
   type QueryResponse,
   type QuerySeries,
@@ -191,6 +192,99 @@ export function parseClusterView(raw: unknown): ClusterView {
   }
 
   return raw as unknown as ClusterView;
+}
+
+/** Check one pooler row and name it in the error.
+ *
+ *  The row type of `GET /api/v1/poolers` (R8.2, `api/openapi.yaml:969`
+ *  `listPoolers`, `da2d4dc`). `parseClusterView:143` requires `poolers` as an
+ *  array and never opens it — the rule `parseQuerySeries:574` states and
+ *  `parseClusterView`'s own `instanceList` follows — so this is the first place
+ *  a `dto.PoolerView` (clusters.go:363) gets its fields checked at all, and it
+ *  checks them for the flat route only: the nested copy on a cluster row still
+ *  stops at the array, because giving the nested rows a parser would change what
+ *  `/clusters` accepts without this commit being the one R8.2 asked for.
+ *
+ *  Four fields are non-`omitempty` and so are checks; the seven omitempty
+ *  strings are type-checked when present, the `requireIfPresent` form
+ *  `parseTagView:497` uses for its dimensions. `pods` is omitempty too, so a
+ *  pooler with no pods yet omits the key rather than sending `[]`, and its
+ *  entries are not validated: `parseQuerySeries`'s one-level-deep rule is for
+ *  the array that *is* the row's payload (`points`), and a pooler's pod list is
+ *  a sub-table the way `instanceList` is one, not the row's whole answer. */
+export function parsePoolerView(raw: unknown): PoolerView {
+  if (!isRecord(raw)) {
+    throw new ContractError(`pooler row is ${typeName(raw)}, expected object`);
+  }
+  // Name the row the way every other parser does: the identity pair first, so a
+  // bad row in a two-pooler payload says which one. `namespace` is required, so
+  // the `??` is for the row that is missing both.
+  const where = typeof raw.name === "string" ? `${raw.namespace ?? "?"}/${raw.name}` : typeName(raw);
+  const require = (field: string, type: "string" | "number") => {
+    const v = raw[field];
+    if (v === undefined) throw new ContractError(`pooler ${where}: missing required field "${field}"`);
+    if (typeof v !== type) {
+      throw new ContractError(`pooler ${where}: field "${field}" is ${typeName(v)}, expected ${type}`);
+    }
+  };
+  const requireIfPresent = (field: string) => {
+    const v = raw[field];
+    if (v !== undefined && typeof v !== "string") {
+      throw new ContractError(`pooler ${where}: field "${field}" is ${typeName(v)}, expected string`);
+    }
+  };
+
+  require("name", "string");
+  require("namespace", "string");
+  require("instances", "number");
+  require("readyInstances", "number");
+
+  // The seven omitempty strings (clusters.go:367-393). Absence is legal on each
+  // — a pooler mid-rollout has a name, zero ready instances and no `phase` yet —
+  // so only the type is policed, exactly as the tags parser does its eight
+  // dimension strings. `metricsURL` is spelled with a capital URL here and on the
+  // wire (clusters.go:393), which is why it is in this list and not a `metricsUrl`
+  // a TS-side convention would have produced.
+  for (const field of [
+    "cluster",
+    "type",
+    "poolMode",
+    "phase",
+    "image",
+    "service",
+    "metricsURL",
+  ] as const) {
+    requireIfPresent(field);
+  }
+
+  // `parameters` is `map[string]string` with omitempty (clusters.go:388), and
+  // R6.2's pool sizing reads three of its keys. The values are strings in the
+  // contract because pgbouncer's own config is a map of strings, so a
+  // `"default_pool_size": 20` — the number, not the string — is a server-side
+  // bug this catches and a page would render as `20` anyway.
+  if (raw.parameters !== undefined) {
+    if (!isRecord(raw.parameters)) {
+      throw new ContractError(
+        `pooler ${where}: field "parameters" is ${typeName(raw.parameters)}, expected object`,
+      );
+    }
+    for (const [key, value] of Object.entries(raw.parameters)) {
+      if (typeof value !== "string") {
+        throw new ContractError(
+          `pooler ${where}: parameters["${key}"] is ${typeName(value)}, expected string`,
+        );
+      }
+    }
+  }
+
+  // `pods` is omitempty (clusters.go:390), so the check is the array's type when
+  // present, not its presence; its entries are not validated, for the reason the
+  // header gives.
+  if (raw.pods !== undefined && !Array.isArray(raw.pods)) {
+    throw new ContractError(`pooler ${where}: field "pods" is ${typeName(raw.pods)}, expected array`);
+  }
+
+  return raw as unknown as PoolerView;
 }
 
 /** Check one query row's required fields and name it in the error.
