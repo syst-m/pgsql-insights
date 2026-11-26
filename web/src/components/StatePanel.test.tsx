@@ -35,12 +35,15 @@ import {
   FLEET_COPY,
   QUERY_COPY,
   STATE_FIXTURES,
+  SYSTEM_COPY,
   StatePanel,
   copyFor,
   derivePanelState,
   deriveQueryPanelState,
+  deriveSystemPanelState,
   hasLiveMetrics,
   type PanelState,
+  type SystemGroupView,
 } from "./StatePanel";
 import { emptyEnvelope, partialBanner, toQueriesResponse } from "../api/envelope";
 import {
@@ -49,7 +52,13 @@ import {
   FIXTURE_QUERIES,
   FIXTURE_TRUNCATED_PARTIAL,
 } from "../api/fixtures";
-import type { ClusterMetrics, FleetRow, QueryResponse, QueryView } from "../api/types";
+import type {
+  ClusterMetrics,
+  Envelope,
+  FleetRow,
+  QueryResponse,
+  QueryView,
+} from "../api/types";
 
 /** Every state the copy tables name — derived from the table so a state added
  *  to `FLEET_COPY` is covered here without editing this list. */
@@ -276,5 +285,84 @@ describe("STATE_FIXTURES", () => {
       const fixture = STATE_FIXTURES[key];
       expect(derivePanelState({ phase: "ready", fleet: fixture })).toBe(key);
     }
+  });
+});
+
+describe("deriveSystemPanelState", () => {
+  // R10.10's rule, and the one case the other five derivations cannot show: this
+  // page's default answer is `unavailable`, because there is no fetcher for
+  // R8.2's route — `idle` here means "the app will never ask", not "a fetch is
+  // about to happen". Every other rule answers `loading` to that phase.
+
+  const ONE: SystemGroupView = {
+    group: "os",
+    promql: 'sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))',
+    value: 41,
+  };
+  const TWO: SystemGroupView = {
+    group: "transactions",
+    promql: "sum(rate(pg_stat_database_xact_commit[5m]))",
+    value: 128,
+  };
+
+  function systemEnvelope(
+    data: SystemGroupView[],
+    meta: Partial<Envelope<SystemGroupView>["meta"]> = {},
+  ): Envelope<SystemGroupView> {
+    return {
+      data,
+      meta: {
+        generatedAt: FIXTURE_GENERATED_AT,
+        total: data.length,
+        truncated: false,
+        ...meta,
+      },
+    };
+  }
+
+  it("answers unavailable — not loading — while the route has no fetcher", () => {
+    // The discriminator for the whole rule. `derivePanelState` at `:44` and the
+    // four after it all answer `loading` to `phase: "idle"` with a null payload;
+    // this one answers `unavailable`, because the fetch that would end the
+    // loading state does not exist. A test that only covered `phase: "ready"`
+    // would pass with the six-line copy of the fleet's rule.
+    expect(deriveSystemPanelState({ phase: "idle", system: null })).toBe("unavailable");
+    expect(deriveSystemPanelState({ phase: "loading", system: null })).toBe("unavailable");
+  });
+
+  it("keeps a failed ask distinct from a never-asked one", () => {
+    expect(deriveSystemPanelState({ phase: "error", system: null })).toBe("error");
+  });
+
+  it("renders the partial state from the payload's meta, and mid-refetch", () => {
+    const withFailure = systemEnvelope([ONE, TWO], {
+      failed: [{ namespace: "cookbook", code: "Unavailable", message: "connection refused" }],
+    });
+    expect(deriveSystemPanelState({ phase: "ready", system: withFailure })).toBe("partial");
+    // A refetch over a good frame keeps the frame (R10.22), so `loading` with a
+    // payload is `partial` here too — the same arm every other rule has.
+    expect(deriveSystemPanelState({ phase: "loading", system: systemEnvelope([ONE]) })).toBe(
+      "partial",
+    );
+  });
+
+  it("names an empty payload as empty, and a whole one as ready", () => {
+    expect(deriveSystemPanelState({ phase: "ready", system: systemEnvelope([]) })).toBe("empty");
+    expect(deriveSystemPanelState({ phase: "ready", system: systemEnvelope([ONE]) })).toBe(
+      "ready",
+    );
+  });
+
+  it("names every non-ready state in the copy table", () => {
+    // `Record<Exclude<PanelState, "ready">, PanelCopy>` makes a missing key a
+    // compile error; this asserts the keys are the same set the fleet's table
+    // has, so the two tables cannot disagree about the state vocabulary.
+    expect(Object.keys(SYSTEM_COPY).sort()).toEqual([...NAMED_STATES].sort());
+  });
+
+  it("composes R10.22's partial body from the payload, like the other tables", () => {
+    const system = systemEnvelope([ONE, TWO], { loading: ["cookbook"] });
+    const copy = copyFor("partial", { meta: system.meta, data: system.data }, SYSTEM_COPY);
+    expect(copy?.body).toBe(partialBanner({ meta: system.meta, data: system.data }));
   });
 });

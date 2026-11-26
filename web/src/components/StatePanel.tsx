@@ -249,6 +249,68 @@ export function deriveTagsPanelState(input: TagsPanelInput): PanelState {
   return "ready";
 }
 
+/** The interim row type for R8.2's `/api/v1/insights/system` (R10.10's page).
+ *
+ *  R16.8 pins `web/src/api/types.ts` to `internal/api/dto/*.go` field-for-field
+ *  and the Phase 7 DTO does not exist, so this is the same interim declaration
+ *  `web/src/components/ResourceLoadPanel.tsx:59-64` makes for R5.3's source
+ *  union: declared from the requirement's own sentence, marked the standing ask
+ *  on A2, and moved to `types.ts` when the Go DTO lands rather than kept as a
+ *  second copy beside it. Its three fields are the three the requirements name —
+ *  the group (R10.10's tabs are the groups), the PromQL (R5.6's external link is
+ *  "built from the panel's PromQL"), and the aggregate value (the group aggregate
+ *  the route exists to serve).
+ *
+ *  It lives here rather than in `SystemInsights.tsx` because the other five
+ *  derivations take their payload types from this file's import block, and a
+ *  second copy in the page would be two places to update when the DTO lands. */
+export interface SystemGroupView {
+  group: string;
+  promql: string;
+  value: number | null;
+}
+
+export interface SystemPanelInput {
+  phase: FetchPhase;
+  /** The last good payload, if any. Present during a background refetch.
+   *
+   *  `Envelope<SystemGroupView>`, the same R8.4 envelope shape
+   *  `TagsPanelInput.tags` at `:208` uses for its R8.2 route — the envelope has
+   *  exactly the two fields every route returns and the row type is the only
+   *  provisional part. */
+  system: Envelope<SystemGroupView> | null;
+  /** Set when the fetch failed. */
+  error?: string;
+}
+
+/** The System Insights page's rule (R10.10).
+ *
+ *  The sixth derivation over the one `PanelState` union, and the first whose
+ *  *default* answer is `unavailable` rather than `loading`. Every other rule
+ *  reads a phase that a hook is driving: `phase === "idle"` means "a fetch is
+ *  about to happen", so `loading` is the honest answer. Here there is no fetcher
+ *  for R8.2's route — `web/src/api/client.ts` has none, which is the standing
+ *  ask on A4 — so `idle` means "the app will never ask", and R10.13's rule that
+ *  "the app has not asked yet" and "the store has no minutes" are different
+ *  answers picks `unavailable`: a loading state would promise a frame that
+ *  cannot arrive. A3's ruling on this row makes it the deliverable — "It renders
+ *  R10.12's unavailable state rather than invented data … that state is the
+ *  requirement, not a placeholder."
+ *
+ *  `error` still wins over it, because a failed ask and a never-asked question
+ *  are different sentences; and `partial` needs a payload to be partial about,
+ *  so the branch is reachable only once the DTO lands. */
+export function deriveSystemPanelState(input: SystemPanelInput): PanelState {
+  const { phase, system } = input;
+
+  if (system === null) return phase === "error" ? "error" : "unavailable";
+  if (phase === "idle" || phase === "loading") return "partial";
+  if (phase === "error") return "partial";
+  if (system.data.length === 0) return "empty";
+  if (partialBanner({ meta: system.meta, data: system.data }) !== null) return "partial";
+  return "ready";
+}
+
 /** True when a cluster's metrics came from a source that produces values.
  *
  * `unconfigured` and `failed` both mean "there are no numbers here" — one
@@ -452,6 +514,57 @@ export const TAGS_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
   error: {
     title: "Could not load the tags",
     body: "GET /api/v1/insights/tags did not answer for this cluster.",
+    action: "Retry",
+  },
+};
+
+/** The System Insights page's copy table (R10.10).
+ *
+ *  Sixth table, same six states. Two cells are the page's own rather than
+ *  borrowed:
+ *
+ *  · `unavailable` is the state the page renders today, and the copy has to say
+ *    why without implying an outage: the route exists in the manifest
+ *    (`api/x-planned-paths.yaml:150`) and has no handler, so nothing has been
+ *    fetched — which is R5.3's "never render a blank chart without saying why"
+ *    applied to a whole page. The page renders this pair as a `.banner` over its
+ *    real content (`web/src/pages/SystemInsights.tsx`), not as a full-panel
+ *    replacement, because R10.12's two warning states are banners.
+ *  · `error` names the route the page would call
+ *    (`GET /api/v1/insights/system`, `web/src/routes.ts:284`), not one it calls
+ *    today — there is no request to report a failure about until the fetcher
+ *    exists, which is the same situation `WAIT_EVENTS_COPY.error` documents at
+ *    `web/src/components/StatePanel.tsx:480` for a page that reads a different route.
+ *
+ *  `partial`'s fixed body is what renders, not R10.22's composed one: `copyFor`
+ *  composes only when a `BannerSource` is passed, and the page passes none —
+ *  there is no payload to count metrics in yet. When the DTO lands, the noun
+ *  question is A4's (`web/src/api/envelope.ts:935`'s `BannerNoun` set has no
+ *  metric entry), and it is deferred rather than invented here because
+ *  `partial` is unreachable while `system === null`, so a noun added now would
+ *  be inert and untestable. */
+export const SYSTEM_COPY: Record<Exclude<PanelState, "ready">, PanelCopy> = {
+  loading: {
+    title: "Loading system metrics",
+    body: "A system-metrics fetch is in flight for this cluster.",
+  },
+  empty: {
+    title: "No metric groups returned",
+    body: "The route answered but returned no metric groups, so there is nothing to tab between and no card has a value. R5.2 and R5.3's families are listed on the page so the inventory is still visible.",
+    action: "Refresh",
+  },
+  partial: {
+    title: "Partial results",
+    body: "The response reported fewer metric groups than the cluster has families, so the cards shown are a subset of R5.2 and R5.3's list.",
+  },
+  unavailable: {
+    title: "System metrics are not configured",
+    body: "GET /api/v1/insights/system is in the manifest but has no handler, so this page has no metrics to show and renders R5.2 and R5.3's families instead of inventing values for them. The Log errors card is the one value the spec answers today: R5.10's --log-source defaults to off, and R5.1 says the card renders `not configured` when it is.",
+    action: "Configure system metrics",
+  },
+  error: {
+    title: "Could not load the system metrics",
+    body: "GET /api/v1/insights/system did not answer for this cluster.",
     action: "Retry",
   },
 };
