@@ -14,7 +14,7 @@
  *
  * ── what a tag is, and which columns the answer needs ──────────────────────
  *
- * R3.12 defines a tag in two families, and `api/types.ts:649-674`'s `TagView`
+ * R3.12 defines a tag in two families, and `api/types.ts:656`'s `TagView`
  * is that definition typed:
  *   (a) Postgres' own, always available — `application_name`, `usename`,
  *       `datname` → `application`, `user`, `database`;
@@ -24,7 +24,7 @@
  * Plus `tagHash` (R3.12's `tag_hash`, the hash of the dimension set and R8.2's
  * path key) and R3.7's load rollup over every query carrying the tag — the
  * eight `LoadColumns` fields plus `lockWaitMs`, which the rollup has and the
- * per-query row does not (`types.ts:670-673`).
+ * per-query row does not (`types.ts:680`).
  *
  * The fixture's three rows are exactly the three cases R3.12 allows, and the
  * table renders all eighteen columns so the difference between them is visible
@@ -430,7 +430,7 @@ function TagRow({
 export function cell(row: TagView, key: string): ReactElement | string {
   switch (key) {
     case "tagHash":
-      // 64 lowercase hex (`types.ts:650-653`). The full string is the value and
+      // 64 lowercase hex (`types.ts:660`). The full string is the value and
       // the full string is rendered — a page-invented shortening would be a
       // second formatting rule for the field R8.2 uses as a path key, and the
       // `trunc` class is what bounds the column instead.
@@ -456,7 +456,7 @@ export function cell(row: TagView, key: string): ReactElement | string {
     case "dbDriver":
       return row.dbDriver ?? NULL_VALUE;
     case "loadByTotalTime":
-      // A percentage of the cluster's total load (`LoadColumns`, types.ts:439-442).
+      // A percentage of the cluster's total load (`LoadColumns`, types.ts:448).
       return formatPercent(row.loadByTotalTime);
     case "pctLoadByQueries":
       return formatPercent(row.pctLoadByQueries);

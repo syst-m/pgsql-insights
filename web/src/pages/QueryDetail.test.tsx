@@ -215,7 +215,7 @@ describe("QueryDetailPage", () => {
   });
 
   it("passes the series prop through to the load chart", () => {
-    // The DTO cannot inline the series (`types.ts:584`: an import cycle), so it
+    // The DTO cannot inline the series (`types.ts:641`: an import cycle), so it
     // arrives as a prop. A page that accepts it and never forwards it typechecks
     // and renders an empty panel — this is the assertion that catches that.
     const withSeries = renderPage();

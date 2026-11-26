@@ -375,7 +375,7 @@ const MAX_COMPARE = 5;
  *  R9.3 makes instance identity the triple `(namespace, cluster, pod)`, and the
  *  cluster row carries all three: `namespace` and `name` are the first two
  *  (`web/src/api/types.ts:358-359`) and `instanceList[].name` is the third
- *  (`web/src/api/types.ts:196`). So this control is populated from data the app
+ *  (`web/src/api/types.ts:393`). So this control is populated from data the app
  *  already has — the only R10.10 control that works today, and it works because
  *  R9.3's contract landed in Phase 1a, not because anything Phase 7 shipped.
  *

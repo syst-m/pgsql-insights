@@ -50,7 +50,7 @@
  * the other three reference clusters still render the empty chart.
  *
  * The filter is not decoration: `QuerySeries` names its own namespace and
- * cluster (`web/src/api/types.ts:703-704`) and the chart plots whatever array
+ * cluster (`web/src/api/types.ts:755-756`) and the chart plots whatever array
  * it is handed, so a batch belonging to another cluster is the one way this
  * page can be wrong without anything failing.
  */
@@ -164,7 +164,7 @@ function UnknownCluster({ state, onPatch }: PageProps) {
 /** Narrow a batch of R8.11 series down to the ones belonging to one cluster.
  *
  *  `QuerySeries` names its own namespace and cluster
- *  (`web/src/api/types.ts:703-704`) and `QueryLoadArea` plots whatever array it
+ *  (`web/src/api/types.ts:755-756`) and `QueryLoadArea` plots whatever array it
  *  is handed, so a batch fetched for another cluster is the one way this page
  *  can render a chart that is wrong without anything failing. The Overview tab
  *  applies this to whatever batch the entry resolved — the prop, the fetch, or

@@ -141,7 +141,7 @@ export interface QueryColumn {
  *  detail chart: both read R8.11's `/insights/queries/series` (whose batch-of-one
  *  rationale internal/api/dto/queries.go:22-25 spells out), which is why the two shipped in one
  *  change. The data arrives through `QueryTableProps.series`, not the row —
- *  `types.ts:584` documents why `QueryView` cannot inline it.
+ *  `types.ts:636` documents why `QueryView` cannot inline it.
  */
 export const QUERY_COLUMNS: readonly QueryColumn[] = [
   { key: "query", label: "Query", sortable: true, required: true },
@@ -490,7 +490,7 @@ export function QueryCell({
     );
   }
 
-  // R10.6's per-row sparkline. The values are not on the row — `types.ts:584`
+  // R10.6's per-row sparkline. The values are not on the row — `types.ts:636`
   // documents why `QueryView` cannot inline the series — so they arrive through
   // the `series` prop, and a row whose series has not arrived renders `—` (the
   // house's not-available marker) rather than an empty plot: R10.13 forbids a

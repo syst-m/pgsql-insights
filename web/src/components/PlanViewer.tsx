@@ -16,7 +16,7 @@
  *
  * The two are not redundant: the tree answers "what plan did the planner pick",
  * the JSON answers "what did Postgres say", and only one of them is a claim
- * about the planner's own output shape. `types.ts:561` says the field is
+ * about the planner's own output shape. `types.ts:615` says the field is
  * `Record<string, unknown>` for exactly that reason — "the keys vary by node
  * type and by major version, and typing them here would freeze a shape Postgres
  * does not guarantee" — so the tree must degrade rather than assume.

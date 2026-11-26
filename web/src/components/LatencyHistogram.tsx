@@ -32,7 +32,7 @@
  *
  * ── the cumulative trap ───────────────────────────────────────────────────
  *
- * `HistogramBucket.count` is **cumulative** (`api/types.ts:511`: "every bucket
+ * `HistogramBucket.count` is **cumulative** (`api/types.ts:563`: "every bucket
  * counts the calls at or below `le`, so the counts are non-decreasing and the
  * `+Inf` count equals `latency.count`"). Plot the wire values and you draw a CDF
  * — a staircase that only ever climbs, ending flat at 3 007 three times — and
