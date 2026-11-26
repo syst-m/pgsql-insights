@@ -18,7 +18,7 @@
  *    the two cases the payload distinguishes: a row with a chain, and a row
  *    naming blockers with no chain entry.
  * 4. **the Terminate action behind the R4.5 gate** — the two Go action values
- *    (`active_queries.go:89`/`:97`) rendered as an enabled and a disabled
+ *    (`actions.go:47`/`:54`) rendered as an enabled and a disabled
  *    control, and R4.5's *confirmed* step. The gate is R4.5, not R4.6; see the
  *    page's header for why. This clause has two halves now: the arm (fixture
  *    arm, no network) and the POST it fires (`client.ts:607`, A4's `efdabb3`),

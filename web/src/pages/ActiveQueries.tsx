@@ -34,7 +34,7 @@
  * (`transactionDurationSeconds`, `backendType`) rather than with a button.
  *
  * The legal values are the Go side's two constants, not a local union:
- * `active_queries.go:89` `ActionNameTerminate = "terminate"` and `:97`
+ * `actions.go:47` `ActionNameTerminate = "terminate"` and `:54`
  * `ActionDisabled = "disabled"`. R4.1's rule for the column is that it
  * "renders disabled with a link to the R12.8 gate … so the column is never
  * silently blank", which is the whole argument for rendering a *disabled*
@@ -101,7 +101,7 @@ const POLL_MS = 15_000;
  *  to — the app's two windowed tables window against one height. */
 const VIEWPORT_HEIGHT = 640;
 
-/** `active_queries.go:89` — the only value that renders an enabled control. */
+/** `actions.go:47` — the only value that renders an enabled control. */
 const ACTION_TERMINATE = "terminate";
 
 /** The page's column set: R4.1's twenty columns as `dto/sessions_test.go:52-54`
