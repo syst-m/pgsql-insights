@@ -21,7 +21,7 @@ linters:
     - gosimple        # S* simplifications
     - typecheck       # compile errors surface here
     - misspell
-    - gofmt           # formatting gate (CI also runs `gofmt -l`)
+    - gofmt           # formatting gate (CI also runs `gofmt -s -l .`, ci.yml:126)
     - goimports       # import grouping/ordering
     - revive          # style rules, configured minimal below
     - unconvert
