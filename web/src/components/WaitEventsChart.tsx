@@ -17,7 +17,7 @@
  * The grouping rules mirror the Go rollup instead of inventing a client-side one:
  * `internal/collector/activity.go:690` `WaitEventRollup(sessions)` groups by
  * `waitKey{Type, Event}` (`internal/collector/activity.go:636`) and sorts count
- * desc → type → event; `web/src/api/types.ts:796` `SessionView` is the payload
+ * desc → type → event; `web/src/api/types.ts:805` `SessionView` is the payload
  * shape this chart reads, since the coordinator's ruling on the route is that
  * there is no `/insights/wait-events` DTO and the page renders from
  * `ActiveQueriesResponse`. One documented divergence, marked at its site below:
@@ -62,7 +62,7 @@ import { dataEndPath, measureText } from "./HealthBar";
 /** The three kinds of bucket the payload's sessions can fall into.
  *
  *  `named` is a real `wait_event_type`; `unrecognised` is the R10.9/`R4.3` case
- *  the server flags with `unknownWaitEvent` (`web/src/api/types.ts:810`, whose
+ *  the server flags with `unknownWaitEvent` (`web/src/api/types.ts:819`, whose
  *  docblock names this page as its consumer: the UI must be able to say which of
  *  the backends waiting on a pair is a name the server should not know);
  *  `not-waiting` is a session with an empty pair. The coordinator's ruling is that

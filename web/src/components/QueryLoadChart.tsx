@@ -46,7 +46,7 @@
  *
  * ── the units trap this file exists to close ──────────────────────────────
  *
- * A5's rule, stated in `dto/series.go` and repeated in `api/types.ts:639`:
+ * A5's rule, stated in `dto/series.go` and repeated in `api/types.ts:648`:
  * series points are in **seconds**, QueryView/LoadColumns are in
  * **milliseconds**. `formatDurationMs` is the app's only duration formatter and
  * it is fed milliseconds everywhere else, so piping `executionTimeSeconds`

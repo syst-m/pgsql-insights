@@ -106,7 +106,7 @@ describe("LatencyHistogram", () => {
 
   it("states the population and the total in the card head", () => {
     // `count` with `sampled: true` is the sampled count, not `timesCalled`, and
-    // `types.ts:529` says the UI labels them with different words. The panel
+    // `types.ts:538` says the UI labels them with different words. The panel
     // says "calls" against the latency block and the header says "Times called"
     // against the row — this asserts the panel's number is the latency one.
     const { container } = render(<LatencyHistogram latency={latency} />);

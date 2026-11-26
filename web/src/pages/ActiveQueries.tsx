@@ -10,7 +10,7 @@
  *
  * ── why the blocking chain is in this file and not in a `BlockingChains.tsx` ─
  *
- * R4.2's chain is R10.8's third clause, and `api/types.ts:806-808` says where
+ * R4.2's chain is R10.8's third clause, and `api/types.ts:815-817` says where
  * it renders: "R10.8 renders it as the row expansion of the Active Queries
  * table". A chain is not a section of the page, it is a row opened — so it is
  * `ChainRows` below, inside this file, and there is no sibling component file

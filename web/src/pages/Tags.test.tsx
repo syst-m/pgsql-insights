@@ -241,7 +241,7 @@ describe("TagsPage — R3.12's dimensions (the fixture's three cases)", () => {
   });
 
   it("renders the tag hash in full", () => {
-    // 64 lowercase hex (`types.ts:641-644`), and R8.2's path key. This cell is
+    // 64 lowercase hex (`types.ts:650-653`), and R8.2's path key. This cell is
     // the one the page returns as an element rather than a string —
     // `<span className="num trunc" title={…}>` (`web/src/pages/Tags.tsx:432-439`) — so the
     // assertion reads the element's props instead of a formatted string, which
@@ -262,7 +262,7 @@ describe("TagsPage — R3.12's dimensions (the fixture's three cases)", () => {
 describe("TagsPage — R3.7's rollup cells", () => {
   it("formats every load column the way the query table does", () => {
     // The gateway row, so the numbers are the fixture's and not invented here.
-    // The two percentage columns are percentages (`LoadColumns`, types.ts:430-433);
+    // The two percentage columns are percentages (`LoadColumns`, types.ts:439-442);
     // the four ms columns are durations; `avgRowsReturned` is a mean over an
     // R3.3 delta and so keeps one decimal — the fixture's `14` renders "14.0",
     // which is `formatNumber(value, 1)`'s rule and `QueryTable.textCell`'s.

@@ -13,7 +13,7 @@
  * R10.6's chips are *database, user, tag*. They have three different sources:
  *
  *   database  on the row (`QueryView.database`, R3.2's own column). Built here.
- *   user      on `QueryDetailView` only. `api/types.ts:565` says so outright:
+ *   user      on `QueryDetailView` only. `api/types.ts:574` says so outright:
  *               "The list view keeps it off the row (R3.12 folds it into the
  *               tag) and the detail view shows it." So there is no set of users
  *               to build a chip from without fetching a detail per row.

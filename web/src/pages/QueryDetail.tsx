@@ -122,7 +122,7 @@ export interface QueryDetailPageProps extends PageProps<QueryDetailView> {
    *  with one `fingerprints=` value.
    *
    *  A prop, not a field on `QueryDetailView`, because the DTO cannot inline it:
-   *  `web/src/api/types.ts:575` says so outright — "There is no `points`/`series`
+   *  `web/src/api/types.ts:584` says so outright — "There is no `points`/`series`
    *  field here… `QuerySeries` is declared in `internal/api`, which imports this
    *  package, so referencing it from here is an import cycle. Ask the series
    *  endpoint for the chart instead of expecting it on this object."
@@ -232,7 +232,7 @@ export function QueryDetailPage(props: QueryDetailPageProps): ReactElement {
             <dt>Database</dt>
             <dd>{view.database}</dd>
             {/* R3.12 folds the user into the tag on the list view and only the
-                detail view shows it (`types.ts:565`); A3's ruling makes this the
+                detail view shows it (`types.ts:574`); A3's ruling makes this the
                 highest-load user of the fingerprint unless `?user=` named one. */}
             <dt>User</dt>
             <dd>{view.user ?? "—"}</dd>

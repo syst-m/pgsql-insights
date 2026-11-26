@@ -50,7 +50,7 @@ const truncatedRow = rows.find((r) => r.truncated) as QueryView;
  *
  *  Built inline because there is nothing to import: `testdata/api/` has no
  *  query-series fixture (the R8.11 fixture is A4's to generate), and
- *  `QueryDetailView` carries no `points` field — `types.ts:575` documents the
+ *  `QueryDetailView` carries no `points` field — `types.ts:584` documents the
  *  import cycle that keeps the series off the row — so the detail fixture cannot
  *  supply it either. Same three points the Detail page's suite uses, so the two
  *  suites plot the same series from the same numbers. */

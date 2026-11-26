@@ -33,12 +33,12 @@
  *                         `requirements.md:398` read "execution time, rows,
  *                         shared block hits/reads, **lock time**", and the
  *                         only IO number anywhere was
- *                         `QueryView.loadByIOWaitMs` (types.ts:413,
+ *                         `QueryView.loadByIOWaitMs` (types.ts:438,
  *                         `dto/queries.go:77`) — R3.2's derived load column, a
  *                         per-query scalar on a list row, so not a band. A3
  *                         admitted `io_time` to the family (5668cb3), A2 put it
  *                         on the DTO (`dto/series.go:64`, 51f4485) and mirrored
- *                         it (`api/types.ts:653`, d2ffbfb), and the catalogue
+ *                         it (`api/types.ts:722`, d2ffbfb), and the catalogue
  *                         mints `aggregate.io_time`
  *                         (`api/promql_catalogue.go:313`) as the derived entry
  *                         the paragraph below this one says it costs.
@@ -53,7 +53,7 @@
  * now, summed from the field. The `null` leg survives in
  * `QueryLoadPoint.ioSec` for a source with no IO time to offer, and since
  * A3's ruling of R8.3 (`7cecc49`) the contract spells that absence with `null`
- * itself — `ioTimeSeconds` is `number | null` at `api/types.ts:661`, a
+ * itself — `ioTimeSeconds` is `number | null` at `api/types.ts:670`, a
  * `*float64` on the Go side — and not with a sentinel. A5 put the two columns
  * apart in the same week: the store's -1 code, `store/statements.go §
  * "noLockWait is query_rollup.lock_wait_ms's \"no source\" value, -1" (:568)`,
@@ -96,7 +96,7 @@
  * ── units ──────────────────────────────────────────────────────────────────
  *
  * Series points are **seconds**; `QueryView`/`LoadColumns` are milliseconds
- * (`dto/series.go` and `api/types.ts:639` both say so). `formatDurationMs` is
+ * (`dto/series.go` and `api/types.ts:648` both say so). `formatDurationMs` is
  * the app's only duration formatter and takes ms, so feeding it a seconds value
  * renders a 42.7-second minute as "43 ms" — a 1000× error that looks like a
  * plausible number and is therefore invisible. `formatSec` below is this file's
@@ -201,12 +201,12 @@ export interface QueryLoadPoint {
   /** Bucket start, RFC 3339 UTC (R10.21: every timestamp the API emits is
    *  RFC 3339 UTC). A string, as it is on the wire and in `QuerySeriesPoint`. */
   t: string;
-  /** Total execution time in the bucket, in **seconds** (types.ts:639). */
+  /** Total execution time in the bucket, in **seconds** (types.ts:648). */
   execSec: number;
   /** IO time in the bucket, in seconds, or `null` when the source has no
    *  IO-time value — `null` being the contract's only spelling of "no value"
    *  since R8.3 was ruled at 7cecc49 (`ioTimeSeconds` is `number | null` at
-   *  `api/types.ts:661`, a `*float64` in the DTO). `stackSeries` returns `null`
+   *  `api/types.ts:670`, a `*float64` in the DTO). `stackSeries` returns `null`
    *  for a bucket any contributor of which cannot answer, because `null` and
    *  `0` are different answers and a partial sum presented as the total is the
    *  same lie as a plausible 0. The header's "two series" section is the

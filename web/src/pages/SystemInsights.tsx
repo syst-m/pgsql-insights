@@ -47,7 +47,7 @@
  * `SourceKey`'s `"not-asked"` stays component-local — is the same rule applied to
  * the field level, and it is why nothing here widens a Go union preemptively.
  *
- * The envelope is not interim. `Envelope<T>` (`web/src/api/types.ts:156`) is
+ * The envelope is not interim. `Envelope<T>` (`web/src/api/types.ts:165`) is
  * R8.4's contract shape, every route returns it, and `web/src/pages/Tags.tsx`
  * already types an R8.2 route's payload as `Envelope<TagView>` for exactly that
  * reason — so the page's payload is `Envelope<SystemGroupView>` and only the row
@@ -374,8 +374,8 @@ const MAX_COMPARE = 5;
  *
  *  R9.3 makes instance identity the triple `(namespace, cluster, pod)`, and the
  *  cluster row carries all three: `namespace` and `name` are the first two
- *  (`web/src/api/types.ts:349-350`) and `instanceList[].name` is the third
- *  (`web/src/api/types.ts:187`). So this control is populated from data the app
+ *  (`web/src/api/types.ts:358-359`) and `instanceList[].name` is the third
+ *  (`web/src/api/types.ts:196`). So this control is populated from data the app
  *  already has — the only R10.10 control that works today, and it works because
  *  R9.3's contract landed in Phase 1a, not because anything Phase 7 shipped.
  *
