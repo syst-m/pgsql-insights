@@ -124,7 +124,7 @@ describe("activeParamsFrom", () => {
   });
 
   it("is null for every URL that cannot name a cluster", () => {
-    // `routes.ts:219`'s path is `/c/:ns/:name/active`, so a cluster-less URL is
+    // `routes.ts:223`'s path is `/c/:ns/:name/active`, so a cluster-less URL is
     // the hand-edited case; the route has no fleet-wide form to fall back to
     // because `pg_stat_activity` is per-instance.
     expect(activeParamsFrom({ ...DEFAULT_STATE, cluster: null })).toBeNull();

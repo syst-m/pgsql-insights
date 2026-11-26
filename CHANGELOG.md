@@ -99,6 +99,18 @@ before they exist), and the provisional rule set R9.11 asks for — 16 rules, a
 six auth/CORS fixes from A3's review of `f9aae41`. The second Phase 5 pre-check
 (`e8ada16`) factors the R8.4/R8.10 paging out of `clusters.go`.
 
+### Phase 7 — System Insights (in progress)
+
+A6's half (`ca0915b`, `b25f4a0`) is `web/src/pages/SystemInsights.tsx`: R10.10's
+metric groups and R10.12's unavailable state. `b25f4a0` closes S150 — the four
+cards with no payload rendered a bare dash under a cite for R10.13, a rule R10.4
+owns. The shell half is `routes.ts:287` flipping that route's `component:` from
+`null` to `SystemInsightsPage`, plus the `IMPLEMENTED` row in `routes.test.tsx`
+that renders it. The row's payload is the page's interim `FULL_SYSTEM_ENVELOPE`
+export rather than a `fixtures.ts` entry, because `SystemGroupView` exists in no
+contract artifact yet: the row moves to `FIXTURE_SYSTEM` (from
+`testdata/api/system.json`) in the commit that lands the Phase 7 DTO.
+
 ### Phase 9 — docs (in progress)
 
 `README.md` (R14.3): what it is, the screenshot as the Playwright baseline

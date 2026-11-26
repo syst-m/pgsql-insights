@@ -18,6 +18,7 @@ import {
   FIXTURE_QUERIES,
   FIXTURE_TAGS,
 } from "./api/fixtures";
+import { FULL_SYSTEM_ENVELOPE } from "./pages/SystemInsights";
 import {
   ROUTES,
   ROUTE_BY_PAGE,
@@ -130,6 +131,17 @@ const IMPLEMENTED: ReadonlyArray<{ page: Page; location: string; fixture: unknow
     location: `/c/${CLUSTER}/tags`,
     fixture: FIXTURE_TAGS,
     heading: "Tags",
+  },
+  // R10.10's system page, mounted by the `routes.ts:287` `component:` flip that
+  // followed `ca0915b`. Its props are `SystemInsightsPageProps`
+  // (`SystemInsights.tsx:351`) -- `PageProps<Envelope<SystemGroupView>>` -- so
+  // the payload is the page's own exported envelope rather than FIXTURE_FLEET;
+  // the page reads it as `props.fixtureOverride` at `SystemInsights.tsx:372`.
+  {
+    page: "system",
+    location: `/c/${CLUSTER}/system`,
+    fixture: FULL_SYSTEM_ENVELOPE,
+    heading: "System Insights",
   },
 ];
 

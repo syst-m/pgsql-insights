@@ -56,6 +56,7 @@ import { ClusterDetailPage } from "./pages/ClusterDetail";
 import { FleetPage } from "./pages/Fleet";
 import { QueryDetailPage } from "./pages/QueryDetail";
 import { QueriesPage } from "./pages/Queries";
+import { SystemInsightsPage } from "./pages/SystemInsights";
 import { TagsPage } from "./pages/Tags";
 import { WaitEventsPage } from "./pages/WaitEvents";
 import type { UrlState } from "./state/urlState";
@@ -283,7 +284,7 @@ export const ROUTES: readonly Route[] = [
     requirement: "R10.10",
     endpoint: "GET /api/v1/insights/system",
     phase: "7",
-    component: null,
+    component: SystemInsightsPage,
     scope: "cluster",
     path: "/c/:ns/:name/system",
     inNav: true,
