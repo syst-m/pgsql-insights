@@ -140,7 +140,7 @@ func parseGoPackage(dir string) (structs map[string]goStruct, aliases map[string
 	// lives in the same file as its type but is not part of the ast.StructType, so
 	// knowing which types have a custom marshaller has to happen before the structs
 	// are built, not while they are.
-	var files []*ast.File
+	files := make([]*ast.File, 0, len(entries))
 	var parsed int
 	for _, e := range entries {
 		name := e.Name()
@@ -504,7 +504,7 @@ type yNode struct {
 // Without this, `- type: object` at indent 8 and `type: object` at indent 10 are
 // two spellings of the same node and the parser has to know both.
 func normalizeLines(lines []string) []string {
-	var out []string
+	out := make([]string, 0, len(lines))
 	for _, l := range lines {
 		t := strings.TrimSpace(l)
 		if t == "" || strings.HasPrefix(t, "#") {
@@ -676,7 +676,7 @@ func docSchemaProps(entries []openAPISchema) map[string][]string {
 
 func dedupe(in []string) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := make([]string, 0, len(in))
 	for _, s := range in {
 		if s == "" || seen[s] {
 			continue

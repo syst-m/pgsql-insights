@@ -1,6 +1,11 @@
 # golangci-lint config (R11.11). Written in the v1 schema — no `version: "2"` key —
 # because CI pins golangci-lint v1.64.8 and a v2-schema config is rejected by a v1
 # binary. Migrate both together when CI moves to golangci-lint v2.
+#
+# Triage of the 84 findings the first full run reported (v1.64.8, clean worktree at
+# 6189486). Every exclusion here is a decision with a reason and a count, not a
+# silence; what is left after them is what the repo owes its own code, and the
+# commit message names the owner of each remaining file.
 run:
   timeout: 5m
   tests: true
@@ -28,7 +33,32 @@ linters:
     - prealloc
     - wastedassign
 
+# The block this file was missing. `revive:` at the top level is not a v1 schema key —
+# v1 reads linters-settings.<linter> — so the whole revive configuration below the old
+# top-level key was never read, and golangci-lint ran revive's *default* rule set
+# instead of the one this file configures. Measured: with the block at the top level
+# the run reports 30 revive findings (18 package-comments, 9 unused-parameter, 2
+# exported, 1 var-declaration); nested correctly it reports the 2 `exported` findings
+# the configured rule actually produces. The other 28 were never this repo's rules —
+# they were defaults nobody asked for, which is what made 18 of them package comments
+# in packages whose real header lives in another file.
+#
+# The argument is gone too: `checkPackageComment` is not a flag revive's `exported`
+# rule accepts in v1.64.8 — with the block nested, golangci-lint logs
+#   level=error msg="setup revive: cannot configure rule: \"exported\": unknown
+#   configuration flag checkPackageComment for exported rule"
+# and discards the rule. A setting that produces an error and a fallback is worse than
+# no setting, so the rule is configured plain and package comments are checked by
+# their own rule name if the repo ever wants them.
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+
 issues:
+  # `false` keeps the exclude list explicit: golangci's built-in set (EXC0001…) also
+  # silences fmt.Print*, os.Open, and errcheck in generated code, which is a broader
+  # silence than this repo asked for. So each removal below is its own rule.
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
@@ -37,7 +67,24 @@ issues:
     - path: _test\.go
       linters: [dupl, funlen, prealloc]
 
-revive:
-  rules:
-    - name: exported
-      arguments: ["checkPackageComment"]
+    # unparam in tests answers a question tests do not ask: a helper called from one
+    # place always receives the same arguments, which is what a fixture is. All seven
+    # of the run's test-file unparam findings are that shape (`pqSource`'s namespace is
+    # always "prod" because there is one fixture). The five in non-test files stay.
+    - path: _test\.go
+      linters: [unparam]
+
+    # unused in tests is a test helper written for a test that has since changed shape
+    # (the four `keyedSecrets` members in pgxopener_test.go). The one non-test unused
+    # finding — cnpgmetrics/parse.go's `file` field — stays, because it is not a test.
+    - path: _test\.go
+      linters: [unused]
+
+    # All 21 errcheck findings are the same shape: 16 `defer rows.Close()`, 2
+    # `defer s.Close()` in tests, and one each of tx.Rollback, stmt.Close and s2.Close.
+    # A deferred Close on a read path has nowhere to report to — the function has
+    # already returned its result — and `if err := rows.Close(); err != nil` inside a
+    # defer is the same no error written twice. This is golangci's own EXC0001 pattern,
+    # restated because exclude-use-default is false.
+    - source: '(defer\s+)?(rows|stmt|tx|s2?|f|body)\.(Close|Rollback)\(\)'
+      linters: [errcheck]

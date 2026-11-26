@@ -81,7 +81,7 @@ type schemaContext struct {
 }
 
 // newSchemaContext parses apiDir and dtoDir and indexes entries against them.
-func newSchemaContext(apiDir, dtoDir string, entries []openAPISchema) (schemaContext, error) {
+func newSchemaContext(apiDir, dtoDir string, entries []openAPISchema) (schemaContext, error) { //nolint:unparam // every caller passes the R8.1b constants: ".", "dto", openAPISchemas
 	pkgs, aliases, err := parseSchemaInputs(apiDir, dtoDir)
 	if err != nil {
 		return schemaContext{}, err
@@ -544,7 +544,7 @@ func (c schemaContext) objectBody(s goStruct, pkg string, binds map[string]strin
 	// have property prose — so "the entry authored anything anywhere" is what separates
 	// an authored entry from a fresh one, and rendering the Go doc into their empty slot
 	// adds a line the document deliberately omits.
-	return c.objectCore(flattenFields(s, pkg, c.pkgs), pkg, binds, a, schemaDesc(s, a, 6), a[""].Example, 6)
+	return c.objectCore(flattenFields(s, pkg, c.pkgs), binds, a, schemaDesc(s, a, 6), a[""].Example, 6)
 }
 
 // schemaDesc resolves the schema-level description an entry renders: the authored block
@@ -576,7 +576,7 @@ func schemaDesc(s goStruct, a map[string]authoredProse, indent int) []string {
 // line, the empty-inner rule, the example-last placement — in one place. A second copy
 // of that loop is this file's recurring failure (R16.8), and a second caller is what
 // would have forced one.
-func (c schemaContext) objectCore(fields []goFieldRef, pkg string, binds map[string]string, a map[string]authoredProse, desc, example []string, indent int) ([]string, error) {
+func (c schemaContext) objectCore(fields []goFieldRef, binds map[string]string, a map[string]authoredProse, desc, example []string, indent int) ([]string, error) {
 	pad := strings.Repeat(" ", indent)
 	out := []string{pad + "type: object"}
 	out = append(out, desc...)
@@ -687,7 +687,7 @@ func (c schemaContext) composedBody(e openAPISchema, s goStruct, pkg string, bin
 	if len(own) == 0 {
 		return out, nil
 	}
-	member, err := c.objectCore(own, pkg, binds, a, nil, nil, 10)
+	member, err := c.objectCore(own, binds, a, nil, nil, 10)
 	if err != nil {
 		return nil, err
 	}
@@ -753,7 +753,7 @@ func (c schemaContext) composition(s goStruct, pkg string) (refs []string, own [
 // check verifies from the other side (a property exists whether or not it is
 // required), and the half only the emitter can render.
 func requiredNames(fields []goFieldRef) []string {
-	var out []string
+	out := make([]string, 0, len(fields))
 	for _, fr := range fields {
 		if fr.Field.OmitEmpty {
 			continue

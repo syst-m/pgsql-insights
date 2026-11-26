@@ -337,7 +337,7 @@ func checkRouteTable(routes []string) error {
 				strings.Join(noMethod, ", ")))
 		}
 		if len(badStatus) > 0 {
-			msgs = append(msgs, fmt.Sprintf("%s", strings.Join(badStatus, "; ")))
+			msgs = append(msgs, strings.Join(badStatus, "; "))
 		}
 		if len(statusLines) > 0 {
 			msgs = append(msgs, fmt.Sprintf("x-status lines that do not spell their entry's Status: %s",
@@ -496,7 +496,7 @@ func routesInDir(dir string) ([]string, error) {
 		return nil, fmt.Errorf("openapi_gen: read %s: %w", dir, err)
 	}
 	fset := token.NewFileSet()
-	var files []*ast.File
+	files := make([]*ast.File, 0, len(entries))
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
