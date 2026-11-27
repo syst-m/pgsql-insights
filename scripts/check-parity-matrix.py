@@ -258,15 +258,25 @@ EXEMPT = {
 # POSTGRES_$version.R20250727.00_14 reads as an id (the prototype's one false positive).
 CITE_RE = re.compile(r"\bR(\d{1,2})(?:\.(\d{1,2})([a-z])?)?\b")
 
+_tracked_cache = {}
 def tracked_files(root):
-    """Every tracked path, with a non-git fallback so the script still runs in an export."""
-    try:
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True,
-                             check=True).stdout.decode("utf-8", "replace").split("\0")
-        return [p for p in out if p]
-    except Exception:
-        return [str(p.relative_to(root)) for p in root.rglob("*")
-                if p.is_file() and not {".git", "node_modules", "dist", "build"} & set(p.parts)]
+    """Every tracked path, with a non-git fallback so the script still runs in an export.
+
+    Memoized per root -- the S170 fix applied to the third cache. impl_docs()/spec_docs() are
+    now called from eight sites and every call was a fresh `git ls-files` subprocess; the
+    answer is constant for the life of the process either way.
+    """
+    key = str(root)
+    if key not in _tracked_cache:
+        try:
+            out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                                 capture_output=True, check=True).stdout
+            _tracked_cache[key] = [p for p in out.decode("utf-8", "replace").split("\0") if p]
+        except Exception:
+            _tracked_cache[key] = [str(p.relative_to(root)) for p in root.rglob("*")
+                                   if p.is_file()
+                                   and not {".git", "node_modules", "dist", "build"} & set(p.parts)]
+    return _tracked_cache[key]
 
 def cited_tokens(files):
     """(file, lineno, token) for every R-id-shaped string in the tracked files in scope."""
@@ -379,6 +389,73 @@ def lines_of(root, rel):
     if key not in _lines:
         _lines[key] = (root / rel).read_text(errors="replace").splitlines()
     return _lines[key]
+
+# --- the document set, per role -----------------------------------------------------------
+# The two role documents are being decomposed into docs/ (the user's ruling, 2026-11-26):
+# IMPLEMENTATION.md (1564 lines) splits into docs/implementation/** and requirements.md
+# (940 lines) into docs/requirements/**. Every check that used to name one of those two files
+# now asks one of these two resolvers instead, so the move itself needs no edit in this file.
+#
+# Union semantics is what makes this commit a no-op today: neither directory exists yet, so
+# each resolver returns exactly its one root file and every number this script prints is
+# byte-identical before and after (verified by diffing the gate's output at the parent commit).
+# Union is also what makes it correct afterwards -- a phase file added under either directory is
+# scanned the moment `git add` makes it tracked, with no registration step here to forget, which
+# is the class of defect this whole file exists to catch (a check that quietly stops covering
+# the thing it checks).
+IMPL_ROOT_DOC, IMPL_DIR = "IMPLEMENTATION.md", "docs/implementation/"
+SPEC_ROOT_DOC, SPEC_DIR = "requirements.md", "docs/requirements/"
+
+def _doc_set(root, root_doc, prefix):
+    """`root_doc` plus every tracked file under `prefix`: sorted, deduped, unreadable tolerated.
+
+    A path that is listed but not on disk is dropped rather than raising, because `lines_of`
+    would otherwise turn a half-finished `git mv` into a traceback -- exit 1, indistinguishable
+    from a failed gate, which is the S119 usage-error class again.
+    """
+    tracked = set(tracked_files(root))
+    cands = {root_doc} | {p for p in tracked if p.startswith(prefix)}
+    return sorted(p for p in cands if p in tracked or (root / p).is_file())
+
+def impl_docs(root):
+    """Every document with the implementation role: IMPLEMENTATION.md + docs/implementation/**."""
+    return _doc_set(root, IMPL_ROOT_DOC, IMPL_DIR)
+
+def spec_docs(root):
+    """Every document with the requirements role: requirements.md + docs/requirements/**."""
+    return _doc_set(root, SPEC_ROOT_DOC, SPEC_DIR)
+
+def _impl_lines(root):
+    """[(path, lines)] for every implementation doc -- the shape all six impl-side checks want.
+
+    One helper rather than six `try: lines_of(...)` blocks, so "missing files tolerated" is
+    written once.
+    """
+    out = []
+    for rel in impl_docs(root):
+        try:
+            out.append((rel, lines_of(root, rel)))
+        except OSError:
+            continue
+    return out
+
+# Cite-map. When a doc is decomposed, prose written while it was one file still cites the old
+# path (requirements.md:459 -- unbackticked on purpose: S120's rule is that a backticked
+# path:N inside a scanned file is itself a live cite, and this one is an example rather than a
+# claim, so backticking it would add a number to the report-only tier and turn it red the day
+# requirements.md shrinks below 459 lines), and so do ~40 commit messages. The dict maps a
+# retired path to its successors; resolve_path consults it after the exact and same-directory
+# arms and before the suffix scan, so a cite to a path that no longer exists still resolves to
+# the file that inherited it. Seeded empty because nothing has been decomposed yet -- and it
+# must stay empty until the move: an alias for a path that still exists is dead weight, since
+# the exact arm answers that path first.
+#
+# A path with 2+ listed successors resolves to all of them, which check_paths grades as
+# *ambiguous* and fails -- the honest answer for one line number that cannot live in two files
+# at once. So the table maps each retired path to the single successor that carries the cited
+# lines; where a doc splits into many, the move rewrites the cites (this table is for the
+# residue), and the message tier gets MSG_CITE_DIR_EXEMPT below instead of an alias per path.
+DOC_ALIASES = {}
 
 # A3's S121: `lines_of` reads the worktree, so a cite whose target another slot has moved but
 # not committed reads as blank -- a state no commit has ever had (observed three times in one
@@ -674,6 +751,34 @@ MSG_CITE_EXEMPT = {
     ("7dfd6e2bc5c578038dbb7043d61aabd6e6bccddf", "docs/reviews/finding-index.md"): "start line blank at the commit that wrote it",
 }
 
+# Directory-prefix form of the table above: a (sha, "docs/implementation/") key exempts every
+# cite in that message whose path is under the prefix. The decomposition needs it -- ~40
+# historical messages cite `requirements.md:N`, and every one of them goes stale when that file
+# becomes an index, so the move needs to exempt a directory per message instead of one
+# (sha, path) key per cited path. Seeded empty: nothing has moved yet, and an empty prefix table
+# cannot exempt anything, so this commit changes no message tier number.
+MSG_CITE_DIR_EXEMPT = {}
+MSG_CITE_EXEMPT_ALL = {**MSG_CITE_EXEMPT, **MSG_CITE_DIR_EXEMPT}
+
+def msg_exempt_lookup(exempt, sha, path):
+    """((key, reason) for the exemption covering this cite) or None.
+
+    Exact (sha, path) first, then each ancestor directory of `path` written with a trailing
+    slash, so ("deadbeef", "docs/implementation/") matches a cite of
+    docs/implementation/phases/phase-2.md made by that message. Returning the *key* is what lets
+    check_commit_citations mark a prefix exemption as used: an ancestor key with no matching
+    cite must still surface as an orphan exemption.
+    """
+    if (sha, path) in exempt:
+        return (sha, path), exempt[(sha, path)]
+    parts = path.split("/")
+    for i in range(1, len(parts)):
+        k = (sha, "/".join(parts[:i]) + "/")
+        if k in exempt:
+            return k, exempt[k]
+    return None
+
+
 _git_run_cache = {}
 def _git_run(root, *args):
     """stdout of a git command, memoized per (root, args); None when the command exits non-zero."""
@@ -703,7 +808,7 @@ def check_commit_citations(root, n=MSG_CITE_WINDOW, exempt=None):
     would fail. `n=None` scans every reachable commit; `exempt` is injectable so the tier can be
     mutation-tested against a table that is not the shipped one.
     """
-    exempt = MSG_CITE_EXEMPT if exempt is None else exempt
+    exempt = MSG_CITE_EXEMPT_ALL if exempt is None else exempt
     shas = (_git_run(root, "log", "--format=%H") or "").split()
     if n is not None:
         shas = shas[:n]
@@ -721,8 +826,10 @@ def check_commit_citations(root, n=MSG_CITE_WINDOW, exempt=None):
         for _, kind, path, s, e, head, rev in cites:
             key = (sha, path)
             seen.add(key)
-            if key in exempt:
+            hit = msg_exempt_lookup(exempt, sha, path)
+            if hit is not None:
                 ex += 1
+                seen.add(hit[0])          # a prefix key counts as used by any cite under it
                 continue
             at = rev if rev is not None else sha          # the message's own commit is the default
             tree = own if at == sha else _tree(root, at)
@@ -751,7 +858,7 @@ print(f"commit-message citations: {msg_scanned} messages · {msg_checked} cites 
 dump(msg_bad, lambda s, kind, path, why: f"  {s} [{kind}] {why}", cap=10)
 dump(msg_unres, lambda s, kind, path, n_alt: f"  {s} [{kind}] unresolved: {path} ({n_alt} match{'es' if n_alt != 1 else ''})", cap=10)
 dump(msg_amb, lambda s, kind, path, n_alt: f"  {s} [{kind}] ambiguous: {path} ({n_alt} matches)", cap=10)
-dump(msg_orphans, lambda k: f"  orphan message exemption: {k[0][:7]} {k[1]} — {MSG_CITE_EXEMPT[k]}", cap=10)
+dump(msg_orphans, lambda k: f"  orphan message exemption: {k[0][:7]} {k[1]} — {MSG_CITE_EXEMPT_ALL[k]}", cap=10)
 
 # --- relative markdown links (A4's docs/README.md find, generalised) ---
 # The half above validates `path:N` citations and says nothing about `[text](path)` links,
@@ -853,23 +960,30 @@ STATUS_CELL_RE = re.compile(
 STATUS_ROW_ID_RE = re.compile(r"^R\d+\.\d+[a-z]?$")
 
 def check_status_enum(root):
-    """Every R-id row in IMPLEMENTATION.md's R14.8 tables, and its status cell."""
+    """Every R-id row in the implementation docs' R14.8 tables, and its status cell.
+
+    (rows, bad) summed over impl_docs(root), and bad carries the *real* path per row
+    (path, lineno, id, cell) -- so a row in docs/implementation/phases/phase-2.md prints that
+    path instead of inheriting the literal "IMPLEMENTATION.md" the single-file version printed.
+    With one doc the printed line is character-for-character what it was.
+    """
     rows, bad = 0, []
-    for n, line in enumerate(lines_of(root, "IMPLEMENTATION.md"), 1):
-        if not line.startswith("| ") or re.match(r"^\|[\s:|-]+\|$", line):
-            continue
-        cells = split_row_esc(line)
-        if not cells or not STATUS_ROW_ID_RE.match(cells[0]):
-            continue
-        rows += 1
-        if not STATUS_CELL_RE.match(cells[-1]):
-            bad.append((n, cells[0], cells[-1][:60]))
+    for rel, lines in _impl_lines(root):
+        for n, line in enumerate(lines, 1):
+            if not line.startswith("| ") or re.match(r"^\|[\s:|-]+\|$", line):
+                continue
+            cells = split_row_esc(line)
+            if not cells or not STATUS_ROW_ID_RE.match(cells[0]):
+                continue
+            rows += 1
+            if not STATUS_CELL_RE.match(cells[-1]):
+                bad.append((rel, n, cells[0], cells[-1][:60]))
     return rows, bad
 
 status_rows, status_bad = check_status_enum(root)
 print(f"status cells: {status_rows} requirement rows \u00b7 {len(status_bad)} non-canonical "
       f"(enum: {'|'.join(STATUS_ENUM)})")
-dump(status_bad, lambda n, rid, cell: f"  IMPLEMENTATION.md:{n} {rid}: {cell!r}")
+dump(status_bad, lambda rel, n, rid, cell: f"  {rel}:{n} {rid}: {cell!r}")
 
 # ---------------------------------------------------------------------------
 # Table width: every row in a markdown table must carry its header's cell count.
@@ -910,22 +1024,27 @@ WIDTH_EXEMPT = {
     ("requirements.md", 847), ("requirements.md", 848), ("requirements.md", 849),
     ("requirements.md", 850), ("requirements.md", 851), ("requirements.md", 852),
 }
-# WIDTH_DOC is the whole scan set -- four named files, not "the docs" generally. The three
-# round-1 documents (docs/reviews/round-1-architecture.md, round-1-product.md and
-# v0.3.0-architecture-review.md) are deliberately excluded: they are point-in-time review
-# documents whose tables are prose-shaped the way the exempt §11 rows are, and their content
-# is frozen at the round they name. The gate's line reads as a statement about tables in
-# general and this tuple is the only thing that makes it not one, so the boundary lives here
-# rather than only in the message that shipped it.
-WIDTH_DOC = ("IMPLEMENTATION.md", "requirements.md",
-             "docs/reviews/finding-index.md", "docs/agents.md")
+# WIDTH_DOC used to be the whole scan set -- four named files, not "the docs" generally. The
+# two role documents moved out of the tuple into width_docs() below (they are being decomposed,
+# so naming them there would put the move back in this file); the tuple now holds only the two
+# fixed members, and the tuple is still the only thing that makes the gate's line not a
+# statement about tables in general. The three round-1 documents
+# (docs/reviews/round-1-architecture.md, round-1-product.md and v0.3.0-architecture-review.md)
+# stay deliberately excluded: they are point-in-time review documents whose tables are
+# prose-shaped the way the exempt §11 rows are, and their content is frozen at the round they
+# name.
+WIDTH_DOC = ("docs/reviews/finding-index.md", "docs/agents.md")
+
+def width_docs(root):
+    """The width tier's scan set: both role-doc sets, plus the two fixed docs in WIDTH_DOC."""
+    return tuple(impl_docs(root)) + tuple(spec_docs(root)) + WIDTH_DOC
 SEP_ROW_RE = re.compile(r"^\|[\s:|-]+\|$")
 
 def check_table_widths(root):
     # (tables, rows, bad) -- bad rows are those whose width != their header's.
     tables = rows = 0
     bad = []
-    for rel in WIDTH_DOC:
+    for rel in width_docs(root):
         lines = lines_of(root, rel)
         i = 0
         while i < len(lines):
@@ -1119,37 +1238,51 @@ SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|$")
 
 
 def parse_legend(root):
-    """{glyph: label} from IMPLEMENTATION.md's legend line -- the one place the
-    phase-level vocabulary is written. Split on ` · `, not a character class, so
-    multi-codepoint glyphs survive intact."""
-    for line in lines_of(root, "IMPLEMENTATION.md"):
-        m = LEGEND_RE.match(line.strip())
-        if not m:
-            continue
-        out = {}
-        for entry in m.group(1).split(" · "):
-            glyph, _, label = entry.strip().partition(" ")
-            if glyph:
-                out[glyph] = label.strip()
-        return out
-    return {}
+    """({glyph: label}, path) from the first legend line in the implementation docs.
+
+    The one place the phase-level vocabulary is written. Split on ` · `, not a character class,
+    so multi-codepoint glyphs survive intact. The second value is the file the legend came from,
+    which the caller puts in its GUARD line; with one doc it is IMPLEMENTATION.md, and the
+    first-file-wins order is the sorted order impl_docs() gives, so nothing about today's answer
+    changes when docs/implementation/ appears.
+    """
+    for rel, lines in _impl_lines(root):
+        for line in lines:
+            m = LEGEND_RE.match(line.strip())
+            if not m:
+                continue
+            out = {}
+            for entry in m.group(1).split(" · "):
+                glyph, _, label = entry.strip().partition(" ")
+                if glyph:
+                    out[glyph] = label.strip()
+            return out, rel
+    return {}, None
 
 
 def table_rows(root, header_re):
-    """Cells of every row under the first table whose header matches header_re."""
-    lines = lines_of(root, "IMPLEMENTATION.md")
-    for i, line in enumerate(lines):
-        if not header_re.match(line.strip()):
-            continue
-        j = i + 1
-        if j < len(lines) and SEPARATOR_RE.match(lines[j].strip()):
-            j += 1                                  # skip the |---|---| row
-        rows = []
-        while j < len(lines) and lines[j].strip().startswith("|"):
-            rows.append(split_row_esc(lines[j].strip()))
-            j += 1
-        return rows
-    return []
+    """(path, cells) for every row of the first table matching header_re in each impl doc.
+
+    Aggregated over impl_docs(root): with one doc this is the old answer row for row, and with
+    many it is each file's own table instead of whichever file happens to sort first. The
+    per-file rule is inherited from the single-file version (which returned the *first* matching
+    table and stopped), so routing a decomposed doc set through it does not silently start
+    reading a file's second Phase table as more phases. The path is returned with the cells so
+    every caller's dump line can name the file a row came from.
+    """
+    out = []
+    for rel, lines in _impl_lines(root):
+        for i, line in enumerate(lines):
+            if not header_re.match(line.strip()):
+                continue
+            j = i + 1
+            if j < len(lines) and SEPARATOR_RE.match(lines[j].strip()):
+                j += 1                              # skip the |---|---| row
+            while j < len(lines) and lines[j].strip().startswith("|"):
+                out.append((rel, split_row_esc(lines[j].strip())))
+                j += 1
+            break                                   # first table in this file only
+    return out
 
 
 def rollup(glyphs, by_label):
@@ -1178,9 +1311,10 @@ def check_phase_and_milestone_status(root):
     into it would make the next person who needs to unblock CI revert a function that
     also gates the 77 R-id cells.
     """
-    by_glyph = parse_legend(root)
+    by_glyph, legend_src = parse_legend(root)
     if not by_glyph:
-        print("GUARD: phase status check parsed 0 legend glyphs -- the legend line "
+        print(f"GUARD: phase status check parsed 0 legend glyphs"
+              f"{f' in {legend_src}' if legend_src else ''} -- the legend line "
               "moved, not a pass")
         sys.exit(2)
     by_label = {v: k for k, v in by_glyph.items()}
@@ -1212,22 +1346,25 @@ def check_phase_and_milestone_status(root):
     phase_status_re = re.compile(r"^(%s)(?: \(.*\))?$" % glyph_alt, re.S)
 
     phase_rows, phase_bad, rows_by_token = 0, [], {}
-    for cells in table_rows(root, PHASE_TABLE_RE):
+    for rel, cells in table_rows(root, PHASE_TABLE_RE):
         m = PHASE_TOKEN_RE.match(cells[0])
         if not m:
             continue
         phase_rows += 1
         if len(cells) < 5:
-            phase_bad.append((cells[0], "<row has %d cells>" % len(cells)))
+            phase_bad.append((rel, cells[0], "<row has %d cells>" % len(cells)))
             continue
         sm = phase_status_re.match(cells[4])
         if not sm:
-            phase_bad.append((cells[0], cells[4][:60]))
+            phase_bad.append((rel, cells[0], cells[4][:60]))
             continue
+        # Last file wins a duplicate token: with the doc set split per phase, two files can
+        # both carry a `**2**` row, and the sorted order makes the root doc answer first and a
+        # phase file override it -- which is the direction the move wants.
         rows_by_token[m.group(1)] = sm.group(1)
 
     ms_rows, ms_bad = 0, []
-    for cells in table_rows(root, MILESTONE_TABLE_RE):
+    for rel, cells in table_rows(root, MILESTONE_TABLE_RE):
         if len(cells) < 2:
             continue
         label, cell = cells[0], cells[1]
@@ -1266,7 +1403,7 @@ def check_phase_and_milestone_status(root):
             continue
         ms_rows += 1
         if cell != expected:
-            ms_bad.append((label, cell, expected))
+            ms_bad.append((rel, label, cell, expected))
     return phase_rows, phase_bad, ms_rows, ms_bad
 
 
@@ -1285,22 +1422,34 @@ H2_SECTIONS_RE = re.compile(r"^##\s+(\d+)\.")
 
 
 def check_h2_sections(root):
-    """(numbers, gaps) for IMPLEMENTATION.md's `## N.` headings.
+    """([numbers], gaps) for the `## N.` headings of every implementation doc.
 
-    numbers -- every `## N.` section number in document order
-    gaps    -- one (sorted numbers found, sequence expected) pair when the set is not
-               exactly 1..len(numbers); empty when it is
+    Contiguity is checked per file, not across the union. A per-phase file has no `## 3.`
+    heading, so a union-wide sort would report a phase-2 file's own [1,2,4,5] as a gap it does
+    not have, and -- worse -- a root doc that lost a section can be hidden by numbers from
+    another file that happen to fill the hole. numbers is the union (what the printed count is);
+    gaps is one (path, sorted numbers found, sequence expected) per file whose own set is not
+    exactly 1..len(its numbers). A file with no `## N.` heading at all contributes no gap: an
+    index page is allowed to have none, and the union-empty GUARD below still fires when the
+    whole doc set has nothing.
     """
-    nums = [int(m.group(1)) for line in lines_of(root, "IMPLEMENTATION.md")
-            if (m := H2_SECTIONS_RE.match(line.strip()))]
-    if not nums:
-        print("GUARD: 0 `## N.` headings parsed in IMPLEMENTATION.md -- the heading shape "
-              "moved, not a pass")
+    docs = _impl_lines(root)
+    if not docs:
+        print(f"GUARD: no readable implementation doc for {root} -- file discovery broke, "
+              "not a pass")
         sys.exit(2)
-    gaps = []
-    want = list(range(1, len(nums) + 1))
-    if sorted(nums) != want:
-        gaps.append((sorted(nums), want))
+    nums, gaps = [], []
+    for rel, lines in docs:
+        found = [int(m.group(1)) for line in lines
+                 if (m := H2_SECTIONS_RE.match(line.strip()))]
+        nums += found
+        want = list(range(1, len(found) + 1))
+        if found and sorted(found) != want:
+            gaps.append((rel, sorted(found), want))
+    if not nums:
+        print(f"GUARD: 0 `## N.` headings parsed across {len(docs)} implementation "
+              "doc(s) -- the heading shape moved, not a pass")
+        sys.exit(2)
     return nums, gaps
 
 
@@ -1343,25 +1492,30 @@ SEC_REF_RE = re.compile(r"\u00a7(\d+\.\d+)")
 def check_validation_entries(root):
     """(headings, entries, rows, dangling, orphans, misaddressed).
 
-    headings  -- every `### N.N <title>` in IMPLEMENTATION.md, {section: title}
-    entries   -- the subset that are R14.2 validation entries, {section: phase token}
+    headings  -- every `### N.N <title>` across the implementation docs, {section: (title, path)}
+    entries   -- the subset that are R14.2 validation entries, {section: (phase token, path)}
     rows      -- phase-table rows with a full six cells, counted
-    dangling  -- (phase token, §ref) for a cell citing a section with no heading
-    misaddressed -- (phase token, §ref, title) for a cell whose *address* is a heading that
-               exists but is not an R14.2 validation entry (S127's rule 1)
-    orphans   -- (section, phase, why) for an entry its phase row fails to name
+    dangling  -- (row path, phase token, §ref) for a cell citing a section with no heading
+    misaddressed -- (row path, phase token, §ref, title) for a cell whose *address* is a
+               heading that exists but is not an R14.2 validation entry (S127's rule 1)
+    orphans   -- (entry path, section, phase, why) for an entry its phase row fails to name
+
+    Headings are collected across the union of impl_docs(root), later files overwriting an
+    earlier file's entry for the same `N.N` -- which for one doc is the same last-wins rule the
+    single-file version already applied to a duplicate heading inside that file.
     """
     headings, entries = {}, {}
-    for line in lines_of(root, "IMPLEMENTATION.md"):
-        m = H3_ANY_RE.match(line)
-        if m:
-            headings[m.group(1)] = m.group(2)
-        v = H3_VENTRY_RE.match(line)
-        if v:
-            entries[v.group(1)] = v.group(2)
+    for rel, lines in _impl_lines(root):
+        for line in lines:
+            m = H3_ANY_RE.match(line)
+            if m:
+                headings[m.group(1)] = (m.group(2), rel)
+            v = H3_VENTRY_RE.match(line)
+            if v:
+                entries[v.group(1)] = (v.group(2), rel)
     if not headings:
-        print("GUARD: 0 `### N.N` headings parsed in IMPLEMENTATION.md -- the heading shape "
-              "moved, not a pass")
+        print(f"GUARD: 0 `### N.N` headings parsed across {len(_impl_lines(root))} "
+              "implementation doc(s) -- the heading shape moved, not a pass")
         sys.exit(2)
     if not entries:
         print("GUARD: 0 `### N.N Phase X validation entry (R14.2)` headings parsed -- R14.2 "
@@ -1374,7 +1528,7 @@ def check_validation_entries(root):
     # orphans on a file with nothing wrong with them. The address is the cell's first ref;
     # the existence rule still applies to all of them.
     primary, rows, dangling, misaddressed = {}, 0, [], []
-    for cells in table_rows(root, PHASE_TABLE_RE):
+    for rel, cells in table_rows(root, PHASE_TABLE_RE):
         m = PHASE_TOKEN_RE.match(cells[0])
         if not m or len(cells) < 6:
             continue
@@ -1390,19 +1544,20 @@ def check_validation_entries(root):
             # The phase-mismatch half (row 5 addressing Phase 4's entry) stays the orphan
             # rule's, so this fires only on the heading-kind gap and never double-reports.
             if refs[0] in headings and refs[0] not in entries:
-                misaddressed.append((m.group(1), refs[0], headings[refs[0]]))
+                misaddressed.append((rel, m.group(1), refs[0], headings[refs[0]][0]))
         for ref in refs:
             if ref not in headings:
-                dangling.append((m.group(1), ref))
+                dangling.append((rel, m.group(1), ref))
 
     orphans = []
-    for sec, phase in sorted(entries.items()):
+    for sec, (phase, entry_rel) in sorted(entries.items()):
         named_by = primary.get(sec, set())
         valid = {t for t in named_by if t == phase or t.startswith(phase)}
         if not named_by:
-            orphans.append((sec, phase, "no phase-table row names it as its Validation entry"))
+            orphans.append((entry_rel, sec, phase,
+                            "no phase-table row names it as its Validation entry"))
         for t in sorted(named_by - valid):
-            orphans.append((sec, phase,
+            orphans.append((entry_rel, sec, phase,
                             "named as the Validation entry of row **%s**, which is phase %s"
                             % (t, phase)))
     return len(headings), len(entries), rows, dangling, orphans, misaddressed
@@ -1411,14 +1566,14 @@ def check_validation_entries(root):
 h2_nums, h2_gaps = check_h2_sections(root)
 print(f"h2 sections: {len(h2_nums)} `## N.` headings \u00b7 {len(h2_gaps)} non-contiguous "
       f"numbering")
-dump(h2_gaps, lambda found, want:
-     f"  IMPLEMENTATION.md: `## N.` numbers {found}, expected {want}")
+dump(h2_gaps, lambda rel, found, want:
+     f"  {rel}: `## N.` numbers {found}, expected {want}")
 
 phase_rows, phase_bad, ms_rows, ms_bad = check_phase_and_milestone_status(root)
 print(f"phase cells: {phase_rows} §3 phase rows · {len(phase_bad)} malformed status "
       f"cells · {ms_rows} §1 phase rows · {len(ms_bad)} disagreeing with §3")
-dump(ms_bad, lambda label, cell, expected: f"  IMPLEMENTATION.md §1 {label}: {cell!r}, §3 derives {expected!r}")
-dump(phase_bad, lambda token, cell: f"  IMPLEMENTATION.md §3 **{token}**: status cell {cell!r} is not a glyph")
+dump(ms_bad, lambda rel, label, cell, expected: f"  {rel} §1 {label}: {cell!r}, §3 derives {expected!r}")
+dump(phase_bad, lambda rel, token, cell: f"  {rel} §3 **{token}**: status cell {cell!r} is not a glyph")
 
 ve_headings, ve_entries, ve_rows, ve_dangling, ve_orphans, ve_misaddressed = \
     check_validation_entries(root)
@@ -1426,11 +1581,11 @@ print(f"validation entries: {ve_headings} `### N.N` headings \u00b7 {ve_entries}
       f"R14.2 entries \u00b7 {ve_rows} phase rows \u00b7 {len(ve_dangling)} dangling "
       f"\u00a7 refs \u00b7 {len(ve_orphans)} entries not named by their phase row \u00b7 "
       f"{len(ve_misaddressed)} rows whose address is not a validation entry")
-dump(ve_misaddressed, lambda token, ref, title:
-     f"  IMPLEMENTATION.md \u00a73 row **{token}**: addresses \u00a7{ref} ({title}), which is "
+dump(ve_misaddressed, lambda rel, token, ref, title:
+     f"  {rel} \u00a73 row **{token}**: addresses \u00a7{ref} ({title}), which is "
      f"not a `Phase X validation entry (R14.2)` heading")
-dump(ve_dangling, lambda token, ref: f"  IMPLEMENTATION.md \u00a73 row **{token}**: \u00a7{ref} has no heading")
-dump(ve_orphans, lambda sec, phase, why: f"  IMPLEMENTATION.md \u00a7{sec} (Phase {phase} entry): {why}")
+dump(ve_dangling, lambda rel, token, ref: f"  {rel} \u00a73 row **{token}**: \u00a7{ref} has no heading")
+dump(ve_orphans, lambda rel, sec, phase, why: f"  {rel} \u00a7{sec} (Phase {phase} entry): {why}")
 
 
 
@@ -1624,7 +1779,8 @@ D_BARE_EXEMPT = {k: D_GRANDFATHERED for k in D_BARE_EXEMPT_KEYS}
 def check_d_ids(root, exempt=None):
     """(ns_checked, ns_bad, bare_total, bare_bad, orphans, d4, d5) for D-id citations.
 
-    d4/d5 are the id sets IMPLEMENTATION.md's two D tables define. ns_bad is every
+    d4/d5 are the id sets the implementation docs' two D tables define, unioned over
+    impl_docs(root). ns_bad is every
     `§N-D<n>` mention whose number that section does not define; bare_bad is every bare
     `D<n>` mention outside the two tables that names nothing at all, or names a token defined
     by both tables without an entry in `exempt`; orphans is an exemption key with no mention
@@ -1632,15 +1788,19 @@ def check_d_ids(root, exempt=None):
     that is not the shipped one, the way check_commit_citations does it.
     """
     exempt = D_BARE_EXEMPT if exempt is None else exempt
-    impl = lines_of(root, "IMPLEMENTATION.md")
-    tables, cur = {}, None
-    for line in impl:
-        m = D_SECTION_RE.match(line)
-        if m:
-            cur = int(m.group(1))
-            tables.setdefault(cur, [])
-        elif cur is not None:
-            tables[cur].append(line)
+    # The two D tables' rows, aggregated over every implementation doc: `cur` resets per file
+    # so a phase file's tail lines cannot be appended to the root doc's §5. For one doc the
+    # tables dict is exactly what the single-file version built.
+    tables = {}
+    for _rel, impl in _impl_lines(root):
+        cur = None
+        for line in impl:
+            m = D_SECTION_RE.match(line)
+            if m:
+                cur = int(m.group(1))
+                tables.setdefault(cur, [])
+            elif cur is not None:
+                tables[cur].append(line)
     d4 = {m.group(1) for line in tables.get(4, []) if (m := D_ROW_ID_RE.match(line))}
     d5 = {m.group(1) for line in tables.get(5, []) if (m := D_ROW_ID_RE.match(line))}
     if not d4 or not d5:
