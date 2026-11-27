@@ -26,7 +26,7 @@ fetchers; those are listed in 6a's table and validated there, not re-implemented
 
 ### Validation entry (R14.2)
 
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.17; the short version:
+Full text at `1b11199:IMPLEMENTATION.md` §3.17; the short version:
 
 - **Scope, stated as a file list.** Eleven tracked files across three owners, and the list is the
   union of what the phase's twelve requirement rows name. Mine: `internal/collector/activity.go`
@@ -104,8 +104,6 @@ Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.17; the short v
 note says so explicitly. The WBS row in the [README](../README.md) is the task list.
 
 ### Validation entry (R14.2)
-
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.14; the short version:
 
 - **Scope.** The phase's fifty-two tracked files are `web/src/pages/**` (15) and
   `web/src/components/**` (37), listed in §3.13. The `Findings filed` column is copied from

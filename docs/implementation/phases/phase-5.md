@@ -19,8 +19,6 @@ ids split by what they re-validate, and that split is written once in the R14.8 
 
 ## Validation entry (R14.2)
 
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.15; the short version:
-
 - **Scope, stated as a file list rather than as "Phase 5 reviewed."** The phase's seventy tracked
   files are `api/` (4), `internal/api/` (56, including `dto/` and `testdata/`),
   `internal/metrics/` (7), `scripts/check-openapi.py`, `Makefile` and `.github/workflows/ci.yml`;

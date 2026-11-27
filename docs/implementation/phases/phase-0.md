@@ -32,7 +32,7 @@ update; see [phase-1.md](phase-1.md) for the commit-index incident that moved pa
 ## Validation entry (R14.2)
 
 Run 2026-11-20 on the reference environment (k3s v1.37.2+k3s1, 5 amd64 nodes, CNPG 1.30.0) from
-the arm64 dev machine. Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.2; the short
+the arm64 dev machine. Full text at `1b11199:IMPLEMENTATION.md` §3.2; the short
 version:
 
 - **Build + unit tests (R11.11, R13.10, R11.3)** — `go build ./...` clean; `go test ./... -count=1`

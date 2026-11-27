@@ -37,8 +37,6 @@ in the last column rather than dropped.
 
 ## Validation entry (R14.2)
 
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.12 (`1be97e2`); the short version:
-
 - **Commands run** — `gofmt -l .` → empty; `go build ./...` → rc 0; `go vet ./...` → rc 0;
   `go test ./...` → rc 0, 15 packages `ok`, no FAIL. Those are the pre-edit numbers at `c8f2024`;
   the commit that carries the entry re-runs the gate and its counts move with the rows it adds to the

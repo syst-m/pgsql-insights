@@ -53,7 +53,7 @@ came out of it is [`docs/agents.md`](../../agents.md) §5.1 (`ecd89c7`), restate
 
 Run 2026-11-22 on the arm64 dev machine, go 1.26.0, no cgo. Scope is spec §7.2's Phase 1a row:
 R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7, R12.1–R12.3, R13.7, R13.8. Full text at
-[IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.5; the short version:
+`1b11199:IMPLEMENTATION.md` §3.5; the short version:
 
 - **Build, vet, lint (R11.11)** — `go build ./...` and `go vet ./...` clean; `make lint` runs the
   CI-pinned golangci-lint v1.64.8 against `.golangci.yml` (the install §5-D4 asked for, closing it)
@@ -117,7 +117,7 @@ R1.1–R1.9, R1.9b, R1.10, R1.11, R8.1, R8.7, R12.1–R12.3, R13.7, R13.8. Full 
 
 ### Phase 1b (A4)
 
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.5; the short version:
+Full text at `1b11199:IMPLEMENTATION.md` §3.5; the short version:
 
 - **Toolchain (R10.1)** — react 19.3.1, typescript 5.9.3, vite 8.3.8 (the rolldown-based build:
   `build.rollupOptions` is deprecated there, so the config uses `build.rolldownOptions`),

@@ -23,8 +23,6 @@ below.
 
 ## Validation entry (R14.2)
 
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.16; the short version:
-
 - **Scope, stated as a file list rather than as "Phase 4 reviewed."** The phase's sixteen tracked
   files are the ones its nine requirement rows name (the owner split is in **Owners** above). R9.6
   and R13.3 name no file at all: both are blocked. The three `chart/values-*` profiles are R16.4's:

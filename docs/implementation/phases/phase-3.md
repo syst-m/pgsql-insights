@@ -16,7 +16,7 @@ A5. `internal/store/**` and `internal/query/**`.
 
 ## Validation entry (R14.2)
 
-Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.11; the short version:
+Full text at `1b11199:IMPLEMENTATION.md` §3.11; the short version:
 
 - **Scope** — every `.go` file in `internal/store` was read in full across four review rounds, and
   each round's output is the ledger rows it filed; the file table below is checkable against
