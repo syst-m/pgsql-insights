@@ -312,10 +312,15 @@ def main(argv):
     records = [row_record(root, rel, n, rid, cells, checker, titles) for rel, n, rid, cells in rows]
     findings = [r for r in records if r["finding"]]
     measured = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # The commit, not just the clock. A timestamp says *when* a run happened and, on a tree that
+    # moves every few minutes, cannot answer *which tree* it measured -- so comparing two runs
+    # means inferring the tree from the rows it found. `head` makes every run self-documenting.
+    head = (git(root, "rev-parse", "HEAD") or "").strip() or None
 
     if as_json:
         print(json.dumps({
             "measured_at": measured,
+            "head": head,
             "root": str(root),
             "gate_rc": gate_rc,
             "self_check": {"ledger_rows": len(impl_rows), "checker_rows": checker_rows,
@@ -325,7 +330,7 @@ def main(argv):
             "findings": [f"{r['declared_in']} {r['id']} {r['verdict']}" for r in findings],
         }, indent=2))
     else:
-        print(f"# ledger  measured {measured}  root {root}")
+        print(f"# ledger  measured {measured}  head {head}  root {root}")
         print()
         print(f"## gate  rc={gate_rc}")
         print()
