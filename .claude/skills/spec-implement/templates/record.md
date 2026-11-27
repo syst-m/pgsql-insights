@@ -10,8 +10,8 @@ Landed `<sha>` at `<UTC>` · by <slot> · gate `rc=<N>` after the commit
 ## Measured before → after
 
 ```
-before  R8.1  in-progress  IMPLEMENTATION.md:650  code  3  first 9fa8aaf12c34@2026-11-24T…
-after   R8.1  implemented  IMPLEMENTATION.md:650  code  7  first 5d67e8357bb9@2026-11-26T05:43:53Z
+before  R8.1  in-progress  1b11199:IMPLEMENTATION.md:650  code  3  first 9fa8aaf12c34@2026-11-24T…
+after   R8.1  implemented  1b11199:IMPLEMENTATION.md:650  code  7  first 5d67e8357bb9@2026-11-26T05:43:53Z
 ```
 
 Both lines from `python3 .claude/skills/spec-implement/scripts/ledger.py R8.1 --json` — the

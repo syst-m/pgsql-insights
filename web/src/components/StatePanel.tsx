@@ -606,7 +606,7 @@ export function copyFor(
 /** R10.23's non-colour encoding for the panel states themselves: the
  *  health vocabulary's table is `api/health.ts`'s `PRESENTATION`, and this is
  *  the second one `StatusGlyph.tsx`'s generalised `Glyph` draws -- the half of
- *  R10.23 IMPLEMENTATION.md:1140 records as shipped. Six states, six shapes, so
+ *  R10.23 1b11199:IMPLEMENTATION.md:1140 records as shipped. Six states, six shapes, so
  *  no two share a glyph and the set property the test holds is the same
  *  property the health table has. `partial` is a triangle rather than a yellow
  *  dot because `--status-warning` is below 3:1 on the light surface: the shape

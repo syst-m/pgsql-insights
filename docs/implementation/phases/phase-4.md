@@ -54,7 +54,7 @@ Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.16; the short v
   this table inside their finding *text* without their `against` cell naming it, and they are listed
   so the rule is checkable rather than asserted: S73 mentions `scripts/cardinality-check.py` but its
   `against` cell is `requirements.md:554`; S104's is `docs/agents.md:58` and
-  `.claude/agents/a2-api-metrics.md:13`; S108's is `IMPLEMENTATION.md:1259`. The `Round that read
+  `.claude/agents/a2-api-metrics.md:13`; S108's is ``1b11199:IMPLEMENTATION.md:1259`. The `Round that read
   it` column is the `filed in` value of those same rows and `—` for the fourteen files with no
   findings row; the column was absent from this table's first draft (the 3-column form at
   `63e05bc`).

@@ -1,7 +1,7 @@
 package collector
 
 // io_test.go covers the fifth of the Phase 2 SQL collectors (A3's ruling at
-// IMPLEMENTATION.md:766), and it inherits the fixture pattern the other four set:
+// 1b11199:IMPLEMENTATION.md:766), and it inherits the fixture pattern the other four set:
 // fakeOpener/fakeTx are database_test.go's, the fake clock is database_test.go's
 // fixedClock/fixedSourceNow, and the golden sample count is derived from the fixture
 // and spelled out in the failure message rather than remembered — the way

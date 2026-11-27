@@ -170,7 +170,7 @@ jobs:
       - name: build (tsc --noEmit + vite build, R10.1)
         run: npm run build
         working-directory: web
-      # R10.23's palette gate. IMPLEMENTATION.md:1140's R10.23 cell read "the script appears in
+      # R10.23's palette gate. 1b11199:IMPLEMENTATION.md:1140's R10.23 cell read "the script appears in
       # neither the Makefile nor CI (0 hits in both), so it exists as a command, not as a gate"
       # until A6's 7d8c792 rewrote the row (S160's fix) to name this step; §4:1413 recorded the
       # one prose run. `make palette-check` is the gate (R11.11: CI runs no command the Makefile
@@ -266,7 +266,7 @@ jobs:
       # command now that web/dist exists (scripts/image-size.py reports it as its
       # own section; it never gates, since the size limit applies to the image).
 # R11.11 gate, measured 2026-11-24 at 6c0e003. Appended at EOF on purpose: the same
-# block at the top would shift every line below it, and IMPLEMENTATION.md:1221 cites
+# block at the top would shift every line below it, and 1b11199:IMPLEMENTATION.md:1221 cites
 # twelve ci.yml line numbers -- three form-A (:40, :139, :238 spelled with the path) and
 # nine bare form-C (:42, :84, :90, :96, :117, :141, :203, :208, :213) that inherit the
 # path from the line's first citation. The checker's form-A rule

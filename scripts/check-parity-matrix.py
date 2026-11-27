@@ -346,7 +346,7 @@ PATH_EXEMPT = {
         "S116's exhibit: the row quotes the bad cite verbatim to document the fix, and that "
         "basename matches internal/collector/statements.go and internal/store/statements.go, "
         "so the quoted form is unresolvable by design while the live reference at "
-        "IMPLEMENTATION.md:1066 is now spelled and checked",
+        "1b11199:IMPLEMENTATION.md:1066 is now spelled and checked",
     ("IMPLEMENTATION.md", "references/components.md"):
         "the dataviz skill bundle's own file; the bundle is cited by absolute path + sha256 in "
         "the same cell (D12), so the relative form there refers outside this repo",
@@ -989,7 +989,7 @@ dump(status_bad, lambda rel, n, rid, cell: f"  {rel}:{n} {rid}: {cell!r}")
 # Table width: every row in a markdown table must carry its header's cell count.
 #
 # check_status_enum above reads cells[0] and cells[-1] and nothing in between, so a row with
-# an unescaped pipe in its prose -- or, the way A3 shipped IMPLEMENTATION.md:710 at 5cb8c24,
+# an unescaped pipe in its prose -- or, the way A3 shipped 1b11199:IMPLEMENTATION.md:710 at 5cb8c24,
 # two literal `||` from concatenating three cell fragments that each carried their own pipes --
 # passes the enum check and renders as six columns under a four-column header. The coordinator
 # filed it; the gate could not have. The only length check in this file was `if len(cells) < 5`
@@ -1074,7 +1074,7 @@ def check_table_widths(root):
 # requirement at line N. check_paths asserts a cited line exists (and, for a
 # markdown heading target, that it is that heading) -- never that the line is the
 # row the prose is talking about, so an off-by-one row cite is green. First run
-# found one: IMPLEMENTATION.md:729 read "`scripts/validate-env.sh` is R16.5
+# found one: 1b11199:IMPLEMENTATION.md:729 read "`scripts/validate-env.sh` is R16.5
 # (`requirements.md:523`)" and :521 is R16.4's row; R16.5 is at :522. The check
 # ships with its own proof -- the tree one commit earlier makes it print 1 and
 # exit 1 -- which is the standard this file holds itself to: a checker that
@@ -1729,18 +1729,12 @@ D_BARE_EXEMPT_KEYS = {
     ('CHANGELOG.md', 'D20'),
     ('IMPLEMENTATION.md', 'D1'),
     ('IMPLEMENTATION.md', 'D10'),
-    ('IMPLEMENTATION.md', 'D11'),
     ('IMPLEMENTATION.md', 'D12'),
     ('IMPLEMENTATION.md', 'D13'),
-    ('IMPLEMENTATION.md', 'D14'),
     ('IMPLEMENTATION.md', 'D15'),
     ('IMPLEMENTATION.md', 'D16'),
     ('IMPLEMENTATION.md', 'D17'),
     ('IMPLEMENTATION.md', 'D18'),
-    ('IMPLEMENTATION.md', 'D19'),
-    ('IMPLEMENTATION.md', 'D20'),
-    ('IMPLEMENTATION.md', 'D3'),
-    ('IMPLEMENTATION.md', 'D5'),
     ('IMPLEMENTATION.md', 'D6'),
     ('IMPLEMENTATION.md', 'D9'),
     ('README.md', 'D9'),
@@ -1867,5 +1861,5 @@ sys.exit(1 if (bad or missing or cite_bad or path_bad or ambiguous or links_bad 
               or phase_bad or ms_bad or finding_bad or unbound_notes
               or width_bad or idc_bad or ve_dangling or ve_orphans or ve_misaddressed
               or h2_gaps or self_bad or msg_bad or msg_amb or msg_orphans
-              or d_ns_bad or d_bad) else 0)
+              or d_ns_bad or d_bad or d_orphans) else 0)
 

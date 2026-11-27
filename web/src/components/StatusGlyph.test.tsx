@@ -153,7 +153,7 @@ describe("StatusChip", () => {
 
 describe("Glyph -- the generalised primitive", () => {
   // R10.23's subject is every state, not every health, and `Glyph` is the
-  // generalisation IMPLEMENTATION.md:1140 now records as shipped. The health block
+  // generalisation 1b11199:IMPLEMENTATION.md:1140 now records as shipped. The health block
   // above covers `StatusGlyph`; this one covers the primitive drawn directly
   // from a presentation, which is how `StatePanel.tsx`'s `PANEL_GLYPHS` now
   // reaches it. The property is the same one the health block asserts -- a

@@ -21,7 +21,7 @@ import (
 // transaction per view group; four views that are all S2 and all read in one round
 // are one group, the same way wal.go's two views are one group rather than two.
 //
-// A3's ruling at IMPLEMENTATION.md:766 settled the phase question this file
+// A3's ruling at 1b11199:IMPLEMENTATION.md:766 settled the phase question this file
 // reopens — it is Phase 2's, not Phase 7's, because §3.3's collection table is
 // Phase 2's scope document and `collector.Registry` (R2.1, Phase 2's) is the only
 // host a SQL collector can have; :116's scope line names "database/settings/

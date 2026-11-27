@@ -107,7 +107,7 @@ var statementViews = []pgversion.View{
 // application_name=pgsi-collector and filtering it out of
 // pg_stat_activity-derived metrics (the postgres_exporter
 // --collector.stat_statements.exclude_users pattern, applied by us at query
-// level)." IMPLEMENTATION.md:763 assigns the pg_stat_statements half of that to
+// level)." 1b11199:IMPLEMENTATION.md:763 assigns the pg_stat_statements half of that to
 // this file: "the same for the `pg_stat_statements` `exclude_users` pattern the
 // requirement cites as the model".
 //

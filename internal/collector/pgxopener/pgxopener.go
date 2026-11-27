@@ -434,7 +434,7 @@ func (o *Opener) Begin(ctx context.Context, tgt collector.Target, cfg collector.
 	// opener property the `Tx` interface cannot assert: the signature has no
 	// `SET TRANSACTION READ ONLY`, so it is proven by whichever `SQLOpener` the
 	// driver decision produces, not by a fake that cannot reject a write"
-	// (IMPLEMENTATION.md:762). database/sql has the field the assertion wants —
+	// (1b11199:IMPLEMENTATION.md:762). database/sql has the field the assertion wants —
 	// sql.TxOptions.ReadOnly — and pgx implements it as the transaction the
 	// server sees, which is the proof R2.7 asks for.
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})

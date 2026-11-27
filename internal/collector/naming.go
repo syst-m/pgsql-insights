@@ -412,7 +412,7 @@ var exportNames = map[string]exportEntry{
 	//
 	// This is the case succession.go exists for and the reason a formula-based
 	// MetricName fails: R2.4 calls it out as "the case a rename table gets wrong",
-	// and IMPLEMENTATION.md:661 already warns that the chart's two speculative
+	// and 1b11199:IMPLEMENTATION.md:661 already warns that the chart's two speculative
 	// rules "change if Phase 2 picks others". The catalogue picked these two, so
 	// both spellings of each pair resolve to one name and the chart's rules and
 	// the exporter agree on PG16 and PG17 both.
@@ -452,7 +452,7 @@ var exportNames = map[string]exportEntry{
 
 	// ---- R9.7's system family, pg_stat_io and pg_stat_slru ----
 	//
-	// A3's ruling at IMPLEMENTATION.md:766 files these 30 rows under R9.4
+	// A3's ruling at 1b11199:IMPLEMENTATION.md:766 files these 30 rows under R9.4
 	// (Phase 2's) rather than R9.7 (Phase 7's), because R9.7's own sentence routes
 	// them in — "the export set is therefore the union of R5.2's enumerated
 	// families and the numeric columns R2.4's matrix returns for the target major,

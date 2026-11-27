@@ -409,7 +409,7 @@ When a slot's ownership changes, update **all four** places in one commit:
 | `requirements.md` § "7.1 Agent allocation (the brief's hard constraint: 4 subagents max — 2 opus + 2 sonnet, amended to 6 — 3 opus + 3 sonnet on 2026-11-22)" (:643) | The heading itself states the cap and the table names every slot's agent id. It is spec text, so it is A3's to edit. Written in the checker's durable form on purpose: `check-parity-matrix.py` asserts the quoted heading *is* the text at that line, so this row cannot go stale the way the ellipsis quote it replaced did (`(the brief's hard constraint: …)`) — that form matches none of the three citation regexes, so it was an unvalidated copy of another owner's heading. |
 | `requirements.md` § "7.2 Phase table" (:665) | The per-phase **Owner** column — a reassigned phase changes a cell here, and this is the authoritative phase→slot map. |
 | `agents.md` § "3. The six slots" (:53) | The *who*, with each slot's current ownership. |
-| `IMPLEMENTATION.md` § "2. The agent roster (cap: 6 subagents — 3 opus + 3 sonnet, amended from the brief's 4 on 2026-11-22)" (:70) | The handoff file's roster table, which the brief requires to exist and stay current (R14.1). |
+| `IMPLEMENTATION.md` § "2. The agent roster (cap: 6 subagents — 3 opus + 3 sonnet, amended from the brief's 4 on 2026-11-22)" (:41) | The handoff file's roster table, which the brief requires to exist and stay current (R14.1). |
 
 Plus the slot's own `.claude/agents/<name>.md` frontmatter `description`, which is what a fresh
 instance of that slot actually reads at spawn time.

@@ -78,7 +78,7 @@ test-web: web typecheck-web
 ## palette-check: validate the chart palettes in web/src/styles/tokens.css in both modes (R10.23, D12).
 # scripts/validate_palette.js is the dataviz bundle's validator, vendored and recorded in
 # IMPLEMENTATION.md §4 D12 and named by the A4 charter (.claude/agents/a4-frontend.md:37). The
-# ledger row this closes is IMPLEMENTATION.md:1140's R10.23 cell. Its pre-7d8c792 wording read
+# ledger row this closes is 1b11199:IMPLEMENTATION.md:1140's R10.23 cell. Its pre-7d8c792 wording read
 # "the script appears in neither the Makefile nor CI (0 hits in both), so it exists as a command,
 # not as a gate" — text A6's 7d8c792 deleted when it rewrote the row (S160's fix), the same
 # shape R15.3 fixed for `make licenses`; §4:1413 records the run in prose, worst adjacent ΔE 9.1.

@@ -10,7 +10,7 @@ Measured `<UTC>` · gate `rc=<N>` · by <slot> · classification: `<kind>` (conf
 ## 1. Current state (measured)
 
 ```
-R8.1  implemented  IMPLEMENTATION.md:650  code 64  first 5d67e8357bb9@2026-11-26T05:43:53Z  cites 11  consistent
+R8.1  implemented  1b11199:IMPLEMENTATION.md:650  code 64  first 5d67e8357bb9@2026-11-26T05:43:53Z  cites 11  consistent
 ```
 
 <!-- One ledger row per id in scope, pasted verbatim from `ledger.py`'s output. If the request

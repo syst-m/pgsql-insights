@@ -184,7 +184,7 @@ overstate them as loudly as filing `lock_time` under *fixes* would understate it
   the S2 relation R3.1 names is `pg_extension`. Invisible for the two entries
   where the exporter's query name and the Postgres relation name are the same
   string, wrong at the third. Fixed in place rather than on a new line because
-  `IMPLEMENTATION.md:734` cites that line and the parity checker resolves the
+  ``1b11199:IMPLEMENTATION.md:734` cites that line and the parity checker resolves the
   citation.
 - **`ci.yml`'s coverage gate attributed to R11.11, not R14.5** (`0d707da`), and the
   two stale test-count families corrected across seven lines (`9ca2ed9`).
