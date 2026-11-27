@@ -1,0 +1,182 @@
+# Phase 2 — Collector framework, PG version matrix, SQL collectors, `/metrics` v1, scheduler budget
+
+## Status
+
+🔄 In progress (A1). Steps 1–3 of 5 landed, steps 4 and 5 in progress. No deviation rows in
+[deviations.md](../deviations.md) carry phase `2`.
+
+## Owners
+
+A1. `internal/collector/**` (61 files), `cmd/pgsi/*.go` (8), `go.mod`, `scripts/validate-env.sh`.
+Phase 6a's `locks.go` rides this phase's table (R4.4's input is Phase 6a's and has no table to live
+in until Phase 6's is written) and is recorded in both.
+
+## Task breakdown
+
+Phase 2's WBS row was one cell of scope and twenty-one requirement ids with no step list behind it,
+so the breakdown existed only in the coordinator's messages — and two of its requirement labels were
+wrong there. **Step 2 is R2.4** (the PG 15–18 capability matrix), not R3.15: R3.15 is the
+`pg_stat_statements` enablement flow, a different deliverable inside the same row's scope, and the
+label had stolen its identity. **Step 5's budget is R2.9** (the global scheduler budget), not
+R13.11 — R13.11 is the clock contract, which belongs to step 1 and which step 1's own commit title
+already claims correctly. Reading the two rows side by side surfaced a third mislabel the correction
+missed: the step-5 line carries `validate-env.sh (R11.8)`, but R11.8 is config precedence and
+`pgsi config dump` (`requirements.md:454`) while `scripts/validate-env.sh` is R16.5
+(`requirements.md:525`) — so R11.8 had no step either, and it is assigned below rather than left
+implied. Every one of the row's twenty-one ids is accounted for: the five the coordinator's
+breakdown left unassigned (R2.6, R3.15, R9.7-partial, R11.8, R12.4/R12.5) are placed with a reason
+in the last column rather than dropped.
+
+| # | Task | Req | Owner | Status |
+|---|---|---|---|---|
+| 1 | Collector framework and clock contract: the `Collector`/`Descriptor`/`Target` contract, the registry holding the `--interval.<collector>` overrides and `--disable-collector` list as data, the scheduler (per-cluster concurrency, per-collector timeout, the R2.9 slot seam), the in-process sink with size-based eviction, the two R2.2 self-observability families, the two-timestamp sample contract | R2.1, R2.2, R2.3, R13.1, R13.2, R13.5, R13.11 | A1 | ✅ `4360e21` |
+| 2 | PG version matrix as data (`internal/collector/pgversion/`): per-view column sets per major, which every SQL collector resolves its queries through | R2.4 | A1 | ✅ `aa974c6` |
+| 3 | The four Phase 2 collectors — database, settings, replication, wal — one commit each, plus the SQL-side rules they carry (schema-qualified references, one read-only transaction per view group, `application_name` self-exclusion) and the connection rules (the `pg_monitor` role, `sslmode` derivation) | R2.5, R2.7, R2.8, R12.4, R12.5 | A1 | **validated** — 4 of 4 collectors: database (`fea3571b`), settings (`ca5f5d4`), replication (`b5263b1`), wal (`12df353`); the connection rules rode with `ca5f5d4`, and each file's own status is its row below. The step's Phase 2 validation entry is now written (§3.12), so the row reads `validated` and not `implemented`. **A fifth SQL collector has since landed** — `io` (`internal/collector/io.go`, `0da370d`), which the ruling at the end of this section assigns to this phase; the `validated` above covers the four this cell names, and the fifth is reviewed with one finding (A3's S111, fixed in `0da370d`) and not registered (A3's S112) |
+| 4 | `/metrics` v1 and `pgsi_up`: the MetricHub composes `collector.Stats.Render()` with `api.BuildInfoMetric()`; A2 owns the hub, A1 owns the two collector families and `pgsi_up`. R8.1/R8.7 are re-validated here, not re-implemented — their rows are §3.8's | R9.2, R9.3, R9.4, R9.7 (partial), R9.12, R8.1, R8.7 | A1 (A2 for the hub) | 🔄 — the hub half landed at `0f4b154`, which deleted `api.BuildInfoMetric()` — the symbol this step's own text names — and moved its body to `internal/metrics/metrics.go:90`, so the composition this step describes is now the one that ships: `metrics.New(collectors, up).Render()` over `collector.Stats.Render()` and `collector.UpTracker.Render()`, reached from `internal/api/server.go:415`'s `metricsBody()`. Not ✅: the step also carries R9.7's partial and the R8.1/R8.7 re-validation. §3.12 now exists and validates the hub half; the step keeps 🔄 because R9.7's partial is open and the R8.1/R8.7 re-validation is recorded in §3.8's rows, not re-implemented here |
+| 5 | Scheduler budget (the R2.9 global cap and its `pgsi_scheduler_shed_total`), `pgsi config dump` and the flag/env/ConfigMap precedence chain (R11.8 — unassigned above, placed here as the other `cmd/pgsi` work), the `pg_stat_statements` enablement flow (R3.15 — likewise unassigned), `scripts/validate-env.sh` (R16.5), and the ground-truth fixture set (R16.1–R16.3, R16.6) with the `cnpg_*` exposition parser it tests (R2.6, whose input is R16.3's named fixtures) | R2.9, R11.8, R3.15, R16.1, R16.2, R16.3, R16.5, R16.6, R2.6 | A1 | 🔄 — the construction half landed at `74485a4`: `newRegistry()` (`cmd/pgsi/main.go:587`) builds the registry — one collector, the pooler, because the docblock at `main.go:513-535` enumerated the seven SQL collectors the then-open driver decision blocked; `9e6572a` closed that decision and registered the seven beside the pooler (A3's S65), so the registry holds eight at `c8f2024` — and `cmd/pgsi/targets.go` is the `[]collector.Target` producer `Scheduler.Run` requires. Not ✅: R2.9's global cap and its `pgsi_scheduler_shed_total` — closed since by `e6614d7` (the collector half) and `73b0e32` (the `cmd/pgsi` half, the commit that replaced the `collector.Config{}` this cell named at `1be97e2:cmd/pgsi/main.go:498`, `e6614d7:cmd/pgsi/main.go:498`, `73b0e32:cmd/pgsi/main.go:528`) with the configured budget, and exported the family the cell listed `pending` at `internal/metrics/metrics.go:25` — and R3.15's enablement flow and the R16.1–R16.3/R16.6 fixture set are still open in this row; **R16.5's `validate-env.sh` is not** — `d951089` shipped `scripts/validate-env.sh`, the §8 acceptance table the requirement asks for, and this cell kept it in the open list two commits after the commit landed. **R11.8 is not among them** — the chain and `pgsi config dump` landed at `bf55762` (`cmd/pgsi/config.go`, `cmd/pgsi/main.go:103-108`), and this cell kept calling them open for a hundred-odd commits afterwards: A3's S69, and the row is in the table below |
+
+## Validation entry (R14.2)
+
+Full text at [IMPLEMENTATION.md](../../../IMPLEMENTATION.md) §3.12 (`1be97e2`); the short version:
+
+- **Commands run** — `gofmt -l .` → empty; `go build ./...` → rc 0; `go vet ./...` → rc 0;
+  `go test ./...` → rc 0, 15 packages `ok`, no FAIL. Those are the pre-edit numbers at `c8f2024`;
+  the commit that carries the entry re-runs the gate and its counts move with the rows it adds to the
+  index, which is the S55 rule (the entry quotes the rev it measured, not the commit it lands in).
+- **What the phase shipped** — the collector framework, registry, scheduler seam and in-process sink
+  (`4360e21`); the PG version matrix as data (`aa974c6`); the four SQL collectors — database
+  (`fea3571b`), settings (`ca5f5d4`, which carried the connection rules R12.4/R12.5), replication
+  (`b5263b1`) and wal (`12df353`); the `cnpg_*` exposition parser and the naming layer (`967d557`)
+  and `pgsi_up` (`8ff6a9c`); the metrics hub (`0f4b154`); the registry construction and the targets
+  producer (`74485a4`, `058800c`); the Postgres driver and the registration of the seven SQL
+  collectors beside the pooler (`9e6572a`, closing R13.10 as ruled at `c8e54e2`); the R11.8
+  precedence chain and `pgsi config dump` (`bf55762`); and the hub's composition of R9.5's family
+  (`c8f2024`).
+- **What it did not** — R3.15's `pg_stat_statements` enablement flow; R16.1, R16.2 and R16.6; and
+  R2.3's `cmd/pgsi` flag-registration half. R16.5's `scripts/validate-env.sh` did not exist at
+  `c8f2024` and has since landed (`d951089`); R2.9's global cap and its
+  `pgsi_scheduler_shed_total` have since landed too (`e6614d7`, `73b0e32`), which retires the item.
+  The R16.3 ground-truth count was corrected on A1's measurement: R16.3 (`requirements.md:523`)
+  names four files under `testdata/cnpg-metrics/` and three under `testdata/pg-status/`, and both
+  directories hold all of theirs (all seven added by `87b7896`), so the set is complete.
+- **Two gaps, named rather than absorbed** — (1) the review-coverage gap: nineteen of seventy-one
+  files have a row in the index, and the entry claims reads for the set it can evidence rather than
+  for the phase; (2) the spec amendment the coordinator's message cited as landed at
+  `requirements.md:454-456` was not in the file when the entry was written (`:456-458` is R11.10,
+  R11.11 and R11.12, and greps for `Ruling 15` and `16.4.1` returned nothing), so it was recorded as
+  **owed**; R16.4.1 has since landed as prose inside R16.4 (`requirements.md:524`) and R15.1's half
+  is now §4-D21 in [decisions.md](../decisions.md).
+- **Amendment (A3): the io collector, the discovery pair, the acceptance caveat** — `0da370d`
+  (`internal/collector/io.go` + test, R2.5/R2.7; reviewed, one finding **A3's S111** — a comment
+  labelling four names as three, fixed in the commit under review — and **A3's S112 open**:
+  `NewIOCollector` (`internal/collector/io.go:154`) has no non-test caller, so the collector's
+  metrics cannot render in the shipped binary and the file is, at runtime, dead code); `d951089`
+  (`scripts/validate-env.sh`, R16.5); `ca9843d` (`internal/discovery/build.go` + test, R1.3 — that
+  row lives in [phase-1.md](phase-1.md)'s Phase 1a table and is amended there).
+- **Acceptance, measured and not inferred** — A1's measurement of §8's check 3 on the reference
+  instance is that `pgsi_up{cluster="cookbook-pg"} == 1` **fails**; the instrument is
+  `scripts/validate-env.sh:232-256`, and the evidence is `pgsi_collector_errors_total` equal to
+  `pgsi_collector_duration_seconds_count` for four collectors (activity 312/312, database 216/216,
+  settings 18/18, pooler 72/72). Two qualifications before the number is used as a phase verdict: it
+  is four pairs, not nine (the registry builds nine, and locks, statements, wal and pooler-clients
+  have no published pair), and the four named span two data paths — activity, database and settings
+  query Postgres through `pgxopener`, while `internal/collector/pooler.go` fetches over `net/http` —
+  so the honest reading is at least two causes, not one shared credential path. `482d82e` fixed the
+  SQL half (**A3's S115**: `DSN()` rendered `sslmode=verify-ca` while the package handed pgx no
+  trust anchors, so every round failed; the fix reads the `<cluster>-ca` secret's PEM and installs
+  it), and its scope is the nine `Begin` sites, not the pooler — the pooler's 72/72 pair is the
+  second domain and the fix leaves it standing. The entry records Phase 2's code as reviewed and its
+  §8 acceptance as not yet passing live, and records no cause it has not isolated.
+
+| File | Round that read it | Findings filed | Last commit touching it |
+|---|---|---|---|
+| `cmd/pgsi/config.go` | — | — | `9bf7d67` |
+| `cmd/pgsi/config_test.go` | — | — | `9bf7d67` |
+| `cmd/pgsi/main.go` | `74485a4`, `f08b6ac`, IMPLEMENTATION.md §5 §5-D18 | A3's S3, A3's S65, A3's S66, A3's S67, A3's S112 | `e1b4ff9` |
+| `cmd/pgsi/main_test.go` | — | — | `e4b9abb` |
+| `cmd/pgsi/opener.go` | — | — | `368b43f` |
+| `cmd/pgsi/opener_test.go` | — | — | `368b43f` |
+| `cmd/pgsi/targets.go` | — | — | `f3b30b0` |
+| `cmd/pgsi/targets_test.go` | — | — | `f3b30b0` |
+| `go.mod` | `74485a4`, `9e6572a` | A3's S67, A3's S68 | `b8510b0` |
+| `internal/collector/activity.go` | — | — | `8099036` |
+| `internal/collector/activity_test.go` | — | — | `8099036` |
+| `internal/collector/bloat.go` | this review | A3's S143 | `d9f2901` |
+| `internal/collector/bloat_test.go` | — | — | `d9f2901` |
+| `internal/collector/clock.go` | — | — | `f58889e` |
+| `internal/collector/clock_test.go` | — | — | `4c374ea` |
+| `internal/collector/cnpgmetrics/parse.go` | — | — | `967d557` |
+| `internal/collector/cnpgmetrics/parse_test.go` | — | — | `f6fd730` |
+| `internal/collector/cnpgmetrics/registry.go` | — | — | `967d557` |
+| `internal/collector/cnpgmetrics/registry_test.go` | — | — | `967d557` |
+| `internal/collector/collector.go` | — | — | `b9ad3b9` |
+| `internal/collector/collector_test.go` | — | — | `e6614d7` |
+| `internal/collector/conn.go` | — | — | `ca5f5d4` |
+| `internal/collector/conn_test.go` | — | — | `ca5f5d4` |
+| `internal/collector/database.go` | `021b646` | A3's S6, A3's S7, A3's S8, A3's S9 | `6e88618` |
+| `internal/collector/database_test.go` | `021b646`, `a906362` | A3's S8, A3's S12, A3's S17 | `a906362` |
+| `internal/collector/errlog.go` | — | — | `e4ea88c` |
+| `internal/collector/errlog_test.go` | — | — | `e4ea88c` |
+| `internal/collector/io.go` | this review | A3's S112 | `0da370d` |
+| `internal/collector/io_test.go` | this review | A3's S111 | `0da370d` |
+| `internal/collector/labels.go` | — | — | `8ff6a9c` |
+| `internal/collector/labels_test.go` | — | — | `8ff6a9c` |
+| `internal/collector/locks.go` | — | — | `56644c7` |
+| `internal/collector/locks_test.go` | — | — | `b51ea03` |
+| `internal/collector/metrics.go` | — | — | `69d2f8d` |
+| `internal/collector/metrics_test.go` | — | — | `b4e4b56` |
+| `internal/collector/metrictype/metrictype.go` | — | — | `967d557` |
+| `internal/collector/naming.go` | this review | A3's S50 | `d9f2901` |
+| `internal/collector/naming_catalogue_test.go` | — | — | `360fd39` |
+| `internal/collector/naming_test.go` | — | — | `d9f2901` |
+| `internal/collector/pgversion/matrix.go` | — | — | `8fdb363` |
+| `internal/collector/pgversion/matrix_data.go` | — | — | `8fdb363` |
+| `internal/collector/pgversion/matrix_test.go` | — | — | `8fdb363` |
+| `internal/collector/pgversion/succession.go` | `2ee4b10` | A3's S5 | `2ee4b10` |
+| `internal/collector/pgversion/succession_test.go` | — | — | `2ee4b10` |
+| `internal/collector/pgxopener/pgxopener.go` | — | — | `6e88618` |
+| `internal/collector/pgxopener/pgxopener_test.go` | — | — | `6e88618` |
+| `internal/collector/pooler.go` | `d39717c` | A3's S57 | `368b43f` |
+| `internal/collector/pooler_clients.go` | — | — | `80f12be` |
+| `internal/collector/pooler_clients_test.go` | — | — | `80f12be` |
+| `internal/collector/pooler_test.go` | `d39717c` | A3's S56, A3's S57 | `bcd0055` |
+| `internal/collector/registry.go` | — | — | `4360e21` |
+| `internal/collector/registry_test.go` | — | — | `4360e21` |
+| `internal/collector/replication.go` | `1c3d7b0` | A3's S16 | `56644c7` |
+| `internal/collector/replication_test.go` | `a906362` | A3's S17 | `a906362` |
+| `internal/collector/scheduler.go` | — | — | `b9ad3b9` |
+| `internal/collector/scheduler_metrics.go` | — | — | `e6614d7` |
+| `internal/collector/scheduler_metrics_test.go` | — | — | `e6614d7` |
+| `internal/collector/scheduler_test.go` | — | — | `e4ea88c` |
+| `internal/collector/settings.go` | `1c3d7b0`, `34936ed` | A3's S13, A3's S16 | `b9ad3b9` |
+| `internal/collector/settings_test.go` | `34936ed`, `a906362` | A3's S14, A3's S17 | `b9ad3b9` |
+| `internal/collector/sink.go` | — | — | `9bf7d67` |
+| `internal/collector/sink_test.go` | — | — | `9bf7d67` |
+| `internal/collector/sql.go` | `021b646` | A3's S7, A3's S10, A3's S11 | `6e88618` |
+| `internal/collector/sql_test.go` | — | — | `6e88618` |
+| `internal/collector/statements.go` | — | — | `202931d` |
+| `internal/collector/statements_test.go` | — | — | `56644c7` |
+| `internal/collector/up.go` | — | — | `8ff6a9c` |
+| `internal/collector/up_test.go` | — | — | `8ff6a9c` |
+| `internal/collector/wal.go` | `1c3d7b0` | A3's S16 | `56644c7` |
+| `internal/collector/wal_test.go` | `a906362` | A3's S17 | `a906362` |
+| `scripts/validate-env.sh` | this review | — | `d951089` |
+
+## Requirement → file → status (R14.8)
+
+| Req | Requirement (abridged) | File(s) | Status |
+|---|---|---|---|
+| R2.1 | Collector framework: each collector declares name, interval, required source, PG-version applicability, cost class; the scheduler runs them independently with per-collector timeouts (default 10 s) and per-cluster concurrency limits | `internal/collector/collector.go` (A1, `4360e21`), `internal/collector/scheduler.go`, `internal/collector/registry.go` | **implemented** — `Descriptor` carries all five declarations; `Scheduler.runOne` gives each collector its own derived ctx with `EffectiveTimeout()`. Two things the requirement does not settle, both flagged rather than resolved silently: the **cost-class vocabulary** (§4 names the field, never the values — `cheap`/`standard`/`expensive` are ours, validated by `ValidCostClass`), and the **method name** — Go forbids a method named `Timeout` alongside a `Timeout` field, so the accessor is `EffectiveTimeout()`. `Applicability` is a `func(pgMajor int) bool` today and becomes a `pgversion` lookup when step 2 lands, which is the seam R2.4 exists to create |
+| R2.2 | Every collector run emits `pgsi_collector_duration_seconds{collector}` and increments `pgsi_collector_errors_total{collector,cluster,namespace}`; a failed collector leaves its last-good data served and marks it with an age | `internal/collector/metrics.go`, `internal/collector/sink.go` (A1, `4360e21`) | **implemented** — both families render from `collector.Stats`, and the failure path observes the duration *and* increments the error counter, so a collector that times out still costs a sample. Three wording conflicts, all resolved toward the normative table: §3.3's prose names the errors family `pgsi_collector_collection_errors_total` while R2.2 and R9.8 both name `pgsi_collector_errors_total` (R2.2's spelling wins, and R9.8's closed list agrees); the histogram suffixes R2.2's inline name omits (`_bucket`/`_sum`/`_count`) are emitted because `promtool check metrics` requires them; and the rendered label order is alphabetical (`cluster,collector,namespace`), not R2.2's prose order, because one `labelString` sorts names for both families — a per-family order would make the two renderers disagree about the same label set. Sink failures are deliberately not counted in `pgsi_collector_errors_total`: that family counts collection failures, and a store that rejects a sample did not fail to collect |
+| R2.3 | Support `--interval.<collector>=` overrides and `--disable-collector=a,b` so a lab can run with two collectors and a production user can disable an expensive one | `internal/collector/registry.go` (A1, `4360e21`) — `IntervalOverridesFromArgs`, `DisabledFromFlag` | **implemented** — the registry resolves per-collector intervals from a pre-scan of `os.Args` (the dynamic flag name cannot be declared at parse time, so it mirrors the `logx.FieldsFromArgs` pattern) and the disable list is parsed into a set. The `cmd/pgsi` flag-registration half was to ride with step 5's R11.8 work, which is the same precedence chain; `bf55762` shipped that work and says in its own file that it did not carry this half ()the sentence was at `c5c3665:cmd/pgsi/main.go:751-756` at `bf55762`, not `config.go:555-556` — A3's S93 files the wrong-file cite and notes that `c5c3665:cmd/pgsi/config.go:555-556` is `for _, s := range settings {` / `out = append(out, s.Flag)` inside `renderDump`, and that `5652612` deleted the paragraph, so the quote is an exhibit with a rev rather than a live reference), and `5652612` "A1: wire R2.3's two collector-selection flags into cmd/pgsi" (4 files: `cmd/pgsi/main.go`, `cmd/pgsi/config.go`, `cmd/pgsi/config_test.go`, `cmd/pgsi/main_test.go`; gofmt, build, vet and `go test ./cmd/pgsi/` all rc=0 measured in the commit call) is that half — so the sentence that said the half was open is what changed, not the status, which was already **implemented** from the registry half |
+| R13.11 | Clock contract: every stored sample carries two timestamps, the source's and ours; if they disagree by > 30 s, warn naming the cluster | `internal/collector/clock.go` (A1, `4360e21`) | **implemented** — `Sample{SourceTime, IngestTime}` plus `StatsReset`. The requirement names `stats_reset` as the source timestamp, but R3.3 defines `stats_reset` as the counter-reset epoch, not a capture time, so the two are split: `SourceTime` carries the source's `now()` and `StatsReset` carries the epoch, which is what lets R3.3's counter-reset detection and R13.11's skew check read the same field for different purposes. `CheckClock` logs **one** warning per (collector, target) round naming the worst skew and its direction, not one per sample — a 200-sample round with a skewed clock should produce one line |
+| R13.1 | Per-cluster poll cost budget: one cluster's full 60 s round completes in < 3 s and issues < 40 SQL round-trips; measured via `pgsi_collector_duration_seconds` | `internal/collector/scheduler.go`, `internal/collector/collector.go` (`Result.RoundTrips`) (A1, `4360e21`) | **in-progress** — the measurement half is here: the per-collector duration histogram plus `Result.RoundTrips`, which exists because the scheduler cannot count queries issued inside a collector's own transaction, so each collector reports what it issued. The **asserted** number for the reference environment needs step 3's four collectors and lands with the phase's validation entry, per R13.4's precedent of gating on a computed figure rather than a quoted one |
+| R13.2 | Fleet scaling: 50 clusters on one poller, < 1 % CPU per cluster, < 150 MB RSS baseline; per-cluster cap plus the global budget prevent a slow cluster delaying others | `internal/collector/scheduler.go` (A1, `4360e21`) | **in-progress** — the mechanism (per-cluster semaphore, `DefaultPerClusterConcurrency = 4`, and the global slot cap that step 5 sizes) is here; the three numbers are a measured artifact that needs a fleet, and R13.4's cardinality script is the model for how one gets published |
+| R13.5 | Memory ceiling configurable and enforced (`--max-store-bytes`), with size-based eviction rather than OOM | `internal/collector/sink.go` (A1, `4360e21`) | **implemented** — for the in-process sink — `DefaultMaxStoreBytes = 64 << 20` is **derived, not quoted**: R13.5 names no default, and 64 MiB is the largest power-of-two under R13.6's 100 MB lab-mode RSS with room for the R13.2 150 MB baseline's non-store half. The `--store=sqlite` alternative §3.4 names is Phase 3's |
+| R9.2 / R9.3 | Prefix all exported metrics `pgsi_` (configurable `metrics.prefix`) / the normative label contract (`namespace`, `cluster`, `pod`, `instance_role`) | `internal/collector/metrics.go` (A1, `4360e21`) — `DefaultPrefix`, `NewStatsWithPrefix`, `withLabel` | **partial** — the collector-side half: the prefix is a constructor argument defaulting to `pgsi_`, and every sample carries the R9.3 identity through `Sample.Labels`. R9.2's `metrics.prefix` *config key* is A2's (`internal/metrics/`, and they have taken the lint work there), and the hub that composes this `Render()` with `api.BuildInfoMetric()` is step 4's |
+| R2.4 | PG 15–18 capability matrix **as data**, not scattered `if` statements: per-view column sets per major, not a rename table | `internal/collector/pgversion/matrix.go`, `matrix_data.go`, `succession.go` (+ `scripts/gen-pgmatrix.py`) (A1, `aa974c6`) | **implemented** — 31 views × 6 majors as one generated table (59 distinct column sets), plus the accessors every SQL collector will resolve through (`Columns`/`Exists`/`Query`/`Schema`/`Views`/`AppliesTo`). Three decisions the row's wording forces. **(a) The table spans six majors while the supported set is four**: R2.4's headline is "PG 15–18" because that is R13.9's CNPG 1.30 axis, but R2.4's own first enumerated case is a *PG13* rename, and a matrix starting at 15 cannot encode it — so `Majors()` returns 13–18 and `CNPGSupported()` returns 15–18 as two functions rather than one list that has to be wrong for one of the two questions. **(b) The generated file is generated from the docs, not typed**: `scripts/gen-pgmatrix.py` parses each major's postgresql.org view pages, because a 2,189-name hand-typed table is where transcription errors live and the docs are the source R2.4 is describing. (The count is now the generated header's own computed figure — `gen-pgmatrix.py` emits it — and this row previously quoted 1,100, which the table's own per-major goldens contradict; the generator's docstring names that as the reason counts are computed there rather than typed in prose.) Committing the generator is also rule 1's transitive half — the generated header names a command that exists in the same commit **(twice qualified, §5-D20: at `aa974c6` the command could not run at all — `PAGES` listed `catalog-pg-settings.html`, which 404s on all six majors, and the committed table had come from a cache directory; at `ab41d6c` it runs, but its output was 60 whitespace-only lines away from the committed `matrix_data.go` and named by `gofmt -l`, because map entries were emitted in the const-block alignment shape instead of the map-entry one. `a434af8` fixes the padding, and the generator's output is now byte-identical to the committed file)**.  `Validate()` is the executable version of that header's `DO NOT EDIT`, and `matrix_test.go` runs it against the shipped table *and* seven mutations of it, because a checker nobody has seen fail is not a checker. **(c) The rename half is a second file, not a second column**: R2.4 says "not a rename table", and the reason is `pg_stat_bgwriter` at PG17 — five columns move to `pg_stat_checkpointer`, two are deleted, four stay, which no pair-list can say. The column sets answer the *shape*; `succession.go` answers the *identity* (`total_time` *is* `total_exec_time`, so a 12→13 upgrade is not a new series), which R3.2's derivations need and step 4's R9.4 naming will too. It mints no metric names — R5.2 names families in prose and R9.4 fixes the spelling, both step 4's work, and R14.7 forbids a metric that isn't in the docs yet. **Flagged for A3, not resolved here**: requirements.md:203 lists `pg_extensions`, and no such relation exists in any of the six majors' docs — the catalog has `pg_extension` (singular) and `pg_available_extensions`. The table carries `pg_extension` and the row's id is unchanged; if the spec meant the available-extension view, that is a spec edit, not a matrix edit. **R16.1's half-landing**: step 5 owns R16.1, but its "unit tests for the PG version matrix (R2.4) across all six majors" clause is satisfied here, because R16.1's rule — write the table and its tests together — is the reason the two files are one commit rather than the table now and the tests later. The row stays in step 5's ownership; the test file is cited here so the work is visible where the requirement is.
+| R2.5 | Schema-qualify every catalog reference (`pg_catalog.*`, `pg_stat_statements.…`) in all generated SQL, matching the CNPG 1.29.1 hardening and immune to `search_path` shadowing | `internal/collector/sql.go` (`Project`, `Extra`, `ValidateProjection`), `internal/collector/database.go` (A1, `fea3571b`), `internal/collector/settings.go` (`ca5f5d4`), `internal/collector/replication.go` (`b5263b1`), `internal/collector/wal.go` (`12df353`), `internal/collector/io.go` (`0da370d`) | **implemented** — every SELECT is built by `Project`, which takes the schema from `pgversion.Schema(view)` and the column list from `pgversion.Columns`, so a collector author never types a table name and cannot type one unqualified; the three hand-written `pg_database` extras are written qualified (`pg_catalog.pg_database_size(oid)`, not `pg_database_size(oid)`). The row's file list was one collector's; all five now route through the same function (`database.go:279`, `settings.go:179`, `replication.go:236`, `wal.go:230`, `io.go:282`), so the enforcement claim covers the SQL surface rather than one collector's. One hole in the enforcement half (§5-D20): `ValidateProjection` is the function that exists to check a hand-written `Extra`, and it checks the alias as an identifier and the query's `FROM` clause — never the `Expr` string, so `Extra{Expr: "age(datfrozenxid)", Alias: "x"}` passes. The one field an author types is the one field not checked, which is the checker-that-cannot-fail class this slot keeps reporting. Its doc also says it is "used by the collectors' tests rather than by `Project` itself", while `database.go:233` calls it on every round |
+| R2.7 | Run every SQL collector inside a single read-only transaction per view group, and honour `statement_timeout` from config (default 5 s) so a sick instance cannot wedge the poller | `internal/collector/sql.go` (`Tx`, `SQLOpener`, `SQLConfig`, `DefaultStatementTimeout`), `internal/collector/database.go` (A1, `fea3571b`), `internal/collector/io.go` (`0da370d`) | **in-progress** — the transaction half is here for the database group: `Collect` opens one `Tx` for all three views and `TestDatabaseCollectOneTransactionPerRound` asserts exactly one `Begin` per round. Three halves ride. The *from config* half of `statement_timeout` is step 5's R11.8 precedence chain, the same deferral as R2.3's flag registration — the value exists (`DefaultStatementTimeout = 5 * time.Second`, carried in `SQLConfig`, asserted by the test) but nothing reads a config yet. Read-only-ness is an opener property the `Tx` interface cannot assert: the signature has no `SET TRANSACTION READ ONLY`, so it is proven by whichever `SQLOpener` the driver decision produces, not by a fake that cannot reject a write. The other three groups have since landed — settings (`ca5f5d4`), replication (`b5263b1`), wal (`12df353`) — and each opens exactly one `Tx` per round (`settings.go:116`, `replication.go:176`, `wal.go:165`, `io.go:211`), the same shape `TestDatabaseCollectOneTransactionPerRound` pins for database and `internal/collector/io_test.go:438`'s `TestIOCollectOneTransactionPerRound` pins for io. §5-D20's S9 rollback-on-failed-commit, filed against `database.go` and long missing from the other three, is now in all four (`1c3d7b0`). One correctness finding (§5-D20): `pg_database_size(oid)` requires CONNECT on each database, so with R1.8's zero-config `<cluster>-app` login the `pg_database` SELECT throws on `template0` and the round loses that view and the one after it — needs a `has_database_privilege(oid, 'CONNECT')` guard |
+| R2.8 | Exclude our own sessions from every count we report, by setting `application_name=pgsi-collector` and filtering it out of `pg_stat_activity`-derived metrics | `internal/collector/sql.go` (`ApplicationName`), `internal/collector/database.go` (A1, `fea3571b`) | **in-progress** — the `application_name` half is here: the constant is `pgsi-collector`, it is carried in `SQLConfig` on every `Begin`, and `TestDatabaseCollectOneTransactionPerRound` asserts the value the opener receives. The *filtering* half is qualified by the requirement's own words — "filtering it out of `pg_stat_activity`-derived metrics" — and `pg_stat_activity` is not in this collector's view group, so that half lands with the collector that queries it; the same for the `pg_stat_statements` `exclude_users` pattern the requirement cites as the model. The connection rules the row also carries, R12.4 and R12.5, are in `internal/collector/conn.go` (A1, `ca5f5d4`) |
+| R11.8 | `pgsi config dump` prints the resolved config, and the config precedence chain is CLI flags > `PGSI_*` env > mounted ConfigMap > built-in defaults | `cmd/pgsi/config.go` (A1, `bf55762`) — `applyFlags` (`:550` at `bf55762`, `5652612:cmd/pgsi/config.go:576`), `ConfigFileEnv` (`:72` at `bf55762`, `5652612:cmd/pgsi/config.go:70`), `EnvVar` (`:186` at `bf55762` is its doc line, the func is `5652612:cmd/pgsi/config.go:230`), `runConfig` (:558 at `bf55762`, `5652612:cmd/pgsi/config.go:593`); `cmd/pgsi/config_test.go`; `bf55762:cmd/pgsi/main.go:103-108` dispatches `config` (`os.Exit(runConfig(os.Args[2:]))` is `:107` there and `5652612:cmd/pgsi/main.go:110` — that drift is `c5c3665`'s, not `5652612`'s) and `bf55762:cmd/pgsi/main.go:319` routes `serve` through the resolver (`5652612:cmd/pgsi/main.go:461`) | **implemented** — the chain is expressed as code and the dump is dispatched; the cell this row replaces had three sites calling the requirement open (A3's S69), and R2.3's flag-registration half is the part `bf55762` left out on purpose |
+| R9.4 | Export the **aggregate** family (Cloud SQL's `insights/aggregate` equivalent): execution time, rows, shared block hits/reads, **lock time**, per (cluster, db, user) — bounded cardinality, always on | `internal/collector/naming.go` (A1, `4c374ea` "Phase 2 step 4 (R9.4) — the naming function, over the succession table"; last touched `d9f2901`), `internal/collector/naming_test.go` + `internal/collector/naming_catalogue_test.go` (A1, `8ff6a9c` "Phase 2 step 4 (R9.3, R9.12)") | **implemented** — this id's deliverable is the table, and the table's size is measured rather than typed: `naming_test.go:184-186`'s constants are `wantViewKeys = 16`, `wantDotted = 216`, `wantDotless = 51`, and `TestExportNameViewKeyCount` (`naming_test.go:177`) recomputes all three from the map, so a row added without moving the constants fails the package (`go test -count=1 ./internal/collector/` rc=0, measured at `04fca6d`). `naming.go:126`'s docblock restates the 216 in prose — "A string key is a constant, so the compiler now checks all 216" — and that second copy is `d9f2901`'s, moved from 213 with the three bloat rows; two copies of one number is R16.8's class, and the test is what makes the prose copy checkable rather than merely adjacent. **The key shape is the ruled one** (`requirements.md:398`, "Amendment (A3, on A1's duplicate-key measurement)"): `map[string]exportEntry`, with `MetricName(view, column)` kept as the typed entry point and `MetricNameFor(key string)` added as the general form, because Go rejects duplicate map keys only when the keys are constants — the `pgversion.Source` composite-literal key that preceded it compiled two rows for one (view, column) and let one silently win. `CanonicalKey` and `MetricTypeFor` are the ratified siblings from the same cell, and the unknown-key asymmetry (`MetricNameFor` → `""`, `MetricName` → `view + "_" + column`) is ruled intentional there and pinned here by `TestStringKeyAccessorsAgreeWithTheTypedOnes` (`naming_test.go:422`). **Two of the family's members exist by ruling rather than by the v0.2.0 list**: `lock_time`, the post-0.3.0 scope change the cell documents at length, and `io_time`, the derived sum of the two block-time counters admitted by the same mechanism so the Query load chart's IO band and the Query Detail page's scalar agree (`requirements.md:398`). **What the row withholds**: the cardinality column's `measured ~1.2 k` at `requirements.md:546` is §5's published figure with R13.4's script as its instrument, not a number this file produces, so the row validates the names and not the ceiling; and R9.4's *rendering* half is the hub's — `internal/metrics/metrics.go` (A2, `0f4b154`), already named in step 4's own cell. **Review provenance**: §3.12's file table (`IMPLEMENTATION.md:949`) records this file as read by "this review" with one finding, A3's S50 (`db_backends_by_wait_event` published as a gauge with no catalogue entry), `fixed by` `9ff60c6` — so the row claims a review the entry already claims and adds nothing to the coverage gap §3.12 admits. **The two cites this row's landing needed, both landed in the same commit**: §3.12's `Last commit touching it` cell for `internal/collector/naming.go` (`IMPLEMENTATION.md:949`) read `0da370d` and now reads `d9f2901`, which is `git log -1 --format=%h -- internal/collector/naming.go` at `04fca6d` (two commits behind: `e4b9abb`, `d9f2901`) — the same refresh the step-5 cell got for `validate-env.sh`; and §5-D19 (`IMPLEMENTATION.md:1490`) cited "R9.4's (:395)", where R9.4's row is `requirements.md:398` — :395 is R9.2's row, and the md tier resolves the number to a line, so the checker reported the cite as resolved while naming the wrong requirement. The cite now reads `requirements.md:398`. |
