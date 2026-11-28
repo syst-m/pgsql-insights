@@ -46,7 +46,7 @@ From `git show --numstat 8a25380`: `11 11 README.md`, `2 2 docs/implementation/p
 | `helm package chart` → `pgsi-0.1.0.tgz` | 0 | 36138 bytes; the artifact R11.9's interim form names |
 | `helm lint /tmp/pgsi-evidence/pgsi-0.1.0.tgz` | 0 | the packaged chart lints (and `helm lint chart` → rc 0 the same call, so packaging did not change lint status) |
 | `helm template pgsi <tgz> -f values-<p>.yaml` vs `helm template pgsi chart -f values-<p>.yaml`, p ∈ {default, production, lab} | 0 / 0 / 0 | `diff` → 0 lines in all three profiles: the tarball renders byte-identically to the chart directory |
-| `grep -rn 'ghcr\.io/frankellis' $(git ls-files)` | 0 | 11 occurrences in 11 files; 3 are prose copies of the claim itself, 3 are `make render` output, 1 is a symlink → 4 hand-written sites |
+| `grep -rn 'ghcr\.io/frankellis' $(git ls-files)` | 0 | measured at `189093a`: 11 occurrences in 11 files; 3 are prose copies of the claim itself, 3 are `make render` output, 1 is a symlink → 4 hand-written sites. At HEAD it is 12 in 12 — this record file is the twelfth; `git grep -c` gives 11 there because it does not follow the `chart/values-default.yaml → values.yaml` symlink that `grep -r` does |
 
 The gate rc proves resolvability, not correspondence, so the cited lines were read:
 `README.md:120-132` (the section replaced), `phase-0.md:76` and `:83` (the rows rewritten),
@@ -59,13 +59,18 @@ The gate rc proves resolvability, not correspondence, so the cited lines were re
 **R11.9 — the row's artifact column names a step that does not exist.** The row reads
 `README.md`, CI (`helm package` via `make helm-lint`/`image`). Measured: `Makefile:215-218`
 (`helm-lint:`) runs `helm lint` over three profiles and nothing else, and the Makefile's
-30 targets include no packaging target; `.github/workflows/ci.yml`'s helm job (:208) has
+32 targets include no packaging target; `.github/workflows/ci.yml`'s helm job (:208) has
 `helm lint` (:217) and `helm template snapshot test` (:222), and its only `upload-artifact`
 step is the Playwright report (:199-201). So CI does not build the tarball the row and §5-D1
 both point at — the tarball verified here was produced locally by `helm package chart`.
 `Makefile` and `ci.yml` are A2's (roster `docs/agents.md:58`), and ci.yml carries a
 cite-inventory block at :268-285 that constrains where a line may be inserted, so the step
-is A2's to add, not mine to smuggle in.
+is A2's to add, not mine to smuggle in. A2 has since ruled the same way — a `helm-package:`
+target, a step in ci.yml's helm job, and the `phase-0.md:76` cell corrected to name the target
+that exists — and declined to delegate it to me on the same roster row; their commit gets cited
+here when it lands. The target count above is `grep -oE '^[A-Za-z0-9._%/-]+:' Makefile |
+grep -v '^\.PHONY$' | wc -l` → 32, measured at `8a25380` and unchanged at `194aaa9`; the first
+version of this record said 30, and the message that reported it said 30 with 31 names listed.
 
 **R11.16 — blocked on Q6, not on the code.** The ghcr publish path is written (ci.yml's
 main-path login + `buildx --push` + `:dev` + SHA tag) and `scripts/push-oci.py` is the
