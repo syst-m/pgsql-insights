@@ -263,7 +263,7 @@ export const SUMMARY_CARDS: readonly SummaryCard[] = [
 /** The value a card prints.
  *
  *  Four of the five print `NULL_VALUE` while the payload is absent, and R10.4
- *  (`requirements.md:417`) is the row that owns that glyph: a column whose
+ *  (`19eb117:requirements.md:417`) is the row that owns that glyph: a column whose
  *  source phase has not run renders `—` *with a source-pending marker*. The
  *  marker is half the rule, so the tile renders it through `LoadSourcePending`
  *  (`web/src/components/LoadBars.tsx:127`) — the app's one marker, whose own
@@ -604,7 +604,7 @@ function SummaryCards({
             >
               <div className="stat-label">{card.label}</div>
               {/* R10.4's rule is the glyph *with* a marker naming the pending
-                  source (`requirements.md:417`), and `LoadSourcePending` is the
+                  source (`19eb117:requirements.md:417`), and `LoadSourcePending` is the
                   app's one marker (`web/src/components/LoadBars.tsx:127`), so a
                   card with no value renders it rather than a bare `—` — the
                   concrete half of A3's S150. */}

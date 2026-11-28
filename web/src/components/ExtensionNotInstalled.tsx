@@ -34,7 +34,7 @@
  *    extension "pg_stat_statements" is not loaded` — because
  *    `shared_preload_libraries` is postmaster-level and empty by default on all
  *    three reachable clusters);
- *  - the "expected, not an incident" framing is K2's (`requirements.md:812`) and
+ *  - the "expected, not an incident" framing is K2's (`19eb117:requirements.md:812`) and
  *    R10.12's own distinction between "no source configured" and "the collector
  *    ran and failed" — the former is expected on every reachable cluster, the
  *    latter is an incident.

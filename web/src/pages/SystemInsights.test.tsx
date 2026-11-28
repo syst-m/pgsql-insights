@@ -165,7 +165,7 @@ describe("R5.1's summary cards", () => {
     // The one card the spec answers before the DTO exists: R5.1's [A] clause
     // sources it from R5.10 and says it renders `not configured` when
     // `--log-source=off`, and R5.10's flag defaults to off. The other four have
-    // no answer yet, so they take R10.4's glyph (`requirements.md:417`) — `—`
+    // no answer yet, so they take R10.4's glyph (`19eb117:requirements.md:417`) — `—`
     // *with* its source-pending marker, never `0` and never the bare dash
     // A3's S150 (`docs/reviews/finding-index.md:184`) filed here.
     const { container } = renderPage();

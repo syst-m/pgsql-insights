@@ -17,7 +17,7 @@ import (
 //
 //	| `bloat` | 5 min | S2 `pg_stat_user_tables`, `pg_stat_user_indexes` | R7.2's two pairs; table size via `pg_total_relation_size`, index size via `pg_relation_size` |
 //
-// and the ruling (`requirements.md:367`) is the answer to the four asks this file's
+// and the ruling (`19eb117:requirements.md:367`) is the answer to the four asks this file's
 // author put to A3 — name,
 // interval, cost class, family names — with "the name is `bloat`, the interval is 5
 // min, the cost class is `standard`, and the two families are `table_*` and
@@ -37,10 +37,10 @@ import (
 // export set once a collector reads a view — "the export set is therefore the union of
 // R5.2's enumerated families and the numeric columns R2.4's matrix returns for the
 // target major, and R9.4's naming function must enumerate that union"
-// (`requirements.md:402`) — so naming them is required rather than optional, and no
+// (`19eb117:requirements.md:402`) — so naming them is required rather than optional, and no
 // amendment is needed for the naming half.
 //
-// R7.4 lives here too, and the ruling on its four asks (`requirements.md:369`) is the
+// R7.4 lives here too, and the ruling on its four asks (`19eb117:requirements.md:369`) is the
 // reason it is not its own file: "R7.4 extends `internal/collector/bloat.go` rather
 // than gaining an `autovacuum` collector, and the reason is the shape of
 // `internal/collector/naming.go:159`'s `exportNames`: one `map[string]exportEntry`
@@ -48,7 +48,7 @@ import (
 // *column*, never of a collector." A second collector over pg_stat_user_tables reads
 // the same columns and therefore mints the same names, and the family word rides with
 // the key — all 35 rows are `table_*` because R7.2's second ruling assigned them there
-// (`requirements.md:367`), so an `autovacuum` collector would have to move them to
+// (`19eb117:requirements.md:367`), so an `autovacuum` collector would have to move them to
 // `autovacuum_*` and shrink this projection back to the R7.2 half. The three R7.4
 // Extras below are the answer to that ruling's ask 2 ("the three names, as offered"),
 // and their SQL is the answer to ask 3 — see bloatNextAutovacuumSQL,
@@ -86,7 +86,7 @@ var bloatViews = []pgversion.View{
 
 // bloatNextAutovacuumSQL is R7.4's "next vacuum per table" as an Extra.
 //
-// The ruled expression is `requirements.md:369`'s: "the 0.1 model is `last_autovacuum
+// The ruled expression is `19eb117:requirements.md:369`'s: "the 0.1 model is `last_autovacuum
 // + autovacuum_naptime` (the next launcher cycle), NULL when `last_autovacuum` is
 // NULL". Two things about writing that in this builder are not obvious from the
 // formula.
@@ -116,7 +116,7 @@ const bloatNextAutovacuumSQL = "pg_catalog.date_part('epoch', last_autovacuum + 
 //
 // The threshold for one table is its own autovacuum_vacuum_threshold if the table sets
 // one in pg_class.reloptions, and the autovacuum_vacuum_threshold setting otherwise.
-// Expressing "override, else default" is what coalesce is for, and `requirements.md:369`
+// Expressing "override, else default" is what coalesce is for, and `19eb117:requirements.md:369`
 // rules that coalesce cannot be written here at all: `sql.go:551`'s unqualifiedCall is a
 // bare byte scan with no keyword exclusion list, so bare `coalesce(a, b)` returns
 // "coalesce" and fails validation, and `pg_catalog.coalesce(...)` is not the fix because
@@ -153,7 +153,7 @@ const bloatOverThresholdSQL = "CASE WHEN pg_catalog.substring((SELECT reloptions
 // The simplest of the three, and the only one whose SQL is a plain expression: a table
 // has never been analyzed when both the manual and the automatic column are NULL. It is
 // also the only one of the three with no parenthesis anywhere, which is the property
-// `requirements.md:369` names as the reason CASE is safe to write at all — see
+// `19eb117:requirements.md:369` names as the reason CASE is safe to write at all — see
 // bloatOverThresholdSQL for the case where a CASE still needs help.
 //
 // It pairs with next_autovacuum rather than duplicating it: a never-analyzed table also
@@ -199,7 +199,7 @@ var bloatSpecs = map[pgversion.View]QuerySpec{
 			// R7.2's two pairs.
 			{Expr: "pg_catalog.pg_total_relation_size(relid)", Alias: "total_bytes"},
 			{Expr: "n_dead_tup::float8 / pg_catalog.greatest(n_live_tup + n_dead_tup, 1)", Alias: "dead_ratio"},
-			// R7.4's autovacuum insight, ruled into this file by `requirements.md:369`.
+			// R7.4's autovacuum insight, ruled into this file by `19eb117:requirements.md:369`.
 			{Expr: bloatNextAutovacuumSQL, Alias: "next_autovacuum"},
 			{Expr: bloatOverThresholdSQL, Alias: "over_autovacuum_threshold"},
 			{Expr: bloatNeverAnalyzedSQL, Alias: "never_analyzed"},
@@ -389,7 +389,7 @@ func bloatKindOf(view pgversion.View, column string) columnKind {
 			"total_vacuum_time", "total_autovacuum_time", "total_analyze_time", "total_autoanalyze_time",
 			"total_bytes", "dead_ratio",
 			// R7.4's three. next_autovacuum is a date_part number and so emits, which is
-			// the asymmetry `requirements.md:369` calls intended against the six last_*
+			// the asymmetry `19eb117:requirements.md:369` calls intended against the six last_*
 			// rows above; the other two are CASE expressions that yield 1 or 0.
 			"next_autovacuum", "over_autovacuum_threshold", "never_analyzed":
 			return kindMetric

@@ -1075,7 +1075,7 @@ def check_table_widths(root):
 # markdown heading target, that it is that heading) -- never that the line is the
 # row the prose is talking about, so an off-by-one row cite is green. First run
 # found one: 1b11199:IMPLEMENTATION.md:729 read "`scripts/validate-env.sh` is R16.5
-# (`requirements.md:523`)" and :521 is R16.4's row; R16.5 is at :522. The check
+# (`19eb117:requirements.md:523`)" and :521 is R16.4's row; R16.5 is at :522. The check
 # ships with its own proof -- the tree one commit earlier makes it print 1 and
 # exit 1 -- which is the standard this file holds itself to: a checker that
 # cannot fail is a comment.
@@ -1110,7 +1110,7 @@ def check_table_widths(root):
 # narrow and its count small, and why widening it further buys false positives
 # before it buys coverage.
 IDCITE_RX = re.compile(
-    # "R16.5 (`requirements.md:523`)", "R9.8 (requirements.md:401)", and the prose
+    # "R16.5 (`19eb117:requirements.md:523`)", "R9.8 (requirements.md:401)", and the prose
     # forms "the R9.8 row at `requirements.md:403`" / "this R2.2 cell, in
     # `requirements.md:332`" -- the gap is capped at one short connector so a random
     # id and a random cite in the same sentence do not pair up.
@@ -1127,7 +1127,7 @@ QUOTED_SPAN = re.compile(r'\"[^\"]*\"|\u201c[^\u201d]*\u201d')
 def dequote(line):
     # Blank every quoted span before pairing ids with cites. A row that *documents*
     # a wrong cite has to quote it, and quoting is not asserting: S55's own row
-    # quotes "R16.5 (`requirements.md:523`)" -- the bad pairing it exists to record --
+    # quotes "R16.5 (`19eb117:requirements.md:523`)" -- the bad pairing it exists to record --
     # and the check flagged the quotation as a second instance of the defect.
     # Blank the quotations first and the check asks the right question: does the
     # prose *assert* a pairing, not does it contain the string.
@@ -1138,7 +1138,7 @@ def check_id_cites(root):
     # (checked, bad) -- bad is a named id whose cited line is another requirement's
     # row. Two forms, both needing a requirement-table row on the end to compare
     # against (a .go/.yml line has no id column, so .md targets only):
-    #   1. adjacency -- "R16.5 (`requirements.md:523`)": the id written next to the
+    #   1. adjacency -- "R16.5 (`19eb117:requirements.md:523`)": the id written next to the
     #      cite must be the requirement at that line.
     #   2. table row -- a row whose first cell is an id (or "R9.2 / R9.3") may only
     #      cite lines belonging to one of its own ids; this catches a row citing a

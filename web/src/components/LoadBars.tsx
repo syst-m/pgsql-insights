@@ -22,9 +22,9 @@
  * The lock-wait cell is the part worth a comment. `requirements.md:309` says the
  * column "has **no per-query source** (`pg_stat_statements` has no lock-time
  * column — §5 divergence table) and renders `n/a (no per-query source, §5)`",
- * and `requirements.md:677` repeats it as 6b's acceptance test ("Queries page
+ * and `19eb117:requirements.md:677` repeats it as 6b's acceptance test ("Queries page
  * renders the R3.2 column set exactly (incl. `Load by lock wait` = `n/a`)").
- * `requirements.md:859-862` records the ruling: A4 argued all three load columns
+ * `19eb117:requirements.md:859-862` records the ruling: A4 argued all three load columns
  * were unavailable per query, A3 showed IO wait *is* derivable, so only lock
  * wait is missing. The coordinator's ruling on my proposal is that the field is
  * absent from the DTO and the UI supplies the literal — which is the same shape
@@ -32,7 +32,7 @@
  * `LOCK_WAIT_NA` below is that single source so the string can't drift.
  *
  * It must not be rendered as `—`. `—` is R10.4's marker for "source has not run
- * yet" (`requirements.md:417`); this source will never run. The two states mean
+ * yet" (`19eb117:requirements.md:417`); this source will never run. The two states mean
  * opposite things and share a glyph only in a careless implementation.
  *
  * ── R10.19 interaction contract, for this chart type ──────────────────────
@@ -122,7 +122,7 @@ export function LoadNotApplicable({ text }: { text: string }) {
  *  *re-validated*, not first validated, when the source lands.
  *
  *  Distinct from `LoadNotApplicable` on purpose: `—` means "not yet", the `n/a`
- *  literal means "not ever". R10.4 (`requirements.md:417`) defines the marker for
+ *  literal means "not ever". R10.4 (`19eb117:requirements.md:417`) defines the marker for
  *  the Fleet columns; this is the same marker, not a second one. */
 export function LoadSourcePending({ source }: { source: string }) {
   return (

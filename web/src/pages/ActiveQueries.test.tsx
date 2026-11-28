@@ -1,7 +1,7 @@
 /* R10.8's page shell — the four clauses it has to render, and the one piece of
  * local state that ties them together.
  *
- * The suite is organised by R10.8's own sentence (`requirements.md:421`),
+ * The suite is organised by R10.8's own sentence (`19eb117:requirements.md:421`),
  * because that is the contract a later reader checks the file against:
  *
  * 1. **the live table (R4.1)** — the shell, the row set, and the column set the
