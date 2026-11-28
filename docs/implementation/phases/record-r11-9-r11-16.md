@@ -32,7 +32,7 @@ single range. It is identical in both measurements, so it is not caused by this 
 | File | Change |
 |---|---|
 | `README.md` | +11 / −11 — the provisional-registry section rewritten in place: it now carries the measured hand-edit site list for the org string and the packaged-tarball evidence, replacing the unmeasured "three-line change … nothing else references the org" sentence |
-| `docs/implementation/phases/phase-0.md` | +2 / −2 — rows R11.9 (:76) and R11.16 (:83) rewritten in place with the measured evidence; the new `§5-D10` mentions use the namespaced form (D10 is defined in both §4 and §5, so a bare `D10` is not exempt — the gate failed on it before the fix) |
+| `docs/implementation/phases/phase-0.md` | +2 / −2 — rows R11.9 (:76) and R11.16 (:83) rewritten in place with the measured evidence; the new `§5-D10` mentions use the namespaced form (§5-D10 is defined in both §4 and §5, so a bare `§5-D10` is not exempt — the gate failed on it before the fix) |
 
 From `git show --numstat 8a25380`: `11 11 README.md`, `2 2 docs/implementation/phases/phase-0.md`,
 `2 files changed, 13 insertions(+), 13 deletions(-)`.
@@ -61,7 +61,7 @@ The gate rc proves resolvability, not correspondence, so the cited lines were re
 (`helm-lint:`) runs `helm lint` over three profiles and nothing else, and the Makefile's
 30 targets include no packaging target; `.github/workflows/ci.yml`'s helm job (:208) has
 `helm lint` (:217) and `helm template snapshot test` (:222), and its only `upload-artifact`
-step is the Playwright report (:199-201). So CI does not build the tarball the row and D1
+step is the Playwright report (:199-201). So CI does not build the tarball the row and §5-D1
 both point at — the tarball verified here was produced locally by `helm package chart`.
 `Makefile` and `ci.yml` are A2's (roster `docs/agents.md:58`), and ci.yml carries a
 cite-inventory block at :268-285 that constrains where a line may be inserted, so the step
@@ -71,10 +71,10 @@ is A2's to add, not mine to smuggle in.
 main-path login + `buildx --push` + `:dev` + SHA tag) and `scripts/push-oci.py` is the
 documented no-login fallback that produced the reference image. What is missing is the
 org: `IMPLEMENTATION.md §5-D10` (:191) records `ghcr.io/frankellis/pgsql-insights` as
-*provisional* and `docs/requirements/open-questions.md` Q6 as unresolved, and D1 says
+*provisional* and `docs/requirements/open-questions.md` Q6 as unresolved, and §5-D1 says
 settling it "flips three lines (§5-D10) and the README's provisional banner off". This
 commit corrects the count in my own copy of that claim (four hand-written sites, not three
-— `.github/workflows/release.yml:36` is not named by D10); D10's own text is A3's.
+— `.github/workflows/release.yml:36` is not named by §5-D10); §5-D10's own text is A3's.
 
 ## Answers to the proposal's open questions
 
