@@ -119,17 +119,17 @@ SPA's gzipped JS (90.8 kB) is a separate CI number.
 
 ### Provisional image registry (open question Q6)
 
-The spec has not settled the registry organisation (Q6), so the working value
-throughout this repo is `ghcr.io/frankellis/pgsql-insights`. It appears in `Makefile`
-(`IMAGE`), `chart/values.yaml` (`image.repository`) and `.github/workflows/ci.yml`
-(`IMAGE_REPO`), each marked provisional. Changing it later is a three-line change plus
-a chart version bump — nothing else references the org. Until the org exists, the
-verifiable install paths are the packaged chart tarball
-(`helm package chart && helm install pgsi pgsi-0.1.0.tgz`) and the reference
-environment's own registry, `10.10.111.134:5000/frankellis/pgsql-insights` —
-`docker push` needs credentials this dev machine does not have for ghcr.io, so
-`scripts/push-oci.py` publishes through the registry v2 API instead
-([IMPLEMENTATION.md §5](IMPLEMENTATION.md)).
+The spec has not settled the registry organisation (Q6); the working value is
+`ghcr.io/frankellis/pgsql-insights` ([IMPLEMENTATION.md §5-D10](IMPLEMENTATION.md) names three
+places; measured 2026-11-28 there are four hand-written ones: `Makefile:21` `IMAGE`,
+`chart/values.yaml:30` `image.repository`, `.github/workflows/ci.yml:27` and
+`.github/workflows/release.yml:36`, both keyed `IMAGE_REPO` — GitHub's `env:` is per-workflow).
+The `deploy/plain-yaml/*.yaml` copies come from `make render` and `chart/values-default.yaml`
+is a symlink, so neither is a hand-edit site. Until the org exists the verifiable install path
+is the packaged chart tarball — `helm package chart` yields `pgsi-0.1.0.tgz`, 36138 bytes,
+`helm lint` rc 0, render byte-identical to `./chart` in all three profiles (2026-11-28) — and
+`scripts/push-oci.py` publishes the image to `10.10.111.134:5000/frankellis/pgsql-insights`,
+as `docker push` has no ghcr.io credentials on this machine.
 
 ---
 
