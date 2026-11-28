@@ -69,8 +69,12 @@ is A2's to add, not mine to smuggle in. A2 has since ruled the same way — a `h
 target, a step in ci.yml's helm job, and the `phase-0.md:76` cell corrected to name the target
 that exists — and declined to delegate it to me on the same roster row; their commit gets cited
 here when it lands. The target count above is `grep -oE '^[A-Za-z0-9._%/-]+:' Makefile |
-grep -v '^\.PHONY$' | wc -l` → 32, measured at `8a25380` and unchanged at `194aaa9`; the first
+grep -v '^\.PHONY:' | wc -l` → 32, measured at `8a25380` and unchanged at `194aaa9`; the first
 version of this record said 30, and the message that reported it said 30 with 31 names listed.
+The pattern is the second fix to this sentence. As first written it read `'^\.PHONY$'`, which
+counts 33: `-oE` emits the trailing colon, so the token is `.PHONY:` and the `$` never matches
+it — the number was right and the command printed beside it was not (A2's correction,
+2026-11-28, measured at `3730993`).
 
 **R11.16 — blocked on Q6, not on the code.** The ghcr publish path is written (ci.yml's
 main-path login + `buildx --push` + `:dev` + SHA tag) and `scripts/push-oci.py` is the
