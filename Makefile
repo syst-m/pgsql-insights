@@ -368,9 +368,9 @@ clean:
 
 ## helm-package: R11.9 — package the chart into dist/ for the two-command quickstart.
 # Q6's org is still unnamed, so until the registry exists the packaged tgz is the
-# artifact the quickstart installs from (README's interim form, §5-D1). release.yml:189
-# runs the same command raw in the release job; this target is the Makefile mirror
-# R11.11 asks for, and `make clean` deletes its output along with the rest of dist/.
+# artifact the quickstart installs from (README's interim form, §5-D1). The release
+# job (.github/workflows/release.yml:189, since 6e220b4) runs this target rather
+# than repeating it, as ci.yml:276 does (R11.11); `make clean` deletes the tgz.
 # Appended at EOF on purpose: every cited Makefile line (:21, :30, :58, :79, :81, :88,
 # :98, :99, :112, :117, :136, :215, :221, :247, :271, :300, :317) sits above this point,
 # so an insertion here moves none of them — the rule .github/workflows/ci.yml:282 states for its own file.
