@@ -49,7 +49,7 @@ From `git show --numstat 8a25380`: `11 11 README.md`, `2 2 docs/implementation/p
 | `grep -rn 'ghcr\.io/frankellis' $(git ls-files)` | 0 | measured at `189093a`: 11 occurrences in 11 files; 3 are prose copies of the claim itself, 3 are `make render` output, 1 is a symlink → 4 hand-written sites. At HEAD it is 12 in 12 — this record file is the twelfth; `git grep -c` gives 11 there because it does not follow the `chart/values-default.yaml → values.yaml` symlink that `grep -r` does |
 
 The gate rc proves resolvability, not correspondence, so the cited lines were read:
-`README.md:120-132` (the section replaced), `phase-0.md:76` and `:83` (the rows rewritten),
+`README.md:120-132` (the section replaced), `phase-0.md:76` and `phase-0.md:83` (the rows rewritten),
 `Makefile:21`, `chart/values.yaml:30`, `.github/workflows/ci.yml:27`,
 `.github/workflows/release.yml:36`, `Makefile:221-227` (the `render:` recipe that writes
 `deploy/plain-yaml/`).

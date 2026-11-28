@@ -101,7 +101,7 @@ in Prometheus" but "can this be a label at a price": a number that aggregates is
 string you would read is not.
 
 R9.1 requires the tagging to be *in this file*, so it is here and not only in the root
-README's metrics catalogue (`README.md:178`). Every capability the spec names, with the plane
+README's metrics catalogue (`README.md:180`). Every capability the spec names, with the plane
 that serves it:
 
 | Capability | Plane | Req | Why that plane |
@@ -329,7 +329,7 @@ Two things an adopter should be able to read off this table:
 
 ### 3. Measured for our own `/metrics`
 
-**One series, today.** `internal/api/server.go:171` mounts `GET /metrics` and its
+**One series, today.** `internal/api/server.go:579` mounts `GET /metrics` and its
 handler writes exactly one line — `pgsi_build_info{version,commit}` (R11.3) — which
 is what the file's own header comment scopes it to: *"pgsi_build_info only (R11.3;
 the full R9.2 catalogue lands in Phase 2)"*. This section previously answered "not
@@ -341,7 +341,7 @@ R13.4's script (`271b7bb`) computes the 24 480 from §5's table and the fixture 
 than scraping, so it confirms the computed budget and converts nothing; the figure
 stops being a projection when the R9.2 catalogue is wired into that handler. Two of
 the R9.8 self-metrics have since been written — `pgsi_collector_duration_seconds`
-and `pgsi_collector_errors_total`, rendered from `internal/collector/metrics.go:186`
+and `pgsi_collector_errors_total`, rendered from `4360e21:internal/collector/metrics.go:186`
 and `:209` (A1, `4360e21`) — but neither is mounted on the handler, so the served
 count is still one. That is the same dependency that makes R9.6 and R9.8 deferred to
 Phase 2's `/metrics` rather than validated now.
