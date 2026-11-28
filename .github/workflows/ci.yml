@@ -262,10 +262,24 @@ jobs:
             -t ${{ env.IMAGE_REPO }}:${GITHUB_SHA::7} \
             --push .
           docker buildx imagetools inspect ${{ env.IMAGE_REPO }}:dev
+      # R11.9: package the chart into dist/ — the artifact the two-command quickstart
+      # installs from while Q6's org is unnamed. The Makefile owns the command (R11.11);
+      # helm is pinned here through the workflow's HELM_VERSION, as the helm job pins it.
+      # The row's artifact column names this job ("CI (`helm package` via `make
+      # helm-lint`/`image`)"); the helm job was the other home, and a step there would
+      # move every line from :229 down — four cited numbers (:243, :245, :246, :280)
+      # across seven citing lines, four of them in release.yml.
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: "package the chart (R11.9)"
+        run: make helm-package
       # R11.4's second number — the SPA's gzipped JS — is printed by the same
       # command now that web/dist exists (scripts/image-size.py reports it as its
       # own section; it never gates, since the size limit applies to the image).
-# R11.11 gate, measured 2026-11-24 at 6c0e003. Appended at EOF on purpose: the same
+# R11.11 gate. The twelve IMPLEMENTATION.md ci.yml cites were measured 2026-11-24 at
+# 6c0e003; the four counts below were re-measured 2026-11-28 (S163's A2 half, plus the
+# R11.9 step above). Appended at EOF on purpose: the same
 # block at the top would shift every line below it, and 1b11199:IMPLEMENTATION.md:1221 cites
 # twelve ci.yml line numbers -- three form-A (:40, :139, :238 spelled with the path) and
 # nine bare form-C (:42, :84, :90, :96, :117, :141, :203, :208, :213) that inherit the
@@ -277,10 +291,10 @@ jobs:
 # 8582636 taught P (:346) to alternate over CITE_NAMES -- before that P required a
 # dot-extension, so an extensionless file was unattachable in form A.
 #
-#   run: lines              23   grep -c '^ *run:' .github/workflows/ci.yml
-#   run: make <target>      10   grep -c '^ *run: make ' .github/workflows/ci.yml
-#   run: | block scalars     6   grep -c '^ *run: |' .github/workflows/ci.yml
-#   raw single commands      7   :75, :119, :121, :139, :161, :164, :175
+#   run: lines              28   grep -c '^ *run:' .github/workflows/ci.yml
+#   run: make <target>      13   grep -c '^ *run: make ' .github/workflows/ci.yml
+#   run: | block scalars     7   grep -c '^ *run: |' .github/workflows/ci.yml
+#   raw single commands      8   :75, :126, :128, :134, :146, :168, :171, :190
 #
 # The ten target names, with their line numbers, are enumerated in IMPLEMENTATION.md's
 # D3 row (:1221); :139 (`go test ./... -count=1`) and :238 (`python3
