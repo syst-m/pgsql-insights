@@ -256,14 +256,13 @@ type StatementRow struct {
 	StddevExecTimeMs *float64
 
 	// Plan is R3.10's captured plan for this statement, nil when this round
-	// captured none. R3.10's sampling is bounded, so most rounds capture none
-	// for most queries and nil is the common case, not the error case.
+	// captured none. R3.10's sampling is bounded, so most rounds capture none for
+	// most queries and nil is the common case, not the error case.
 	//
-	// The pg_stat_statements collector always leaves it nil: a plan is not a
-	// column of the view, and R3.10's capture is the API plane's work. The field
-	// is on this type because the store's row and the collector's row are one
-	// type, and a type that exists twice is the second copy of a contract this
-	// repo refuses.
+	// A plan is not a column of pg_stat_statements, so the collector leaves it nil
+	// unless a PlanSampler is configured (plans.go). The field is on this type
+	// because the store's row and the collector's row are one type, and a type
+	// that exists twice is a second copy of a contract this repo refuses.
 	Plan *dto.PlanSampleView
 }
 
@@ -322,6 +321,7 @@ type StatementsCollector struct {
 	norm        query.Options
 	topN        int
 	excludeRole string
+	plans       *PlanSampler
 }
 
 // NewStatementsCollector builds the collector on top of an opener (R2.7's
@@ -508,20 +508,20 @@ func (c *StatementsCollector) CollectStatements(ctx context.Context, tgt Target)
 		}
 		rowsByView[pv.view] = rows
 	}
+	// R3.10: plans are captured here, on this transaction and before the commit; plans.go owns the strategy.
+	plans, planTrips, err := c.plans.sample(ctx, tx, rowsByView[pgversion.ViewStatStatements])
+	trips += planTrips
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, Result{RoundTrips: trips}, err
+	}
 	if cerr := tx.Commit(); cerr != nil {
 		_ = tx.Rollback()
 		return nil, Result{RoundTrips: trips},
 			fmt.Errorf("collector %s: commit: %w", CollectorStatement, cerr)
 	}
 
-	// The info view is the database list. It has exactly one row per database —
-	// `dealloc` and `stats_reset`, no keys — so on a connection to one database it
-	// answers with that database's epoch, and the datname Extra names it. Reading
-	// the list from the info rows rather than from the statement rows is what
-	// makes an empty database produce a snapshot: a database with no statements
-	// yet has zero pg_stat_statements rows and one info row, and R3.14's
-	// answer-not-available-vs-zero rule needs the store to record the empty round
-	// rather than skip it.
+	// The info view is the database list, so a database with no statements yet still yields a snapshot (R3.14).
 	resets := make(map[string]time.Time)
 	order := make([]string, 0, len(rowsByView[pgversion.ViewStatStatementsInfo]))
 	for _, r := range rowsByView[pgversion.ViewStatStatementsInfo] {
@@ -538,7 +538,7 @@ func (c *StatementsCollector) CollectStatements(ctx context.Context, tgt Target)
 
 	// Group the statement rows by the database they came from.
 	grouped := make(map[string][]StatementRow, len(order))
-	for _, r := range rowsByView[pgversion.ViewStatStatements] {
+	for i, r := range rowsByView[pgversion.ViewStatStatements] {
 		dn, ok := r.Get("datname")
 		if !ok {
 			// A row with no datname is a projection that lost the Extra. It is
@@ -547,7 +547,7 @@ func (c *StatementsCollector) CollectStatements(ctx context.Context, tgt Target)
 			// rather than the collector silently dropping a row it did read.
 			dn = ""
 		}
-		grouped[dn] = append(grouped[dn], statementRowFrom(r))
+		grouped[dn] = append(grouped[dn], c.rowWithPlan(statementRowFrom(r), i, plans))
 		if _, seen := resets[dn]; !seen {
 			order = append(order, dn)
 		}
@@ -913,4 +913,33 @@ func (c *StatementsCollector) specFor(v pgversion.View) QuerySpec {
 			" AND (" + spec.Where + ")"
 	}
 	return spec
+}
+
+// WithPlanSampler attaches R3.10's plan capture to this collector and returns c.
+//
+// It is a builder and not a constructor argument for the reason WithTopN (:379)
+// and WithExcludeRole (:889) give for being builders: the constructor signature is
+// shared by every registry entry and R3.10's knob is not something the other nine
+// collectors take. The value is used as built — NewPlanSampler resolves and clamps
+// the per-minute number through PlanConfig.withDefaults, so there is nothing left
+// here to clamp, and passing nil is the way to build a collector that captures no
+// plans (sample on a nil receiver returns no plans and issues no queries).
+func (c *StatementsCollector) WithPlanSampler(s *PlanSampler) *StatementsCollector {
+	c.plans = s
+	return c
+}
+
+// rowWithPlan returns row with its captured plan attached, or row unchanged.
+//
+// plans is keyed by index into the view's rows (PlanSampler.sample explains why an
+// index and not a fingerprint), and this is the only place the pairing happens: the
+// grouping loop at :541 has the index in hand, and re-deriving a key from the row
+// here would be a second contract for one row.
+func (c *StatementsCollector) rowWithPlan(row StatementRow, i int, plans map[int]*dto.PlanSampleView) StatementRow {
+	p, ok := plans[i]
+	if !ok || p == nil {
+		return row
+	}
+	row.Plan = p
+	return row
 }
