@@ -58,8 +58,8 @@ Full text at `1b11199:IMPLEMENTATION.md` §3.17; the short version:
   1. The two ids reported as having no code are built. The review that scoped this phase reported
      R10.8 and R10.9 as having no code, and the scoping was to A1's Go files:
      `web/src/pages/ActiveQueries.tsx` (`99f37f0`) and `web/src/pages/WaitEvents.tsx` (`be7f042`)
-     both exist and are A6's, and `requirements.md:421` and `:422` are their spec rows. The ids with
-     genuinely no code are R10.25 and R10.26 at `requirements.md:438` and `:439` — and those two
+     both exist and are A6's, and `19eb117:requirements.md:421` and `:422` are their spec rows. The ids with
+     genuinely no code are R10.25 and R10.26 at `19eb117:requirements.md:438` and `:439` — and those two
      rows write their ids bold, `| **R10.25** |`, where R10.1–R10.14 write them plain, so
      `grep '^| R10\.25 '` returns nothing on a file that has the row.
   2. `cmd/pgsi/main.go:579` builds `api.Config` with six fields and assigns neither
@@ -68,8 +68,8 @@ Full text at `1b11199:IMPLEMENTATION.md` §3.17; the short version:
      though the activity collector is registered at `main.go:1054`. Rowed as §5-D20 in the same
      commit — the same class as §5-D18's store finding: the collector exists, the DTO exists, the route
      exists, and the one line that would connect them was not written.
-  3. `internal/api/sessions.go:3` and `:89` cite `requirements.md:330` for R4.5; `requirements.md:330`
-     is R4.3's row and R4.5 is `requirements.md:332`. A2's file, named here rather than edited there.
+  3. `internal/api/sessions.go:3` and `:89` cite `19eb117:requirements.md:330` for R4.5; `19eb117:requirements.md:330`
+     is R4.3's row and R4.5 is `19eb117:requirements.md:332`. A2's file, named here rather than edited there.
 - **Ruling this entry carries.** The phase is A1's per §3's Owner column, and R14.1 makes a phase's
   code and its IMPLEMENTATION.md update one commit, which puts this entry's authorship with whoever
   wrote the code — six of the twelve ids here are A2's and A6's, and their files are named rather
@@ -93,7 +93,7 @@ Full text at `1b11199:IMPLEMENTATION.md` §3.17; the short version:
 | R4.8 | `internal/collector/activity_test.go:418-423` (`TestActivityDropsRowsWithoutPid`), `:896` (`TestActivitySamples`), `:957` (`TestCollectReturnsSamplesAndNoRows`) | **implemented (A1)** — `activity.go:305-306` names the entry point the requirement's [A] clause calls, and the three tests assert value equality rather than presence, which is what "a card that renders `NaN` passes a presence check and fails this one" is for |
 | R10.8 | `web/src/pages/ActiveQueries.tsx` (A6, `99f37f0`, last touched `6e10be8`) | **implemented (A6)** — built in the commit whose subject names this id; see Finding one for why this row needed the review corrected before it could be written |
 | R10.9 | `web/src/pages/WaitEvents.tsx` (A6, `be7f042`, last touched `8fe4f32`) | **implemented (A6)** — the page and its chart; its header records that `GET /api/v1/insights/wait-events` is its `endpoint:` and `phase: "6a"` but that no A1 DTO backs it, which is R4.3's in-progress half and not a reason to mark this row open |
-| R10.25 | — | **not-started (A6)** — the only key handlers in `web/src` are `components/ColumnMenu.tsx` and `components/WaitEventsChart.tsx`, both local to their own widgets; none of `j`/`k`, `Enter`, `/`, `t`, `Esc` or `?` from `requirements.md:438` exists at page level |
+| R10.25 | — | **not-started (A6)** — the only key handlers in `web/src` are `components/ColumnMenu.tsx` and `components/WaitEventsChart.tsx`, both local to their own widgets; none of `j`/`k`, `Enter`, `/`, `t`, `Esc` or `?` from `19eb117:requirements.md:438` exists at page level |
 | R10.26 | — | **not-started (A6)** — nothing in `web/src` fetches firing or pending alerts; R9.11's rule set shipped in Phase 4 (`f9aae41`, §3.9) and remains unconsumed |
 
 ## 6b — Query Insights UI, percentiles, plan capture, tags, load graphs
@@ -211,7 +211,7 @@ note says so explicitly. The WBS row in the [README](../README.md) is the task l
   2026-11-24. The review did precede this entry — `7954e3a` rowed the findings first, which is
   R14.2's order — but the code commit did not carry its IMPLEMENTATION.md update.
 - **Ruling this entry carries.** A6 logged the R3.1 presence-ranking question in §3.13's R10.27
-  cell instead of answering it, and the answer is now in `requirements.md:308` as prose under R3.1:
+  cell instead of answering it, and the answer is now in `19eb117:requirements.md:308` as prose under R3.1:
   the ranking is `true` > `false` > not-known, the Go `Installed *bool` with
   `json:"installed,omitempty"` at `internal/api/dto/queries.go:298` is the contract, and
   `nullable: true` at `internal/api/openapi_annotations.go:3909` is the defect — it adds a second

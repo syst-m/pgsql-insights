@@ -357,7 +357,7 @@ about the finding are two claims.** The headline gets verified because it is the
 on; the quantified sentence attached to it rides out on the headline's credibility, unchecked. Four
 instances in one session, across three slots: A3's `R8.12 → R8.6` fix in `docs/architecture.md`
 was correct, and the enumeration justifying it — "R8 has exactly R8.1, R8.1b, R8.1c, R8.2–R8.9" —
-was short by two, since R8.10 and R8.11 exist (`requirements.md:388-389`). A2 twice corrected a
+was short by two, since R8.10 and R8.11 exist (`19eb117:requirements.md:388-389`). A2 twice corrected a
 number correctly while overstating what that number implied ("the form that survives the next
 insertion", then "stops owing you a fix"); A4 doubted an arithmetic claim of their own that was
 correct once it was checked against the diffs. The coordinator catches the headline and inherits
@@ -406,8 +406,8 @@ When a slot's ownership changes, update **all four** places in one commit:
 
 | Place | Why it's in the set |
 |---|---|
-| `requirements.md` § "7.1 Agent allocation (the brief's hard constraint: 4 subagents max — 2 opus + 2 sonnet, amended to 6 — 3 opus + 3 sonnet on 2026-11-22)" (:643) | The heading itself states the cap and the table names every slot's agent id. It is spec text, so it is A3's to edit. Written in the checker's durable form on purpose: `check-parity-matrix.py` asserts the quoted heading *is* the text at that line, so this row cannot go stale the way the ellipsis quote it replaced did (`(the brief's hard constraint: …)`) — that form matches none of the three citation regexes, so it was an unvalidated copy of another owner's heading. |
-| `requirements.md` § "7.2 Phase table" (:665) | The per-phase **Owner** column — a reassigned phase changes a cell here, and this is the authoritative phase→slot map. |
+| `19eb117:requirements.md:643` § "7.1 Agent allocation (the brief's hard constraint: 4 subagents max — 2 opus + 2 sonnet, amended to 6 — 3 opus + 3 sonnet on 2026-11-22)" | The heading itself states the cap and the table names every slot's agent id. It is spec text, so it is A3's to edit. Written in the checker's durable form on purpose: `check-parity-matrix.py` grades a revved cite against that rev's copy, so the cite cannot go stale when requirements.md is decomposed into docs/requirements/**; the pre-pin form also quoted the heading text, which the B grammar asserted was the text at that line -- the R grammar asserts only that the line exists and is non-blank. |
+| `19eb117:requirements.md:665` § "7.2 Phase table" | The per-phase **Owner** column — a reassigned phase changes a cell here, and this is the authoritative phase→slot map. |
 | `agents.md` § "3. The six slots" (:53) | The *who*, with each slot's current ownership. |
 | `IMPLEMENTATION.md` § "2. The agent roster (cap: 6 subagents — 3 opus + 3 sonnet, amended from the brief's 4 on 2026-11-22)" (:41) | The handoff file's roster table, which the brief requires to exist and stay current (R14.1). |
 
