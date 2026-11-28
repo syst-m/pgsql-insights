@@ -29,21 +29,22 @@ self-check reports `122/122` rows agreeing with the checker.
 ## 2. What is being asked
 
 Two Phase 2 rows that are one piece of work: R2.7's transaction rule is what makes R13.1's
-query budget arithmetically satisfiable, and D20 says so explicitly. Spec text, verbatim from
+query budget arithmetically satisfiable, and §4-D20 says so explicitly. Spec text, verbatim from
 the shell's §4 (`requirements.md:84` and `requirements.md:266` — the shell is the right cite
-for §4 rows; `docs/requirements/**` holds the topic prose, not the id table):
+for §4 rows; `docs/requirements/**` holds the topic prose, not the id table; D-ids are spelled
+with their section here, as the parity gate requires of any file outside the two D tables):
 
 > **R2.7** | Run every SQL collector inside a single read-only transaction per view group, and honour `statement_timeout` from config (default 5 s) so a sick instance cannot wedge the poller.
 
-> **R13.1** | **Per-cluster poll cost budget**: one cluster's full 60 s collection round completes in **< 3 s** and issues **< 40 SQL round-trips** on a healthy instance; measured and reported via `pgsi_collector_duration_seconds`. **What counts as a round-trip (D20):** the reported field counts **queries issued**, not transaction control statements — a view group's `BEGIN`/`COMMIT` pair is not counted, so a collector that runs one query per view inside one transaction reports the number of views. The budget is a query budget, and the arithmetic is what settles it: thirteen collectors at three queries each is 39, and R2.7's one-transaction-per-view-group adds two control statements per transaction, so a statement-counting reading puts the same round at 39 + 78 = 117 and makes this requirement unsatisfiable by construction at any collector count above four.
+> **R13.1** | **Per-cluster poll cost budget**: one cluster's full 60 s collection round completes in **< 3 s** and issues **< 40 SQL round-trips** on a healthy instance; measured and reported via `pgsi_collector_duration_seconds`. **What counts as a round-trip (§4-D20):** the reported field counts **queries issued**, not transaction control statements — a view group's `BEGIN`/`COMMIT` pair is not counted, so a collector that runs one query per view inside one transaction reports the number of views. The budget is a query budget, and the arithmetic is what settles it: thirteen collectors at three queries each is 39, and R2.7's one-transaction-per-view-group adds two control statements per transaction, so a statement-counting reading puts the same round at 39 + 78 = 117 and makes this requirement unsatisfiable by construction at any collector count above four.
 
 ## 3. Assumptions adopted without asking
 
 | Q | Answer | Confidence (A1's own) | Why this is not a question |
 |---|---|---|---|
-| What is actually left for R2.7 | only the `statement_timeout`-from-config half | 0.82 | The row lists three open halves and two of them have since landed: read-only-ness is `internal/collector/pgxopener/pgxopener.go:439` (`sql.TxOptions{ReadOnly: true}`) and the §5-D20 `has_database_privilege(oid, 'CONNECT')` guard is `internal/collector/database.go:88`, tested at `internal/collector/database_test.go:237`. The row's own text names the third half as deferred to "step 5's R11.8 precedence chain", and R11.8 is implemented (`cmd/pgsi/config.go`, `bf55762`) — so it is unblocked, not pending. |
-| Where the value comes from | `*sf.statementTimeout`, read after `applyFlags` | 0.80 | `cmd/pgsi/main.go:533` runs R11.8's chain and `applyFlags` writes the resolved value into the FlagSet itself, so the flag pointer *is* the chain's answer for flag/env/ConfigMap alike; reading the discarded `[]resolved` rows directly would be a second read of the same value. |
-| Does `SET LOCAL statement_timeout` count as a round-trip | no | 0.78 | D20's exclusion is "transaction control statements", and `SET LOCAL` is transaction-scoped configuration issued by the opener alongside `BEGIN`, not a query against a view. The opener issues it inside every transaction (`pgxopener.go:449`), so the counting rule has to be stated; it is in §3 rather than §4 because it clears the bar. |
+| What is actually left for R2.7 | only the `statement_timeout`-from-config half | 0.82 | The row lists three open halves and two of them have since landed: read-only-ness is `internal/collector/pgxopener/pgxopener.go:440` (`sql.TxOptions{ReadOnly: true}`) and the §5-D20 `has_database_privilege(oid, 'CONNECT')` guard is `internal/collector/database.go:88`, tested at `internal/collector/database_test.go:237`. The row's own text names the third half as deferred to "step 5's R11.8 precedence chain", and R11.8 is implemented (`cmd/pgsi/config.go`, `bf55762`) — so it is unblocked, not pending. |
+| Where the value comes from | `*sf.statementTimeout`, read after `applyFlags` | 0.80 | `cmd/pgsi/main.go:556` runs R11.8's chain and `applyFlags` writes the resolved value into the FlagSet itself, so the flag pointer *is* the chain's answer for flag/env/ConfigMap alike; reading the discarded `[]resolved` rows directly would be a second read of the same value. |
+| Does `SET LOCAL statement_timeout` count as a round-trip | no | 0.78 | §4-D20's exclusion is "transaction control statements", and `SET LOCAL` is transaction-scoped configuration issued by the opener alongside `BEGIN`, not a query against a view. The opener issues it inside every transaction (`pgxopener.go:450`), so the counting rule has to be stated; it is in §3 rather than §4 because it clears the bar. |
 | Where the R13.1 test lives | `cmd/pgsi/budget_test.go` | 0.76 | The number is a property of the registry `newRegistry` builds, and `newRegistry` is in `cmd/pgsi`. The row names `internal/collector/scheduler.go` and `collector.go` (`Result.RoundTrips`) as the *field's* home, which already exists; the reference-registry measurement has to be where the reference registry is. |
 | Which collectors are in scope for the count | the ten SQL ones; `pooler` contributes 0 | 0.84 | R13.1 counts SQL round-trips and `pooler` is an HTTP source (`Desc.Source == SourcePoolerMetrics`), so it issues none by construction. The three §3.3 collectors still unshipped (progress/S1, instance-metrics/S3, k8s-events/S4) are likewise non-SQL and add 0 when they land. |
 
@@ -69,7 +70,7 @@ Scored `5/6` on `spec-implement ship rubric` (`noul ship` not run — no NPU; A1
 Verified: grounded `0.91` · on_brief `0.86` · no_leaks `0.95` (A1's own, not `decision-verify`'s).
 
 The one point off the score is that R13.1's `< 3 s` duration half cannot be measured without a
-live Postgres; the test asserts the query-count half, which is the half D20's arithmetic is
+live Postgres; the test asserts the query-count half, which is the half §4-D20's arithmetic is
 about, and the duration half stays with A2's `pgsi_collector_duration_seconds` export.
 
 ## 6. Plan
