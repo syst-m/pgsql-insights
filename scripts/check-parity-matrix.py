@@ -338,9 +338,8 @@ PATH_SKIP_DIRS = ("docs/research/",)
 # design and needs the same keyed reason, or the gate fails on the row that documents the fix
 # (A3's S116). If the repo ever gains a real references/components.md, IMPLEMENTATION.md's
 # cite of it becomes checkable and gets checked, rather than being silently exempted forever.
-# references/components.md, IMPLEMENTATION.md's cite of it becomes checkable and gets checked,
-# rather than being silently exempted forever. Without self-expiry the table is a standing
-# warning that outlives its own reason — which is how real findings get skipped.
+# Without self-expiry the table is a standing warning that outlives its own reason -- how
+# real findings get skipped.
 PATH_EXEMPT = {
     ("docs/reviews/finding-index.md", "statements.go"):
         "S116's exhibit: the row quotes the bad cite verbatim to document the fix, and that "
@@ -350,6 +349,7 @@ PATH_EXEMPT = {
     ("IMPLEMENTATION.md", "references/components.md"):
         "the dataviz skill bundle's own file; the bundle is cited by absolute path + sha256 in "
         "the same cell (D12), so the relative form there refers outside this repo",
+    ("docs/implementation/decisions.md", "references/components.md"): "the dataviz bundle's own file, cited by absolute path + digest in the D12 cell; the bundle is empty as of 2026-11-28 (4934d59), so the path resolves to 0 permanently",
 }
 # The cited-path pattern, consumed by CITE_A and CITE_B below and by the link-label search in
 # check_links; the dot-less names come from CITE_NAMES above, the same table that gates which
