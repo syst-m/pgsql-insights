@@ -120,7 +120,7 @@ SPA's gzipped JS (90.8 kB) is a separate CI number.
 ### Provisional image registry (open question Q6)
 
 The spec has not settled the registry organisation (Q6); the working value is
-`ghcr.io/frankellis/pgsql-insights` ([IMPLEMENTATION.md §5-D10](IMPLEMENTATION.md) names three
+`ghcr.io/frankellis/pgsql-insights` ([IMPLEMENTATION.md §5-D10](IMPLEMENTATION.md) names four
 places; measured 2026-11-28 there are four hand-written ones: `Makefile:21` `IMAGE`,
 `chart/values.yaml:30` `image.repository`, `.github/workflows/ci.yml:27` and
 `.github/workflows/release.yml:36`, both keyed `IMAGE_REPO` — GitHub's `env:` is per-workflow).
