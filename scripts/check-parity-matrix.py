@@ -1018,11 +1018,11 @@ dump(status_bad, lambda rel, n, rid, cell: f"  {rel}:{n} {rid}: {cell!r}")
 # deletes its line"). Measured 2026-11-24: the row sat at :867 at `aee9046` and at :1016 in the
 # tree that added §3.12, and the line-keyed exemption expired on the move -- escaping the pipes
 # ends that churn, where re-pointing the number would have restarted it on the next edit above
-# the row.
+# the row. Re-keyed 2026-11-28 when §11 moved out of the root file: the nine rows are now # docs/requirements/review-log.md:7-15 (review-log.md line N is requirements.md line 838+N-1); the requirements.md:843-850 wording above is the pre-move address, kept as the exhibit it is.
 WIDTH_EXEMPT = {
-    ("requirements.md", 844), ("requirements.md", 845), ("requirements.md", 846),
-    ("requirements.md", 847), ("requirements.md", 848), ("requirements.md", 849),
-    ("requirements.md", 850), ("requirements.md", 851), ("requirements.md", 852),
+    ("docs/requirements/review-log.md", 7), ("docs/requirements/review-log.md", 8), ("docs/requirements/review-log.md", 9),
+    ("docs/requirements/review-log.md", 10), ("docs/requirements/review-log.md", 11), ("docs/requirements/review-log.md", 12),
+    ("docs/requirements/review-log.md", 13), ("docs/requirements/review-log.md", 14), ("docs/requirements/review-log.md", 15),
 }
 # WIDTH_DOC used to be the whole scan set -- four named files, not "the docs" generally. The
 # two role documents moved out of the tuple into width_docs() below (they are being decomposed,
@@ -1741,6 +1741,7 @@ D_BARE_EXEMPT_KEYS = {
     ('docs/agents.md', 'D12'),
     ('docs/agents.md', 'D13'),
     ('docs/agents.md', 'D6'),
+    ('docs/requirements/open-questions.md', 'D3'), ('docs/requirements/review-log.md', 'D13'), ('docs/requirements/review-log.md', 'D14'), ('docs/requirements/review-log.md', 'D16'), ('docs/requirements/review-log.md', 'D18'),
     ('docs/reviews/finding-index.md', 'D1'),
     ('docs/reviews/finding-index.md', 'D14'),
     ('docs/reviews/finding-index.md', 'D18'),
@@ -1755,7 +1756,6 @@ D_BARE_EXEMPT_KEYS = {
     ('requirements.md', 'D12'),
     ('requirements.md', 'D13'),
     ('requirements.md', 'D14'),
-    ('requirements.md', 'D16'),
     ('requirements.md', 'D18'),
     ('requirements.md', 'D19'),
     ('requirements.md', 'D2'),
