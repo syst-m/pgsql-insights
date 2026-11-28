@@ -288,3 +288,27 @@ describe("WaitEventsPage — the states (R10.12, R10.22)", () => {
     expect(onPatch).toHaveBeenCalledWith({ page: "fleet", cluster: null });
   });
 });
+
+describe("R4.1's Status cell on the bucket drill", () => {
+  // The same wiring as the Active Queries page, on the drill's session table:
+  // the cell is `SessionStatusChip` (`../components/StatusGlyph`), so R4.1's
+  // hourglass and block render here too. The drill shows one bucket at a time,
+  // so the rows checked are whatever the selected bucket holds, each looked up
+  // in the fixture by its pid cell rather than assumed.
+  it("renders a status chip in every session row of the selected bucket", () => {
+    const { container } = renderPage();
+    const table = container.querySelector('[data-testid="wait-event-sessions"]');
+    expect(table).not.toBeNull();
+    const rows = [...(table?.querySelectorAll("tbody tr") ?? [])];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const tr of rows) {
+      const pid = tr.querySelector("td")?.textContent?.trim() ?? "";
+      const row = FIXTURE_ACTIVE_QUERIES.data.find((s) => String(s.pid) === pid);
+      expect(row, `no fixture row for pid ${pid}`).not.toBeNull();
+      const chip = tr.querySelector(".status-chip");
+      expect(chip, `row ${pid}`).not.toBeNull();
+      expect(chip?.textContent, `row ${pid}`).toBe(row?.status);
+      expect(chip?.querySelector("svg.status-glyph path"), `row ${pid}`).not.toBeNull();
+    }
+  });
+});

@@ -7,12 +7,11 @@
  * from `ActiveQueriesResponse` (`web/src/api/client.ts:619`), grouped. No A2 path,
  * no A1 DTO." So the page calls the *active-queries* fetcher through the same
  * `useActiveQueries` hook the Active Queries page uses, and groups the sessions
- * client-side with `waitBuckets`
- * (`web/src/components/WaitEventsChart.tsx:108`), whose rules mirror
- * `internal/collector/activity.go:690` `WaitEventRollup`. When A1 lands a
- * `WaitEventsResponse`, this file's `resp` line and its `PageProps<…>` argument
- * are the two places that change; the chart and the drill take buckets, not a
- * payload, so neither of them moves.
+ * client-side with `waitBuckets` (`web/src/components/WaitEventsChart.tsx:108`), whose
+ * rules mirror `internal/collector/activity.go:690` `WaitEventRollup`. When A1 lands a
+ * `WaitEventsResponse`, this file's `resp` line and its `PageProps<…>` argument are the
+ * two places that change; the chart and the drill take buckets, not a payload, so
+ * neither of them moves.
  *
  * The page is three stacked blocks, in the order R10.9's sentence reads them:
  *
@@ -47,6 +46,7 @@ import {
   WAIT_EVENTS_COPY,
   type FetchPhase,
 } from "../components/StatePanel";
+import { SessionStatusChip } from "../components/StatusGlyph";
 import { WaitEventsChart, waitBuckets, type WaitBucket } from "../components/WaitEventsChart";
 
 /** The payload is the Active Queries payload, so its freshness is R10.8's: the
@@ -380,7 +380,7 @@ function cell(row: SessionView, key: string): ReactElement | string {
         </span>
       );
     case "status":
-      return row.status;
+      return <SessionStatusChip status={row.status} blocked={row.blockingPids.length > 0} />;
     case "queryDurationSeconds":
       return formatDurationMs(row.queryDurationSeconds * 1000);
     case "waitEvent":

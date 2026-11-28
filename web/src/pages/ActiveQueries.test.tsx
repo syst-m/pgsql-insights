@@ -741,3 +741,38 @@ describe("ActiveQueriesPage — R10.18's windowing and density", () => {
     );
   });
 });
+
+describe("R4.1's Status cell", () => {
+  // R4.1 (`requirements.md:112`) names the hourglass and the block; the page
+  // draws them through `SessionStatusChip` (`../components/StatusGlyph`), so
+  // this block owns the wiring — that the status cell renders a chip and picks
+  // its state from the row's own two fields — and not the geometry, which the
+  // component suite pins by golden.
+  //
+  // The shipped fixture covers all three states on its own: 41288 is `active`
+  // with `blockingPids: [41102]` (blocked), 41102 is `idle in transaction`
+  // (idle), 41304 is `active` with no blockers (active). The expectation is
+  // typed here rather than imported from `sessionStateFor`, so a change to the
+  // mapping fails this test too instead of moving with it.
+  const STATES_BY_PID: Record<string, string> = {
+    "41288": "blocked",
+    "41102": "idle",
+    "41304": "active",
+  };
+
+  it("renders a status chip in every row, with the state that row's fields imply", () => {
+    const { container } = renderPage();
+    const rows = [...container.querySelectorAll("tbody tr[data-pid]")];
+    expect(rows).toHaveLength(FIXTURE_ACTIVE_QUERIES.data.length);
+    for (const tr of rows) {
+      const pid = tr.getAttribute("data-pid") ?? "";
+      const chip = tr.querySelector(".status-chip");
+      expect(chip, `row ${pid}`).not.toBeNull();
+      const row = FIXTURE_ACTIVE_QUERIES.data.find((s) => String(s.pid) === pid);
+      // The cell's text is the API's string, unchanged.
+      expect(chip?.textContent, `row ${pid}`).toBe(row?.status);
+      expect(chip?.getAttribute("data-session-state"), `row ${pid}`).toBe(STATES_BY_PID[pid]);
+      expect(chip?.querySelector("svg.status-glyph path"), `row ${pid}`).not.toBeNull();
+    }
+  });
+});

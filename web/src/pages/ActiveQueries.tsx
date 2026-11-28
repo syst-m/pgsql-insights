@@ -49,13 +49,12 @@
  * confirming fires the mutation: `terminateSession` (`client.ts:667`,
  * A4's `efdabb3`). That signature is this paragraph written in the type system:
  * `confirm` is the literal `"true"`, so a caller that has not shown the dialog
- * cannot spell the argument and the button cannot fire without the step. The
- * response is not rendered. The fixture arm answers with its own pid (48213)
- * whatever was asked — the same property the other param-taking fetchers have —
- * so the page re-reads the list it acted on instead of showing what came back,
- * and afterwards the row's own `action` field decides whether Terminate is
- * still there, which is R4.1's read doing the job a response echo could only
- * guess at.
+ * cannot spell the argument and the button cannot fire without the step. The response
+ * is not rendered. The fixture arm answers with its own pid (48213) whatever was
+ * asked — the same property the other param-taking fetchers have — so the page
+ * re-reads the list it acted on instead of showing what came back, and afterwards
+ * the row's own `action` field decides whether Terminate is still there, which is
+ * R4.1's read doing the job a response echo could only guess at.
  *
  * ── the 15 s indicator ─────────────────────────────────────────────────────
  *
@@ -88,6 +87,7 @@ import {
   deriveActivePanelState,
   type FetchPhase,
 } from "../components/StatePanel";
+import { SessionStatusChip } from "../components/StatusGlyph";
 
 /** R10.8's interval, in ms — the number the header prints and the number the
  *  hook polls at, from one declaration. */
@@ -104,7 +104,7 @@ const VIEWPORT_HEIGHT = 640;
 /** `actions.go:47` — the only value that renders an enabled control. */
 const ACTION_TERMINATE = "terminate";
 
-/** The page's column set: R4.1's twenty columns as `dto/sessions_test.go:52-54`
+/** The page's column set: R4.1's nineteen columns as `dto/sessions_test.go:44-61`
  *  enumerates them (`pid`, `query`, `queryType`, `status`, the three durations,
  *  `waitEventType`, `waitEvent`, `database`, `applicationName`, `userName`,
  *  `clientAddress`, `action`, plus `clientPort`, `backendType`, `queryid`,
@@ -115,9 +115,9 @@ const ACTION_TERMINATE = "terminate";
  *  `(type, name)` pair is not in PG's own `pg_wait_events` list, which changes
  *  how the value in that cell should be read, not what sits next to it.
  *
- *  The default *visible* set is nine of the twenty (see
+ *  The default *visible* set is nine of the nineteen (see
  *  `ColumnMenu.DEFAULTS["active-queries"]`); the menu is what makes the other
- *  eleven reachable, which is R10.20's contract rather than this file's. */
+ *  ten reachable, which is R10.20's contract rather than this file's. */
 export const ACTIVE_COLUMNS: readonly ColumnDef[] = [
   { key: "pid", label: "PID" },
   { key: "query", label: "Query", required: true },
@@ -643,7 +643,7 @@ function cell(
     case "queryType":
       return row.queryType;
     case "status":
-      return row.status;
+      return <SessionStatusChip status={row.status} blocked={row.blockingPids.length > 0} />;
     case "sessionDurationSeconds":
       return formatDurationMs(row.sessionDurationSeconds * 1000);
     case "transactionDurationSeconds":

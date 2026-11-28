@@ -16,12 +16,28 @@
  * expected strings are the formulas in `shape()` evaluated at the default
  * size — a golden, the same approach `HealthBar.test.tsx` takes with
  * `expect(d).toMatch(/^M 0 0/)`.
+ *
+ * The file covers three vocabularies now, in the order the component file
+ * declares them: the health pair at the top, `PANEL_GLYPHS` in the `Glyph`
+ * block, and `SESSION_GLYPHS` at the end — R4.1's hourglass and block
+ * (`requirements.md:112`), which the Active Queries and Wait Events `Status`
+ * cells render through `SessionStatusChip`.
  */
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { Glyph, StatusChip, StatusGlyph } from "./StatusGlyph";
+import {
+  Glyph,
+  SESSION_GLYPHS,
+  SessionStatusChip,
+  SessionStatusGlyph,
+  StatusChip,
+  StatusGlyph,
+  sessionPresentationFor,
+  sessionStateFor,
+  type SessionState,
+} from "./StatusGlyph";
 import { PANEL_GLYPHS } from "./StatePanel";
 import { HEALTH_ORDER, presentationFor } from "../api/health";
 import type { ClusterHealth } from "../api/types";
@@ -55,6 +71,55 @@ const PATHS_AT_10: Record<ClusterHealth, string> = {
   // dash: a bar of height max(1, 1.2) = 1.2 centred on r = 5.
   unknown: "M 0 3.8 H 10 V 6.2 H 0 Z",
 };
+
+/** The same golden for the session vocabulary. `1.7999999999999998` is `5 - 3.2`
+ *  as a float stringifies it and `8.2` is `10 - 1.8` exactly; pinning both, for
+ *  the same reason the cross pins `5.8999999999999995` — a golden that rounds a
+ *  computed number is a golden that quietly accepts a changed thickness. */
+const SESSION_PATHS_AT_10: Record<SessionState, string> = {
+  // hourglass: two triangles sharing their apex at (5,5).
+  active: "M 0 0 H 10 L 5 5 Z M 5 5 L 10 10 H 0 Z",
+  // block: the ring's annulus (t = max(1.6, 1.8) = 1.8, ri = r - t = 3.2) with
+  // the bar wound clockwise, so the nonzero fill rule fills it back in where it
+  // crosses the counter-clockwise hole.
+  blocked:
+    "M 5 0 A 5 5 0 1 1 5 10 A 5 5 0 1 1 5 0 Z " +
+    "M 5 1.7999999999999998 A 3.2 3.2 0 1 0 5 8.2 A 3.2 3.2 0 1 0 5 1.7999999999999998 Z " +
+    "M 0 0 L 1.7999999999999998 0 L 10 10 L 10 8.2 Z",
+  // idle: the default arm borrows the dash, so its path is health's `unknown`
+  // string verbatim — which is the point of borrowing rather than drawing.
+  idle: "M 0 3.8 H 10 V 6.2 H 0 Z",
+};
+
+/** The three keys of `SESSION_GLYPHS`. The `Record<SessionState, …>` type makes
+ *  the key set and the union the same set, so deriving the list from the table
+ *  is as complete as the health block's `HEALTH_ORDER` — and unlike that one it
+ *  needs no exported list, because the table itself is exported. */
+const SESSION_STATES = Object.keys(SESSION_GLYPHS) as SessionState[];
+
+/** One status string per state, taken from the three rows
+ *  `testdata/api/active-queries.json` ships: 41288 is `active` with
+ *  `blockingPids: [41102]`, 41102 is `idle in transaction`, 41304 is `active`
+ *  with no blockers. The fixture happens to cover exactly the three states, so
+ *  the geometry tests run over the same rows the two pages render. */
+const SAMPLE_ROWS: Record<SessionState, { status: string; blocked: boolean }> = {
+  active: { status: "active", blocked: false },
+  blocked: { status: "active", blocked: true },
+  idle: { status: "idle in transaction", blocked: false },
+};
+
+/** Render one session glyph and hand back its `<svg>` and `<path>`, the way
+ *  `glyph()` does for a health. */
+function sessionGlyph(status: string, blocked: boolean, size?: number) {
+  const { container } = render(
+    <SessionStatusGlyph status={status} blocked={blocked} size={size} />,
+  );
+  const svg = container.querySelector("svg.status-glyph") as SVGSVGElement | null;
+  if (svg === null) throw new Error(`no svg.status-glyph for ${status}/${blocked}`);
+  const path = svg.querySelector("path") as SVGPathElement | null;
+  if (path === null) throw new Error(`no path inside svg.status-glyph for ${status}/${blocked}`);
+  return { svg, path };
+}
 
 describe("StatusGlyph", () => {
   it("gives every health value a shape no other value shares", () => {
@@ -183,16 +248,27 @@ describe("Glyph -- the generalised primitive", () => {
     }
   });
 
-  it("keeps the two vocabularies' shapes one shared vocabulary", () => {
-    // `GlyphShape` is the union `api/health.ts` declares, widened by `ring`.
-    // Typing the expectation rather than deriving it is the point: a seventh
-    // shape added to the union has to appear in one of the two tables, and the
-    // day it does not, this is the test that says so.
+  it("keeps the three vocabularies' shapes one shared vocabulary", () => {
+    // `GlyphShape` is the union `api/health.ts` declares, widened by `ring` for
+    // the panel states and by `hourglass` and `block` for R4.1's two session
+    // icons. Typing the expectation rather than deriving it is the point: a
+    // seventh shape added to the union has to appear in one of the three tables,
+    // and the day it does not, this is the test that says so.
     const used = new Set<string>([
       ...HEALTH_ORDER.map((h) => presentationFor(h).glyph),
       ...panels.map(([, p]) => p.glyph),
+      ...SESSION_STATES.map((s) => SESSION_GLYPHS[s].glyph),
     ]);
-    expect([...used].sort()).toEqual(["circle", "cross", "dash", "ring", "square", "triangle"]);
+    expect([...used].sort()).toEqual([
+      "block",
+      "circle",
+      "cross",
+      "dash",
+      "hourglass",
+      "ring",
+      "square",
+      "triangle",
+    ]);
   });
 
   it("draws the ring as an annulus, not a filled disc", () => {
@@ -207,6 +283,124 @@ describe("Glyph -- the generalised primitive", () => {
     expect(subpaths.length).toBe(2);
     expect(d).toContain("A 5 5 0 1 1");
     expect(d).toContain("A 3.2 3.2 0 1 0");
+  });
+});
+
+/* --------------------------------------------------------------------------
+ * R4.1's session states (`requirements.md:112`).
+ *
+ * The health block pins geometry; this block pins the mapping the geometry is
+ * keyed on, which is the part with no type behind it — `web/src/api/types.ts:813`
+ * types `status` as a plain `string`, so there is no union for the compiler to
+ * check and this table is the only second copy. The two pages that render it
+ * (`pages/ActiveQueries.tsx`, `pages/WaitEvents.tsx`) have their own blocks
+ * testing the wiring; what is here is the component's own contract.
+ * -------------------------------------------------------------------------- */
+
+describe("SessionStatusGlyph -- R4.1's hourglass and block", () => {
+  it("maps the status strings the API sends onto the three states", () => {
+    // The first six rows are the strings the collector emits, R4.6's `starting`
+    // and `waiting for connection` among them; the rest are the case rule, the
+    // blank case, and the two precedence cases. A value the collector starts
+    // sending is caught here or nowhere.
+    const cases: [string, boolean, SessionState][] = [
+      ["active", false, "active"],
+      ["ACTIVE", false, "active"],
+      ["  active  ", false, "active"],
+      ["active", true, "blocked"],
+      ["idle", false, "idle"],
+      ["idle in transaction", false, "idle"],
+      ["idle in session", false, "idle"],
+      ["fast function call", false, "idle"],
+      ["starting", false, "idle"],
+      ["waiting for connection", false, "idle"],
+      ["", false, "idle"],
+      ["idle in transaction", true, "blocked"],
+    ];
+    for (const [status, blocked, want] of cases) {
+      expect(
+        sessionStateFor(status, blocked),
+        `sessionStateFor(${JSON.stringify(status)}, ${blocked})`,
+      ).toBe(want);
+    }
+  });
+
+  it("hands a caller the table entry for the state it just resolved", () => {
+    // `sessionPresentationFor` is the string-to-presentation step on its own, so
+    // a caller that wants the colours without the markup gets the same object the
+    // chip renders — one table per state, not one per front door.
+    for (const state of SESSION_STATES) {
+      const { status, blocked } = SAMPLE_ROWS[state];
+      expect(sessionPresentationFor(status, blocked)).toBe(SESSION_GLYPHS[state]);
+    }
+  });
+
+  it("draws each session state's documented shape", () => {
+    for (const state of SESSION_STATES) {
+      const row = SAMPLE_ROWS[state];
+      expect(sessionGlyph(row.status, row.blocked).path.getAttribute("d")).toBe(
+        SESSION_PATHS_AT_10[state],
+      );
+    }
+  });
+
+  it("gives the three states three distinct shapes and names each one", () => {
+    // R10.23's set property, restated for the third vocabulary: hourglass,
+    // block and the borrowed dash are three shapes for three states, and each
+    // one's `aria-label` says which.
+    const drawn = SESSION_STATES.map((s) => {
+      const row = SAMPLE_ROWS[s];
+      const { svg, path } = sessionGlyph(row.status, row.blocked);
+      expect(svg.getAttribute("role")).toBe("img");
+      expect(svg.getAttribute("aria-label")).toBe(SESSION_GLYPHS[s].label);
+      expect(svg.getAttribute("data-session-state")).toBe(s);
+      expect(path.getAttribute("fill")).toBe("currentColor");
+      expect(svg.style.color).toBe(SESSION_GLYPHS[s].token);
+      expect(SESSION_GLYPHS[s].token).toMatch(/^var\(--/);
+      return path.getAttribute("d");
+    });
+    expect(new Set(drawn).size).toBe(SESSION_STATES.length);
+  });
+
+  it("sizes the box from the prop, defaulting to 10", () => {
+    const row = SAMPLE_ROWS.active;
+    const small = sessionGlyph(row.status, row.blocked);
+    expect(small.svg.getAttribute("width")).toBe("10");
+    expect(small.svg.getAttribute("viewBox")).toBe("0 0 10 10");
+    const big = sessionGlyph(row.status, row.blocked, 16);
+    expect(big.svg.getAttribute("width")).toBe("16");
+    expect(big.svg.getAttribute("viewBox")).toBe("0 0 16 16");
+    // Drawn in the new box (apex at 8,8), not scaled by the viewBox.
+    expect(big.path.getAttribute("d")).toBe("M 0 0 H 16 L 8 8 Z M 8 8 L 16 16 H 0 Z");
+  });
+});
+
+describe("SessionStatusChip", () => {
+  it("shows the API's own status string beside the glyph", () => {
+    // R4.1's `Status` column is the server's status verbatim, so the chip's text
+    // is the row's string and not the table's label — "Idle" is not what a row
+    // reading `idle in transaction` should say. The health chip prints its
+    // label because a health has no other string to print.
+    for (const state of SESSION_STATES) {
+      const { status, blocked } = SAMPLE_ROWS[state];
+      const { container } = render(<SessionStatusChip status={status} blocked={blocked} />);
+      const chip = container.querySelector("span.status-chip");
+      expect(chip).not.toBeNull();
+      expect(chip?.getAttribute("data-session-state")).toBe(state);
+      expect(chip?.textContent).toBe(status);
+      expect(chip?.querySelector("svg.status-glyph")).not.toBeNull();
+    }
+  });
+
+  it("composes the glyph instead of redrawing it", () => {
+    for (const state of SESSION_STATES) {
+      const { status, blocked } = SAMPLE_ROWS[state];
+      const { container } = render(
+        <SessionStatusChip status={status} blocked={blocked} size={12} />,
+      );
+      const inChip = container.querySelector("svg.status-glyph path")?.getAttribute("d");
+      expect(inChip).toBe(sessionGlyph(status, blocked, 12).path.getAttribute("d"));
+    }
   });
 });
 
