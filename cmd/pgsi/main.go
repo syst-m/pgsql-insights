@@ -200,6 +200,16 @@ type serveFlags struct {
 	maxConcurrentHTTPScrapes *int
 	schedulerQueueDepth      *int
 
+	// R2.7 — the per-query statement_timeout the SQL collectors run under. One
+	// field because R2.7 spells one value ("`statement_timeout` from config
+	// (default 5 s)"); the 5 s it names is internal/collector/sql.go:49's
+	// DefaultStatementTimeout, and this is the config half of that sentence —
+	// sql.go's own docblock documents the constant and R2.7's row named this flag
+	// as the thing that was missing. Its own alignment group for the same reason
+	// the R2.9 block above has one: a new 16-character field name would otherwise
+	// re-pad the R2.9 block's three.
+	statementTimeout *time.Duration
+
 	// R2.3's two halves, which the requirement spells in two shapes and so cannot
 	// share one declaration. disableCollector is a declared flag: R2.3's
 	// `--disable-collector=a,b` is a single static string whose value is the list.
@@ -415,6 +425,19 @@ func newServeFlags(pre prescan) *serveFlags {
 	sf.maxConcurrentSQL = fs.Int("max-concurrent-sql", 0, "global cap on concurrent Postgres-wire collections (R2.9); 0 selects 32")
 	sf.maxConcurrentHTTPScrapes = fs.Int("max-concurrent-http-scrapes", 0, "global cap on concurrent HTTP scrapes (R2.9); 0 selects 64")
 	sf.schedulerQueueDepth = fs.Int("scheduler-queue-depth", 0, "collections the scheduler queues before it starts shedding them (R2.9); 0 selects 512")
+
+	// --- R2.7 SQL collector settings -------------------------------------------
+	//
+	// R2.7's sentence has two halves and only one of them is a flag: the
+	// transaction half is internal/collector/sql.go's Tx interface (one
+	// read-only transaction per view group), and the `statement_timeout` from
+	// config half is this line. Default 0 with the number in the usage string,
+	// the pattern the R2.9 block above sets: SQLConfig.withDefaults maps every
+	// non-positive StatementTimeout to DefaultStatementTimeout, so 0 means "use
+	// the requirement's 5 s" and a negative value lands on the same constant
+	// instead of reaching pgxopener.go:562's `SET LOCAL statement_timeout TO
+	// -1000`, which Postgres rejects.
+	sf.statementTimeout = fs.Duration("statement-timeout", 0, "per-query statement_timeout on every SQL collector (R2.7); 0 selects 5s")
 
 	// --- R2.3 collector selection --------------------------------------------
 	//
@@ -669,7 +692,7 @@ func runServe(args []string) int {
 		reg, err := newRegistry(kc, opener, collector.Overrides{
 			Intervals: pre.intervals,
 			Disabled:  collector.DisabledFromFlag(*sf.disableCollector),
-		})
+		}, collector.SQLConfig{StatementTimeout: *sf.statementTimeout})
 		if err != nil {
 			log.Error("collector registry", "error", err.Error())
 			return 2
@@ -1023,7 +1046,14 @@ func openStoreFile(path string, cfg store.Config) (sinkBundle, error) {
 // landed at bf55762, the second scan landed with the prescan/scanArgs pair in this
 // file, and both helpers are called from runServe now — so the registry gets the
 // intervals and the disable list the operator actually passed instead of defaults.
-func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overrides) (*collector.Registry, error) {
+//
+// The sqlCfg argument is R2.7's other half. The body used to build
+// `cfg := collector.SQLConfig{}` inline, which let every field fall through to
+// SQLConfig.withDefaults: correct defaults, unreachable by config, which is
+// exactly what R2.7's row filed as pending ("the value exists ... but nothing
+// reads a config yet"). R11.8's chain landed at bf55762, so runServe now passes
+// the resolved SQLConfig in and the literal is gone.
+func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overrides, sqlCfg collector.SQLConfig) (*collector.Registry, error) {
 	pooler, err := collector.NewPoolerCollector(kc.GetDirect, collector.PoolerConfig{})
 	if err != nil {
 		return nil, err
@@ -1048,18 +1078,17 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 	// collect, which is the exact condition this gate exists to detect. pooler.go
 	// above needs kc.GetDirect and nothing else, which is why it is outside.
 	if opener != nil {
-		cfg := collector.SQLConfig{}
 		collectors = append(collectors,
-			collector.NewPoolerClientsCollector(opener, cfg),
-			collector.NewActivityCollector(opener, cfg),
-			collector.NewBloatCollector(opener, cfg),
-			collector.NewDatabaseCollector(opener, cfg),
-			collector.NewIOCollector(opener, cfg),
-			collector.NewLocksCollector(opener, cfg),
-			collector.NewReplicationCollector(opener, cfg),
-			collector.NewSettingsCollector(opener, cfg),
-			collector.NewStatementsCollector(opener, cfg),
-			collector.NewWALCollector(opener, cfg),
+			collector.NewPoolerClientsCollector(opener, sqlCfg),
+			collector.NewActivityCollector(opener, sqlCfg),
+			collector.NewBloatCollector(opener, sqlCfg),
+			collector.NewDatabaseCollector(opener, sqlCfg),
+			collector.NewIOCollector(opener, sqlCfg),
+			collector.NewLocksCollector(opener, sqlCfg),
+			collector.NewReplicationCollector(opener, sqlCfg),
+			collector.NewSettingsCollector(opener, sqlCfg),
+			collector.NewStatementsCollector(opener, sqlCfg),
+			collector.NewWALCollector(opener, sqlCfg),
 		)
 	}
 	return collector.NewRegistry(collectors, ov)

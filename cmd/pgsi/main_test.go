@@ -74,7 +74,7 @@ func TestNewRegistryShapes(t *testing.T) {
 	// before the driver existed, kept reachable so a process with no clientset
 	// (D9's `api` role, or --discover=false) still has the same set it had then.
 	t.Run("nil opener", func(t *testing.T) {
-		reg, err := newRegistry((*kube.Client)(nil), nil, collector.Overrides{})
+		reg, err := newRegistry((*kube.Client)(nil), nil, collector.Overrides{}, collector.SQLConfig{})
 		if err != nil {
 			t.Fatalf("newRegistry(nil opener): %v", err)
 		}
@@ -94,7 +94,7 @@ func TestNewRegistryShapes(t *testing.T) {
 	// pooler names, because pooler-clients needs an opener (SHOW CLIENTS is a
 	// psql round-trip) and so belongs to this shape rather than to shape 1.
 	t.Run("with opener", func(t *testing.T) {
-		reg, err := newRegistry((*kube.Client)(nil), fakeSQLOpener{}, collector.Overrides{})
+		reg, err := newRegistry((*kube.Client)(nil), fakeSQLOpener{}, collector.Overrides{}, collector.SQLConfig{})
 		if err != nil {
 			t.Fatalf("newRegistry(fake opener): %v", err)
 		}
@@ -126,7 +126,7 @@ func TestNewRegistryShapes(t *testing.T) {
 // registration set that TestNewRegistryShapes covers.
 func TestNewRegistryAppliesOverrides(t *testing.T) {
 	disabled := collector.Overrides{Disabled: []string{collector.CollectorPooler}}
-	reg, err := newRegistry((*kube.Client)(nil), nil, disabled)
+	reg, err := newRegistry((*kube.Client)(nil), nil, disabled, collector.SQLConfig{})
 	if err != nil {
 		t.Fatalf("newRegistry(disabled): %v", err)
 	}
@@ -137,7 +137,7 @@ func TestNewRegistryAppliesOverrides(t *testing.T) {
 	interval := collector.Overrides{Intervals: map[string]time.Duration{
 		collector.CollectorPooler: 90 * time.Second,
 	}}
-	reg, err = newRegistry((*kube.Client)(nil), nil, interval)
+	reg, err = newRegistry((*kube.Client)(nil), nil, interval, collector.SQLConfig{})
 	if err != nil {
 		t.Fatalf("newRegistry(interval override): %v", err)
 	}
@@ -159,10 +159,10 @@ func TestNewRegistryOverrideNamesAnUnregisteredCollector(t *testing.T) {
 	ov := collector.Overrides{Intervals: map[string]time.Duration{
 		collector.CollectorWAL: 30 * time.Second,
 	}}
-	if _, err := newRegistry((*kube.Client)(nil), nil, ov); err == nil {
+	if _, err := newRegistry((*kube.Client)(nil), nil, ov, collector.SQLConfig{}); err == nil {
 		t.Error("newRegistry with a wal interval and no opener: err = nil, want an error (wal is not registered without an opener)")
 	}
-	if _, err := newRegistry((*kube.Client)(nil), fakeSQLOpener{}, ov); err != nil {
+	if _, err := newRegistry((*kube.Client)(nil), fakeSQLOpener{}, ov, collector.SQLConfig{}); err != nil {
 		t.Errorf("newRegistry with a wal interval and an opener: err = %v, want nil (wal is registered with an opener)", err)
 	}
 }

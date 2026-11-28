@@ -195,6 +195,15 @@ var settings = []setting{
 	{Flag: "max-concurrent-http-scrapes", Req: "R2.9"},
 	{Flag: "scheduler-queue-depth", Req: "R2.9"},
 
+	// R2.7 — the SQL collectors' statement_timeout. One row because R2.7 spells
+	// one value; the value's other half is internal/collector/sql.go:49's
+	// DefaultStatementTimeout constant, which is what this flag's 0 selects, and
+	// the pgxopener applies it as `SET LOCAL` inside every transaction it begins
+	// (pgxopener.go:449). It sits here because the table's order follows
+	// newServeFlags' declaration order and the flag is declared after the R2.9
+	// block, and TestTableCoversEveryFlag is what keeps the two lists together.
+	{Flag: "statement-timeout", Req: "R2.7"},
+
 	// R2.3 — the collector disable list. requirements.md:294 names two flags and
 	// this is the one with a static name. --interval.<collector>= is the other and
 	// is deliberately not a row here: the table lists flags the FlagSet declares,
