@@ -10,14 +10,19 @@ invisible to a grep for `wrong|not exempt|non-canonical|mismatched`:
 
     citations: 210 distinct ids across 287 files · 4 not defined by §4 · 0 orphan exemptions
 
-All four were mine: `R3.10a` and `R3.10b` in `docs/implementation/phases/phase-6.md:231`, and
-`R3.10a` twice in `internal/collector/plans_test.go:170` and `internal/collector/plans_test.go:330`.
-§4 defines `R3.10`; the tier requires every R-id string anywhere in the tree — `.go` included —
-to resolve to a §4 definition or an exemption, and `R3.10a` is a *different string*, so it is
-reported rather than folded. The fix is the three-string edit (`R3.10a` → `R3.10's (a)`), which
-is mine to make; defining `R3.10a`/`R3.10b` in §4 would be A3's file and two new §7.3 index rows,
-and the a/b/c split is a reading of one requirement's sentence, not two requirements shipped
-apart. The amended commit measures `rc=0` with every tier at zero.
+All four were mine, and all four were the two-letter suffix I had hung off one id: the `a` and
+`b` forms in `docs/implementation/phases/phase-6.md:231`, and the `a` form twice in
+`internal/collector/plans_test.go:170` and `internal/collector/plans_test.go:330`. §4 defines
+`R3.10` and nothing else in that family; the tier requires every R-id string anywhere in the tree
+— `.go` included — to resolve to a §4 definition or an exemption, and a suffixed spelling is a
+*different string* from its unsuffixed parent, so it is reported rather than folded. The fix is
+three string edits — each suffix written as prose about the requirement's own lettered clauses
+(`R3.10's (a)`) instead of as an id — which is mine to make. Defining the two suffixed forms in
+§4 would be A3's file and two new §7.3 index rows, and the a/b/c split is a reading of one
+requirement's sentence, not two requirements shipped apart, so the edit is the right route. The
+amended commit measures `rc=0` with every tier at zero. This record was then amended once for the
+same reason it documents: naming the two strings in prose spells them, and the tier reads every
+R-id string in a markdown file, exhibit or not.
 
 ## Measured before → after
 
