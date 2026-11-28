@@ -734,10 +734,11 @@ dump(path_orphans, lambda k: f"  orphan path exemption: {k[0]} -> {k[1]} — {PA
 # -- `orphans` is computed over keys inside the window only, which is the difference between a
 # dead exemption and a historical record.
 #
-# Key granularity, inherited from PATH_EXEMPT and worth naming: a key is (message, cited path), so
-# exempting one bad cite on a path exempts that message's other cites to the same path -- 21 cites
-# sit behind the 9 keys, 11 failing and 10 passing. A key per line number would exempt only the 11;
-# the md tier has the same coarseness and nobody has asked it to be finer.
+# Key granularity, inherited from PATH_EXEMPT in shape but not by lookup: a key is (message, cited
+# path), so exempting one bad cite on a path exempts that message's other cites to the same path:
+# 21 cites sit behind the 9 keys, 11 failing and 10 passing; a key per line number would exempt only
+# the 11, and the md tier is as coarse though nobody asked it to be finer. The class the shape cannot
+# inherit: a commit that documents a PATH_EXEMPT path names it in its own message -- 83d0c33's key.
 MSG_CITE_WINDOW = 40
 MSG_CITE_EXEMPT = {
     ("06287170a90ab9309f228270a317051918499be6", "client.test.ts"): "start line blank at the commit that wrote it",
@@ -749,14 +750,13 @@ MSG_CITE_EXEMPT = {
     ("27e1a45dc3e2edaedfbf03b87235869c9aa56d0d", "scripts/check-parity-matrix.py"): "start line blank at the commit that wrote it",
     ("3c077573479d6cb8824b17b65fc4e9b8f0cc6744", "cmd/pgsi/main.go"): "collapsed range (S133's class)",
     ("7dfd6e2bc5c578038dbb7043d61aabd6e6bccddf", "docs/reviews/finding-index.md"): "start line blank at the commit that wrote it",
+    ("83d0c33b8c76a0a19ea8f65c681400a4601ccb01", "references/components.md"): "the dataviz bundle's own file, named in the message that added its PATH_EXEMPT twin; outside this repo, so it resolves to 0 by design",
 }
 
-# Directory-prefix form of the table above: a (sha, "docs/implementation/") key exempts every
-# cite in that message whose path is under the prefix. The decomposition needs it -- ~40
-# historical messages cite `requirements.md:N`, and every one of them goes stale when that file
-# becomes an index, so the move needs to exempt a directory per message instead of one
-# (sha, path) key per cited path. Seeded empty: nothing has moved yet, and an empty prefix table
-# cannot exempt anything, so this commit changes no message tier number.
+# Directory-prefix form of the table above: a (sha, "docs/implementation/") key exempts every cite in that
+# message whose path is under the prefix. The decomposition needs it -- ~40 historical messages cite
+# `requirements.md:N`, and every one of them goes stale when that file becomes an index, so the move needs
+# to exempt a directory per message instead of one (sha, path) key per cited path. Still seeded empty.
 MSG_CITE_DIR_EXEMPT = {}
 MSG_CITE_EXEMPT_ALL = {**MSG_CITE_EXEMPT, **MSG_CITE_DIR_EXEMPT}
 
