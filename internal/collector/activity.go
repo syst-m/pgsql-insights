@@ -390,7 +390,7 @@ func (c *ActivityCollector) projections(tgt Target) ([]viewProjection, error) {
 
 	out := make([]viewProjection, 0, len(views))
 	for _, v := range views {
-		p, ok := Project(v, tgt.PGMajor, activitySpecs[v])
+		p, ok := Project(v, tgt.PGMajor, c.specFor(v))
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorActivity, v, tgt.PGMajor)
 		}
@@ -897,4 +897,31 @@ func ActivitySamples(sessions []Session, now time.Time) []Sample {
 		})
 	}
 	return out
+}
+
+// specFor returns the query spec for one of the collector's views, and it is
+// where R2.8's own-session filter is applied.
+//
+// activitySpecs holds the static half (the pg_blocking_pids Extra) and this
+// method adds the dynamic half, which cannot live in the map because it reads
+// c.cfg. R2.8's operative clause is "exclude *our own* sessions from every count
+// we report, by setting application_name=pgsi-collector and filtering it out of
+// pg_stat_activity-derived metrics"; the setting half shipped in fea3571b as
+// SQLConfig.ApplicationName on every Begin, and the filtering half was not there
+// — the collector queried pg_stat_activity and counted itself among the backends.
+// matrix.go:159-163 is the placement ruling this method obeys: the exclusion is a
+// per-collector concern, so the collector adds it and the matrix does not.
+//
+// IS DISTINCT FROM rather than <> because application_name is nullable: a
+// comparison against NULL evaluates to NULL, so a plain inequality would drop
+// every session that never set a name — background workers, and any session the
+// operator did not name — which is a wider exclusion than the requirement asks
+// for. The filter is on the stat_activity spec only: pg_stat_wait_events (the
+// conditional second view) has no application_name column to filter on.
+func (c *ActivityCollector) specFor(v pgversion.View) QuerySpec {
+	spec := activitySpecs[v]
+	if v == pgversion.ViewStatActivity && spec.Where == "" {
+		spec.Where = "application_name IS DISTINCT FROM " + quoteSQLLiteral(c.cfg.ApplicationName)
+	}
+	return spec
 }

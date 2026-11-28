@@ -621,3 +621,18 @@ func ValidateProjection(p Projection) error {
 	}
 	return nil
 }
+
+// quoteSQLLiteral single-quotes s for embedding in a SQL string, doubling every
+// embedded quote — Postgres's own escape for one inside a single-quoted literal.
+//
+// It exists because R2.8's exclusion clauses take a value: the application_name
+// to exclude in activity.go, the role name to exclude in statements.go. Both
+// come from SQLConfig, which is operator-supplied through R1.8's credential
+// precedence and R11.8's flag chain, and a spec's Where is checked by
+// ValidateProjection but never quoted by it — so a role named o'brien would
+// otherwise reach a query as `pg_get_userbyid(userid) <> 'o'brien'` and fail at
+// parse time. The quoting lives here rather than in each collector because both
+// callers build their WHERE through this file's QuerySpec.
+func quoteSQLLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}

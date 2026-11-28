@@ -310,18 +310,18 @@ type Snapshot struct {
 	Rows []StatementRow
 }
 
-// StatementsCollector is §3.3's statement collector.
-//
-// It is the collector whose product is two things at once: the R9.5 metric family
-// and the R3.2 rows. The Collector interface can only return the first, so
-// CollectStatements returns both and Collect adapts one to the other — the
-// activity.go shape, for the same stated reason.
+// StatementsCollector is §3.3's statement collector. Its product is two things
+// at once: the R9.5 metric family and the R3.2 rows. The Collector interface
+// can only return the first, so CollectStatements returns both and Collect
+// adapts one to the other, which is activity.go's shape for the same stated
+// reason.
 type StatementsCollector struct {
-	opener SQLOpener
-	cfg    SQLConfig
-	desc   Descriptor
-	norm   query.Options
-	topN   int
+	opener      SQLOpener
+	cfg         SQLConfig
+	desc        Descriptor
+	norm        query.Options
+	topN        int
+	excludeRole string
 }
 
 // NewStatementsCollector builds the collector on top of an opener (R2.7's
@@ -436,7 +436,7 @@ func (c *StatementsCollector) projections(tgt Target) ([]viewProjection, error) 
 
 	out := make([]viewProjection, 0, len(statementViews))
 	for _, v := range statementViews {
-		p, ok := Project(v, tgt.PGMajor, statementSpecs[v])
+		p, ok := Project(v, tgt.PGMajor, c.specFor(v))
 		if !ok {
 			return nil, fmt.Errorf("collector %s: no projection for %s on PostgreSQL %d", CollectorStatement, v, tgt.PGMajor)
 		}
@@ -869,4 +869,48 @@ func firstInt(row Row, cols ...string) (int64, bool) {
 		return 0, false
 	}
 	return int64(v), true
+}
+
+// WithExcludeRole supplies the role half of R2.8's exclusion.
+//
+// A3's ruling on the cell (requirements.md:85) splits the requirement's two
+// identifiers by the role the collector connected as: "while the collector shares
+// the app's role, statement-text matching is the form (statementsWhere); when a
+// dedicated credential is configured at R1.8's --credential-secret level, the
+// role filter is the form and the text filter is a belt." The text form is the
+// const and it is always applied; this method supplies the role, which is the
+// half that exists only once a dedicated credential is configured, and setting it
+// puts the role clause in front of the text patterns instead of replacing them.
+//
+// Empty — the default, and the zero-config cluster's answer, where conn.go
+// resolves the credential to <cluster>-app and a role filter would delete the
+// workload R3.2 exists to rank — leaves every query exactly as R2.5's projection
+// builder produced it.
+func (c *StatementsCollector) WithExcludeRole(role string) *StatementsCollector {
+	c.excludeRole = role
+	return c
+}
+
+// specFor returns the query spec for one of the collector's views, and it is
+// where R2.8's role half of the exclusion is applied.
+//
+// statementSpecs holds the static half (the two Extras and the text WHERE) and
+// this method adds the role clause, which cannot live in the map because it reads
+// c.excludeRole. The parenthesising is load-bearing: the const's two LIKE patterns
+// are joined with AND, and while AND's associativity makes an unparenthesised
+// `a <> 'x' AND b AND c` mean the same thing today, it would make the role filter
+// scope to the first pattern alone the moment the const grows an OR. The parens
+// state the intent — exclude this role from everything the text filter covers —
+// rather than leaving it to operator precedence.
+//
+// The expression is schema-qualified per R2.5, which is what ValidateProjection
+// checks on the assembled WHERE; the same function the spec's usename Extra
+// already uses, so the filter compares on the value the row carries in `usename`.
+func (c *StatementsCollector) specFor(v pgversion.View) QuerySpec {
+	spec := statementSpecs[v]
+	if v == pgversion.ViewStatStatements && c.excludeRole != "" && spec.Where != "" {
+		spec.Where = "pg_catalog.pg_get_userbyid(userid) <> " + quoteSQLLiteral(c.excludeRole) +
+			" AND (" + spec.Where + ")"
+	}
+	return spec
 }

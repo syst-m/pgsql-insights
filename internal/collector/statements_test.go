@@ -1164,3 +1164,56 @@ func TestStatementsQueryIDLabelIsOmittedWhenUnset(t *testing.T) {
 		}
 	}
 }
+
+// TestStatementsExcludeRoleIsTheBelt is the half of A3's ruling on R2.8
+// (requirements.md:85) that the const could not express. The ruling names two
+// identifiers and picks between them by the role the collector connected as:
+// "while the collector shares the app's role, statement-text matching is the form
+// (statementsWhere); when a dedicated credential is configured at R1.8's
+// --credential-secret level, the role filter is the form and the text filter is a
+// belt." TestStatementsQueriesAreSchemaQualified pins the first clause — the const
+// is on the view with a `query` column and only there. This pins the second: a
+// configured role is added in front of the text filter, parenthesised, and the
+// info view (which has no `query` column to filter) never gets it.
+func TestStatementsExcludeRoleIsTheBelt(t *testing.T) {
+	t.Run("no role configured leaves the const alone", func(t *testing.T) {
+		c := NewStatementsCollector(nil, SQLConfig{})
+		spec := c.specFor(pgversion.ViewStatStatements)
+		if spec.Where != statementsWhere {
+			t.Errorf("spec.Where changed without a role being set:\n got %q\nwant %q", spec.Where, statementsWhere)
+		}
+		if len(spec.Extras) != len(statementSpecs[pgversion.ViewStatStatements].Extras) {
+			t.Errorf("specFor lost the spec's Extras: %d, want %d",
+				len(spec.Extras), len(statementSpecs[pgversion.ViewStatStatements].Extras))
+		}
+	})
+
+	t.Run("a configured role is added in front of the parenthesised text filter", func(t *testing.T) {
+		c := NewStatementsCollector(nil, SQLConfig{}).WithExcludeRole("appuser")
+		want := "pg_catalog.pg_get_userbyid(userid) <> 'appuser' AND (" + statementsWhere + ")"
+		if got := c.specFor(pgversion.ViewStatStatements).Where; got != want {
+			t.Errorf("role filter:\n got %q\nwant %q", got, want)
+		}
+	})
+
+	// The value is operator-supplied (R1.8's credential secret), so it goes
+	// through quoteSQLLiteral: a role named o'brien must not terminate the literal
+	// the projection builder just assembled.
+	t.Run("the role value is quoted, not interpolated", func(t *testing.T) {
+		c := NewStatementsCollector(nil, SQLConfig{}).WithExcludeRole("o'brien")
+		got := c.specFor(pgversion.ViewStatStatements).Where
+		if !strings.Contains(got, "<> 'o''brien'") {
+			t.Errorf("role name not SQL-quoted:\n%s", got)
+		}
+	})
+
+	// The info view has no `query` column, so the const never applies there and
+	// neither does the role clause built on top of it — the same reason
+	// TestStatementsQueriesAreSchemaQualified refuses a `query` filter on it.
+	t.Run("the info view never carries the role filter", func(t *testing.T) {
+		c := NewStatementsCollector(nil, SQLConfig{}).WithExcludeRole("appuser")
+		if got := c.specFor(pgversion.ViewStatStatementsInfo).Where; got != "" {
+			t.Errorf("pg_stat_statements_info carries a WHERE (%q); the view has no query column to filter", got)
+		}
+	})
+}

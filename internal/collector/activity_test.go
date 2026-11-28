@@ -983,3 +983,47 @@ func keysOf(m map[string][]Sample) []string {
 	}
 	return out
 }
+
+// TestActivityExcludesItsOwnApplicationName is R2.8's filtering half on the view
+// the requirement names. The setting half — application_name=pgsi-collector on
+// every Begin, from SQLConfig — shipped in fea3571b; the filtering half was not
+// there, so the collector queried pg_stat_activity and counted itself among the
+// backends it was reporting. matrix.go:159-163 is the placement ruling this
+// asserts: the exclusion is a per-collector concern, so the collector adds it and
+// a matrix that emitted it for every view would be wrong for the views with no
+// application_name column.
+func TestActivityExcludesItsOwnApplicationName(t *testing.T) {
+	tgt := actTarget(16)
+	c := NewActivityCollector(nil, SQLConfig{})
+	pps, err := c.projections(tgt)
+	if err != nil {
+		t.Fatalf("projections(PG%d): %v", tgt.PGMajor, err)
+	}
+	byView := map[pgversion.View]viewProjection{}
+	for _, pv := range pps {
+		byView[pv.view] = pv
+	}
+	act, ok := byView[pgversion.ViewStatActivity]
+	if !ok {
+		t.Fatalf("no projection for %s", pgversion.ViewStatActivity)
+	}
+	if !strings.Contains(act.Query, "WHERE application_name IS DISTINCT FROM 'pgsi-collector'") {
+		t.Errorf("pg_stat_activity query does not filter the collector's own application_name:\n%s", act.Query)
+	}
+	// IS DISTINCT FROM, not <>: application_name is nullable and a NULL comparison
+	// drops the row, so a plain inequality would exclude every unnamed session —
+	// wider than "our own sessions", which is what the cell says to exclude.
+	if strings.Contains(act.Query, "application_name <>") || strings.Contains(act.Query, "application_name !=") {
+		t.Errorf("plain inequality on a nullable column drops unnamed sessions:\n%s", act.Query)
+	}
+	// The conditional second view has no application_name column to filter on.
+	if we, ok := byView[pgversion.ViewWaitEvents]; ok && strings.Contains(we.Query, "application_name") {
+		t.Errorf("pg_stat_wait_events query carries an application_name filter the view has no column for:\n%s", we.Query)
+	}
+	// The value comes from the config and is quoted, so a name with a quote in it
+	// cannot break the query Project just assembled.
+	c2 := NewActivityCollector(nil, SQLConfig{ApplicationName: "pgsi'x"})
+	if got := c2.specFor(pgversion.ViewStatActivity).Where; !strings.Contains(got, "'pgsi''x'") {
+		t.Errorf("application_name not SQL-quoted: %q", got)
+	}
+}
