@@ -1,12 +1,14 @@
 # Record: R2.7 + R13.1 — one read-only transaction per view group, and the poll cost budget
 
-Landed `194aaa9` (code + proposal) at `2026-11-28T02:26:31Z` and `ccfd04e` (rows + this record)
-at `2026-11-28T02:54:37Z` · by A1 · gate `rc=0` after the commit
+Landed `194aaa9` (code + proposal) at `2026-11-28T02:26:31Z`, `ccfd04e` (the two phase-2.md rows)
+at `2026-11-28T02:54:37Z`, and this record in `696bb85` · by A1 · gate `rc=0` after `ccfd04e`;
+the post-commit runs at `696bb85` and at this amendment are `rc=1`, and every failure in both of
+them lives in A2's phase-4 files, which no commit of mine introduces or can fix
 
-The work is in two commits because the rows cannot cite the commit that lands them: `194aaa9`
-carries `cmd/pgsi/main.go`, `cmd/pgsi/config.go`, `cmd/pgsi/budget_test.go`, `cmd/pgsi/main_test.go`
-and the proposal; `ccfd04e` carries the two phase-2.md rows, the proposal's d-id corrections, and
-this file. The proposal's header follows the S55 rule from phase-2.md's own validation entry — it
+The work is in three commits because the rows cannot cite the commit that lands them and this
+record cannot either: `194aaa9` carries `cmd/pgsi/main.go`, `cmd/pgsi/config.go`,
+`cmd/pgsi/budget_test.go`, `cmd/pgsi/main_test.go` and the proposal; `ccfd04e` carries the two
+phase-2.md rows and the proposal's d-id corrections; `696bb85` carries this file alone. The proposal's header follows the S55 rule from phase-2.md's own validation entry — it
 quotes the rev it measured (`ef9aa93`), not the commit it lands in.
 
 ## Measured before → after
@@ -43,7 +45,7 @@ without line numbers, and the new cell's numbers (`23`, `40`, `10`) are measurem
 | `docs/implementation/phases/phase-2-proposal-r2.7-r13.1.md` | 94 / 0 | 8 / 7 | the proposal; then its four ambiguous d-id mentions spelled out as `§4-D20`/`§5-D20` (that number is defined by both the §4 decisions log and the §5 deviations table, so an unqualified mention of it is ambiguous outside the two tables) and two off-by-one `pgxopener.go` cites corrected (:439 → :440, :449 → :450) |
 | `docs/implementation/phases/phase-2.md` | — | 3 / 3 | rows :171 (R13.1) and :177 (R2.7) rewritten to `**implemented**`; row :36's `cmd/pgsi/main.go:587` retargeted to `:610` |
 | `docs/implementation/phases/phase-3.md` | — | 1 / 1 | A5's R9.5 row (:89): the three `cmd/pgsi/main.go` cites `194aaa9` shifted are retargeted (:757 → :780, :579 → :602, :736 → :759) and the `(was cmd/pgsi/main.go:362)` exhibit is revved to `d221e4f:cmd/pgsi/main.go:362` |
-| `docs/implementation/phases/phase-2-record-r2.7-r13.1.md` | — | this file | this record |
+| `docs/implementation/phases/phase-2-record-r2.7-r13.1.md` | — | — | this record, in its own commit `696bb85` (amended once to spell its d-id mentions in the section-qualified form the gate requires outside the two D tables) |
 
 ## Verification
 
