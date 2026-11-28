@@ -107,7 +107,7 @@ still passes: a collector built without a sampler is still a legal construction,
 `internal/collector/statements.go:927` is a builder and not a constructor argument.
 `cmd/pgsi/budget_test.go` still measures 23 of 40 — its fixture answers every query with no
 rows, so `pick` selects nothing and the sampler issues nothing, the outcome
-`internal/collector/plans.go:43` predicts for this test. The same gap is still open for
+`internal/collector/plans.go:53-56` predicts for this test. The same gap is still open for
 R2.8's `WithExcludeRole`: `cmd/pgsi` passes no role, so that belt stays unconfigured.
 
 **The 200-plans/minute setting vs R13.1's budget — priced by A3 after this record landed.**
