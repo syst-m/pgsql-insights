@@ -65,8 +65,8 @@ there is no code path that produces a `PlanSampleView` — the dto type exists
 | Which text gets EXPLAINed | the row's first-seen raw text, never the template; and truncated rows are skipped entirely | 0.95 | This is the requirement's own (a), quoted in §2. `internal/query/normalizer.go:147`'s `Normalize` returns `Normalized{Template, Fingerprint, DisplayText, Truncated, Params}`, and `Truncated` is the flag (a) needs; the test forces it true with `query.Options{Length: 64}` rather than trusting a fixture that happens to be short. |
 | How the generic plan is forced | `SET LOCAL plan_cache_mode = force_generic_plan`, issued **once per round** and only when the round contains at least one parameterized capture | 0.86 | (b) asks for the generic plan. A parameterless prepared statement already gets a generic plan, so the setting only matters for the `PREPARE` path — and `SET LOCAL` is scoped to the transaction, so one statement covers every capture in the round instead of one per capture. Issuing it conditionally keeps a round of plain `EXPLAIN`s from paying for a setting it cannot use. |
 | How a failed capture is survived | a `SAVEPOINT`/`RELEASE` pair around each capture, with `ROLLBACK TO SAVEPOINT` on failure | 0.92 | A failed statement aborts a Postgres transaction, so without a savepoint the (c) permission error would poison every later query in the round *and* the `COMMIT`. §4-D20 (`requirements.md:266`) counts "queries issued, not transaction control statements", so the savepoints are free — which is the only reason the cost model fits the budget. The rollback is also what discards a `PREPARE` that succeeded before a later query failed, so a failed capture leaves nothing behind. |
-| What this costs against R13.1 | at the default cap of 5, all parameterized: 5×3 + 1 = 16 queries, on top of the 23 A1 measured (`cmd/pgsi/budget_test.go:17`, `194aaa9`) → 39 < 40 | 0.84 | §4-D20's rule is what makes the arithmetic work: the six savepoints and the `SET LOCAL` are transaction control or shared, so the counted number is 1 per plain capture and 3 per `PREPARE` capture. The budget test's fixture answers every query with no rows, so the sampler picks nothing, issues nothing, and the measured 23 is unchanged — `TestStatementsWithoutASamplerIssueNoPlanQueries` pins the 2 for a no-sampler round so the default path is provably untouched. |
-| The 200-plans/minute setting vs the 40-round-trip budget | a real tension, recorded rather than silently resolved | 0.80 | R3.10 lets the knob go to 200 (Enterprise Plus). 200 captures at 3 queries each is ~600 queries in a round, which is 15× R13.1's `< 40 round-trips`. The two requirements are only compatible at the default 5 — which is what the spec itself defaults to ("we expose the knob and default to the cheap value"). Nothing in the spec prices this, so it is stated here and in the code comment instead of being decided quietly; the cap is validated (`internal/collector/plans.go:126`) and clamped (`internal/collector/plans.go:157`) so a config of 500 cannot smuggle in an unbounded round. |
+| What this costs against R13.1 | at the default cap of 5, all parameterized: 5×3 + 1 = 16 queries, on top of the 23 A1 measured (`cmd/pgsi/budget_test.go:143`, `194aaa9`) → 39 < 40 | 0.84 | §4-D20's rule is what makes the arithmetic work: the six savepoints and the `SET LOCAL` are transaction control or shared, so the counted number is 1 per plain capture and 3 per `PREPARE` capture. The budget test's fixture answers every query with no rows, so the sampler picks nothing, issues nothing, and the measured 23 is unchanged — `TestStatementsWithoutASamplerIssueNoPlanQueries` pins the 2 for a no-sampler round so the default path is provably untouched. |
+| The 200-plans/minute setting vs the 40-round-trip budget | a real tension, recorded here and since priced by the spec | 0.80 | R3.10 lets the knob go to 200 (Enterprise Plus). 200 captures at 3 queries each is ~600 queries in a round, which is 15× R13.1's `< 40 round-trips`. The two requirements were only compatible at the default 5 — which is what the spec itself defaults to ("we expose the knob and default to the cheap value"). This row first recorded that as unresolved; A3 has since priced it in R13.1's row (`requirements.md:266`, commit 303462d, mirrored by a pointer in this requirement's own row at `requirements.md:101`): the budget governs the collector round and does not cap R3.10's capture rate, so the knob is itself the budget for plan-capture queries and 200 takes the round to 23 + 601 = 624 without failing R13.1. The cap is validated (`internal/collector/plans.go:126`) and clamped (`internal/collector/plans.go:157`) so a config of 500 cannot smuggle in an unbounded round. |
 | Which files are mine | all five: `plans.go` and `plans_test.go` (new), `statements.go` and `statements_test.go`'s package, and the two phase-6 docs | 0.95 | `docs/agents.md:61` gives A5 `internal/query/` (normalizer, top-N), `internal/store/`, and the `pg_stat_statements` collector. Unlike the R2.8 commit, nothing here is staged from another slot's file list — `statements.go` is the collector this row owns. |
 
 ## 4. Questions for you
@@ -74,7 +74,8 @@ there is no code path that produces a `PlanSampleView` — the dto type exists
 None. The plan was approved as stated before implementation began, so §3's rows record the
 judgements that were already accepted rather than asking them again; the one item with room to be
 argued — the 200/minute-vs-budget tension — is stated in §3 where a confident answer belongs and
-can be overridden there.
+can be overridden there. It has been: A3 ruled it in R13.1's row (`requirements.md:266`, commit
+303462d), and §3's row now points at the ruling instead of at the code comment alone.
 
 ## 5. Recommendation
 
@@ -109,11 +110,13 @@ without a sampler — every deployment built before this file existed, including
 Scored `5/6` on `spec-implement ship rubric` (`noul ship` not run — no NPU; A5's own P(yes) `0.90`).
 Verified: grounded `0.91` · on_brief `0.90` · no_leaks `0.87` (A5's own, not `decision-verify`'s).
 
-The one point off is the §3 row the spec leaves unpriced: at the Enterprise Plus 200 the capture
-alone would issue ~600 queries against a `< 40` budget, so the requirement's own upper setting
-contradicts R13.1 and nothing in the tree decides which one wins. The default — the value the
-spec defaults to — fits with one to spare (39 of 40), and that is what the code's budget comment
-claims.
+The one point off is the §3 row the spec left unpriced at the time of writing: at the Enterprise
+Plus 200 the capture alone would issue ~600 queries against a `< 40` budget, so the requirement's
+own upper setting contradicts R13.1 and nothing in the tree then decided which one wins. The
+default — the value the spec defaults to — fits with one to spare (39 of 40), and that is what the
+code's budget comment claims. The tree has since decided it: A3's ruling at `requirements.md:266`
+(commit 303462d) holds that the budget governs the collector round and R3.10's knob budgets plan
+capture, so the 200 setting takes the round to 624 queries without failing R13.1.
 
 ## 6. Plan
 

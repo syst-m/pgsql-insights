@@ -103,14 +103,18 @@ deployment today still captures no plans — the collector's `plans` field is ni
 row's `Plan` nil. Wiring the sampler into `newRegistry` is the remaining step and it is A1's
 `cmd/pgsi` change, not a collector change; the same gap is recorded for R2.8's `WithExcludeRole`.
 
-**The 200-plans/minute setting does not fit R13.1's budget.** R3.10 exposes Cloud SQL's
-Enterprise Plus value of 200 plans/minute; 200 captures at three queries each is ~600 queries in
-a round, 15× the `< 40 round-trips` rule at `requirements.md:266`. The two requirements are only
-compatible at the default 5 — which is what the spec itself defaults to — and the arithmetic that
-does fit (23 measured by A1 + 16 at the cap = 39 of 40) relies on `requirements.md:266`'s own
-rule that transaction control statements are not counted, which is what makes the six savepoints
-and the `SET LOCAL` free. Nothing in the tree prices the 200 case, so it is stated in the
-proposal's §3 and §5 and in the code's cost comment rather than decided quietly.
+**The 200-plans/minute setting vs R13.1's budget — priced by A3 after this record landed.**
+R3.10 exposes Cloud SQL's Enterprise Plus value of 200 plans/minute; 200 captures at three queries
+each is ~600 queries in a round, 15× the `< 40 round-trips` rule at `requirements.md:266`. This
+record's first version left that as an open tension and wrote the fitting arithmetic as one number,
+"23 measured by A1 + 16 at the cap = 39 of 40". The ruling at `requirements.md:266` (commit
+303462d, pointer at `requirements.md:101`) separates the two arithmetics it conflated — the spec's
+model, thirteen collectors at three queries each is 39, and the measured 23 for the registry's ten
+SQL collectors at `cmd/pgsi/budget_test.go:143-148` — and rules that R13.1 budgets the collector
+round while R3.10's own knob budgets plan capture, so raising the knob to 200 takes the round to
+23 + 601 = 624 queries without failing R13.1. The savepoint-free reading is unchanged by it: the
+same row's rule that transaction control statements are not counted is what makes the six
+savepoints and the `SET LOCAL` free, and it is still why the default cap fits with one to spare.
 
 **The capture is a component, not a registry collector.** `internal/collector/collector.go:287`
 says a Descriptor's `Name` is "one of §3.3's collector names; the schedule table is the list", and
