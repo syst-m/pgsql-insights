@@ -99,7 +99,7 @@ so the artefact being created is one of the gate's inputs and no pre-commit run 
 ## Deviations from the spec
 
 **Nothing calls `WithPlanSampler` yet — closed by A1 in `2eaa764:cmd/pgsi/main.go:1090`.** The
-append entry now chains `NewStatementsCollector(opener, sqlCfg).WithPlanSampler(NewPlanSampler(PlanConfig{Now: sqlCfg.Now}))`, so a real
+append entry now chains `collector.NewStatementsCollector(opener, sqlCfg).WithPlanSampler(collector.NewPlanSampler(collector.PlanConfig{Now: sqlCfg.Now}))`, so a real
 deployment captures plans at `internal/collector/plans.go:75`'s default of 5/minute, and the
 `Now` pass-through keeps the sampler on the collector's clock — the one clock
 `internal/collector/plans.go:145` asks for. `TestStatementsWithoutASamplerIssueNoPlanQueries`
