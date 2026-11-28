@@ -27,7 +27,7 @@ import (
 // the real provider is A5's store method, in a package the hub cannot import.
 // An external test package can, so this is the compile-time proof that the
 // declared shape and the provided one are still the same signature — if
-// internal/store/perquery.go:271 changes, this line stops compiling rather than
+// internal/store/perquery.go:278 changes, this line stops compiling rather than
 // silently leaving the hub with a family nothing satisfies.
 var _ metrics.PerQueryFamily = (*store.Store)(nil)
 
@@ -228,7 +228,7 @@ func (s *stubPerQuery) RenderPerQuery(ctx context.Context, topN int, prefix stri
 }
 
 // stubPerQueryBody is the stub's exposition body. The metric name is derived
-// from collector.MetricName the way internal/store/perquery.go:295 derives every
+// from collector.MetricName the way internal/store/perquery.go:305 derives every
 // name in the real family, not typed here: the first version of this line said
 // `pgsi_query_execution_time_total`, which is neither the table's name
 // (naming.go:160: `pgsi_query_execution_time_seconds_total`) nor what the
@@ -335,5 +335,110 @@ func TestHubRendersHTTPFamily(t *testing.T) {
 	}
 	if got := metrics.New(nil, nil, metrics.WithHTTPRequests(nil)).Render(); got != metrics.BuildInfo() {
 		t.Errorf("hub with a nil HTTP option =\n%s\nwant\n%s", got, metrics.BuildInfo())
+	}
+}
+
+// stubTags is the test double for R9.6's provider. Its body is deliberately an
+// opaque string rather than a derived metric name: the per-query stub above
+// derives its name from collector.MetricName because that family's names have a
+// code-side home to derive from (naming.go, via the R9.5 table), and R9.6's do
+// not — the names are provisional and live only in TagFamily's docblock until
+// the provider exists, so a name typed here would be a second copy of a contract
+// with no implementation yet (R16.8). The hub's contract is "concatenate whatever
+// the provider returns", so any string exercises it.
+type stubTags struct {
+	body string
+	err  error
+
+	gotCtx    context.Context
+	gotPrefix string
+	calls     int
+}
+
+func (s *stubTags) RenderTags(ctx context.Context, prefix string) (string, error) {
+	s.calls++
+	s.gotCtx, s.gotPrefix = ctx, prefix
+	return s.body, s.err
+}
+
+// Compile-time proof that the double matches the declared interface, mirroring the
+// PerQueryFamily one at :32. The provider-side assertion
+// `var _ metrics.TagFamily = (*store.Store)(nil)` cannot be written yet —
+// internal/store has no RenderTags method — so it is flagged here rather than
+// invented, and it lands with the provider.
+var _ metrics.TagFamily = (*stubTags)(nil)
+
+const stubTagsBody = "# HELP pgsi_tag_rows_total Stub R9.6 per-tag family.\n" +
+	"# TYPE pgsi_tag_rows_total counter\n" +
+	"pgsi_tag_rows_total{cluster=\"pg\",tag_hash=\"0a1b\"} 3\n"
+
+// TestHubRendersTagFamily is R9.6's composition test: the option reaches the
+// exposition, the prefix argument is collector.DefaultPrefix's selector, and the
+// family's bytes are the provider's verbatim. Exact equality rather than Contains,
+// for the reason TestHubPerQueryFamilyGetsR9_5sDefaults gives — a reordered label
+// or a missing newline is a different exposition, and the api handler compares this
+// string with ==.
+func TestHubRendersTagFamily(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	stub := &stubTags{body: stubTagsBody}
+	got := metrics.New(nil, nil, metrics.WithTags(stub)).Render()
+
+	if want := metrics.BuildInfo() + stubTagsBody; got != want {
+		t.Errorf("New(nil, nil, WithTags(stub)).Render()\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("per-tag family rendered %d times, want 1", stub.calls)
+	}
+	if stub.gotPrefix != "" {
+		t.Errorf("prefix = %q, want \"\" (collector.DefaultPrefix's selector)", stub.gotPrefix)
+	}
+}
+
+// TestHubRendersBothCatalogueFamiliesInOrder pins the catalogue section's order now
+// that it has two members: R9.5's then R9.6's, both after the eight. The options
+// are passed in the opposite order on purpose — WithTags first — so the assertion
+// fails if the order ever comes from option application rather than from
+// RenderContext's own sequence.
+func TestHubRendersBothCatalogueFamiliesInOrder(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	query := &stubPerQuery{body: stubPerQueryBody}
+	tags := &stubTags{body: stubTagsBody}
+	got := metrics.New(nil, nil, metrics.WithTags(tags), metrics.WithPerQuery(query)).Render()
+
+	if want := metrics.BuildInfo() + stubPerQueryBody + stubTagsBody; got != want {
+		t.Errorf("catalogue section order\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestHubOmitsTagFamilyWhenItErrors is R9.6's copy of the error policy Render
+// documents: the family contributes no bytes and the rest of the exposition is
+// unaffected. Exact equality with BuildInfo rules out a half-written family.
+func TestHubOmitsTagFamilyWhenItErrors(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	stub := &stubTags{body: stubTagsBody, err: errors.New("tags not enabled")}
+	if got, want := metrics.New(nil, nil, metrics.WithTags(stub)).Render(), metrics.BuildInfo(); got != want {
+		t.Errorf("an errored per-tag family still wrote bytes\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if stub.calls != 1 {
+		t.Errorf("per-tag family rendered %d times, want 1", stub.calls)
+	}
+}
+
+// TestHubRenderContextPlumbsItsContextToTags is R9.6's half of the two-form Render
+// contract: the per-tag family reads the store too, so the caller's context has to
+// reach it as well. TestHubRenderContextPlumbsItsContext pins the per-query side;
+// the two renders are separate statements in RenderContext, so each needs its own.
+func TestHubRenderContextPlumbsItsContextToTags(t *testing.T) {
+	withVersion(t, "9.9.9-test", "deadbee")
+
+	stub := &stubTags{body: stubTagsBody}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "req")
+	metrics.New(nil, nil, metrics.WithTags(stub)).RenderContext(ctx)
+
+	if stub.gotCtx != ctx {
+		t.Errorf("RenderContext passed %v to RenderTags, want the caller's ctx", stub.gotCtx)
 	}
 }

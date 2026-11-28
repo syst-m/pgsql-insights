@@ -66,7 +66,7 @@
 // with no source passed to WithStoreSize renders it absent, which is the state
 // every server is in until api.Config grows the sink field.
 //
-// # Catalogue families, and why one is here too
+// # Catalogue families, and why two of them are here too
 //
 // R9.5's per-query family is not one of the eight. It is a catalogue family —
 // top-N only, `metrics.topN` default 50, range 0..1000, N=0 disabling it — and
@@ -82,6 +82,14 @@
 // only the method store already has, so *store.Store satisfies it without
 // importing anything, and the exposition keeps one composition point instead of
 // the handler composing hub-plus-family, which is the split 0f4b154 removed.
+//
+// R9.6's per-tag family is the section's second member, and it is the same shape
+// for the same reason: the family's series need the R9.3 identity labels
+// (docs/requirements/cardinality.md:18 fixes the label cell as `…,tag_hash`),
+// which live on the store's rows and not on the api DTO, so the hub holds a
+// TagFamily interface and the render is the provider's. Its metric names are
+// provisional and marked as such on the interface itself, per R9.11's naming rule
+// as applied at D13.
 //
 // R9.2's configurable `metrics.prefix` is the config half of the same contract,
 // and IMPLEMENTATION.md §3.9's R9.2/R9.3 row assigns that config key to this
@@ -124,7 +132,7 @@ func BuildInfo() string {
 }
 
 // PerQueryFamily is R9.5's per-query family as its owner provides it — the one
-// method internal/store/perquery.go:271 defines, declared here rather than
+// method internal/store/perquery.go:278 defines, declared here rather than
 // imported because importing store from here closes the cycle
 // api→metrics→store→api. Declaring an interface in the consuming package is the
 // Go answer to that shape and it is the one that keeps R16.8 intact: the family
@@ -140,12 +148,53 @@ type PerQueryFamily interface {
 	RenderPerQuery(ctx context.Context, topN int, prefix string) (string, error)
 }
 
+// TagFamily is R9.6's per-tag family as its owner provides it. It is the same
+// shape as PerQueryFamily for the same reason: the provider lives in
+// internal/store, which this package cannot import without closing the cycle
+// api→metrics→store→api, so the hub declares the method and the render stays
+// the provider's.
+//
+// The signature has no topN. R9.5's method takes one because R9.5's own sentence
+// caps the family at N; R9.6's has no N, and cardinality.md:18's Control cell
+// for per-tag is the R3.12 gate ("Off unless R3.12 enabled"), not a cap — so
+// inventing one here would be a number the spec does not have.
+//
+// PROVISIONAL metric names (dated 2026-11-28, written before the provider
+// exists). R9.6 names a *family* and no metric, which is D13/R9.11's case: name
+// it, mark it provisional here, bound the blast radius. Five of the six are the
+// R9.4 aggregate list at internal/api/promql_catalogue.go:129-135 with `query`
+// → `tag` — the same derivation R9.5's names use, and the catalogue states the
+// reason ("named once and reused by R9.5's per-query variants so the two
+// families cannot disagree about what 'execution time' means"):
+//
+//	pgsi_tag_execution_time_seconds_total  ← aggregate.execution_time
+//	pgsi_tag_rows_total                    ← aggregate.rows
+//	pgsi_tag_lock_time_seconds_total       ← aggregate.lock_time
+//	pgsi_tag_shared_blocks_hit_total       ← aggregate.shared_blocks_hit
+//	pgsi_tag_shared_blocks_read_total      ← aggregate.shared_blocks_read
+//
+// The sixth, pgsi_tag_io_time_seconds_total, has no aggregate counterpart: it
+// comes from Cloud SQL's own pertag member list
+// (docs/research/cloud-sql-insights.md:334-339), and R2.4's matrix gates the
+// underlying column by PG major (requirements.md:81 — blk_read_time/blk_write_time
+// → shared_blk_read_time/shared_blk_write_time at PG17), so this is the name most
+// likely to change. `latencies` is absent by construction: R9.13's histogram is
+// keyed by fingerprint (cardinality.md:17), so there is no per-tag bucket set to
+// export.
+//
+// Blast radius: if the provider chooses different names, this header and the
+// provider change and nothing else in this package does.
+type TagFamily interface {
+	RenderTags(ctx context.Context, prefix string) (string, error)
+}
+
 // Option configures a Hub beyond its two collector sources. Options exist so
 // that adding a family never changes New's signature again: 0f4b154 shipped
-// New(collectors, up), and every family this package gains since — R9.5's,
-// R9.8's HTTP-duration one and R13.5's store-size one — would otherwise cost a
-// signature change plus a call-site change in internal/api, which is how a
-// one-line addition turns into a two-package commit.
+// New(collectors, up), and every family this package gains since — R9.5's and
+// R9.6's catalogue ones, R9.8's HTTP-duration one and R13.5's store-size one —
+// would otherwise cost a signature change plus a call-site change in
+// internal/api, which is how a one-line addition turns into a two-package
+// commit.
 type Option func(*Hub)
 
 // WithPerQuery adds R9.5's per-query family to the hub. The zero value (no
@@ -187,6 +236,17 @@ func WithScheduler(m *collector.SchedulerMetrics) Option {
 	return func(h *Hub) { h.scheduler = m }
 }
 
+// WithTags adds R9.6's per-tag family to the hub. Like WithPerQuery it takes an
+// interface rather than a concrete type — the provider is store-side and this
+// package cannot import store — so a hub built by New alone leaves the field nil
+// and the family renders absent, which is the state of every server until the
+// provider exists. R9.6's own gate is R3.12's: the option is passed when tags
+// are enabled, and passing it when they are not is the provider's problem, not
+// the hub's.
+func WithTags(f TagFamily) Option {
+	return func(h *Hub) { h.tags = f }
+}
+
 // Hub composes the self-observability families one process can render (R9.8).
 //
 // It is a value over its sources, not a registry: every family arrives as a
@@ -221,6 +281,11 @@ type Hub struct {
 	// store has not been constructed.
 	perQuery PerQueryFamily
 
+	// tags is R9.6's per-tag catalogue family, supplied through WithTags. Like
+	// perQuery it is an interface, so a nil field — the state of a hub built by
+	// New alone — renders the family absent rather than empty.
+	tags TagFamily
+
 	// http is R9.8's pgsi_http_request_duration_seconds, supplied through
 	// WithHTTPRequests. Unlike perQuery it is a concrete type, so its nil case
 	// is handled by HTTPRequests.Render's own nil receiver rather than by a
@@ -240,8 +305,8 @@ type Hub struct {
 // collector still has a hub, and it renders exactly BuildInfo.
 //
 // Families that arrive from outside the collector package are passed as Options
-// (WithPerQuery, WithHTTPRequests and WithStoreSize today), which is what lets
-// this signature stay put while the hub grows.
+// (WithPerQuery, WithTags, WithHTTPRequests and WithStoreSize today), which is
+// what lets this signature stay put while the hub grows.
 func New(collectors *collector.Stats, up *collector.UpTracker, opts ...Option) *Hub {
 	h := &Hub{collectors: collectors, up: up}
 	for _, opt := range opts {
@@ -330,6 +395,18 @@ func (h *Hub) RenderContext(ctx context.Context) string {
 		// collector.DefaultPrefix), so passing them here is not a second copy of
 		// either number.
 		if body, err := h.perQuery.RenderPerQuery(ctx, collector.DefaultTopN, ""); err == nil {
+			b.WriteString(body)
+		}
+	}
+	// R9.6's per-tag family, the section's second catalogue member and the last
+	// render in the body. Same two rules as the block above: a nil interface
+	// contributes no bytes, and a family that errors is absent rather than
+	// half-written. There is no topN to pass — R9.6's sentence has no N, and the
+	// per-tag row's Control cell in cardinality.md:18 is the R3.12 gate rather
+	// than a cap — so prefix is the only argument, and "" is
+	// collector.DefaultPrefix's selector, as in the five renders above.
+	if h.tags != nil {
+		if body, err := h.tags.RenderTags(ctx, ""); err == nil {
 			b.WriteString(body)
 		}
 	}
