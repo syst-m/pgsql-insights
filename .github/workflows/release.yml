@@ -184,9 +184,9 @@ jobs:
       # its filename from Chart.yaml's version, which the assert step just tied to
       # the tag, so the asset name cannot drift from the release it is attached to.
       - name: package the chart
-        run: |
-          mkdir -p dist
-          helm package ./chart --destination dist
+        # R11.9: the command lives in Makefile's helm-package: (Makefile:377-379),
+        # which is what ci.yml's image job calls too (ci.yml:275-276).
+        run: make helm-package
 
       # ---- the GitHub Release ---------------------------------------------
       - name: create the GitHub Release

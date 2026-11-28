@@ -64,11 +64,11 @@ The gate rc proves resolvability, not correspondence, so the cited lines were re
 step is the Playwright report (:199-201). So CI does not build the tarball the row and §5-D1
 both point at — the tarball verified here was produced locally by `helm package chart`.
 `Makefile` and `ci.yml` are A2's (roster `docs/agents.md:58`), and ci.yml carries a
-cite-inventory block at :268-285 that constrains where a line may be inserted, so the step
-is A2's to add, not mine to smuggle in. A2 has since ruled the same way — a `helm-package:`
-target, a step in ci.yml's helm job, and the `phase-0.md:76` cell corrected to name the target
-that exists — and declined to delegate it to me on the same roster row; their commit gets cited
-here when it lands. The target count above is `grep -oE '^[A-Za-z0-9._%/-]+:' Makefile |
+cite-inventory block, now `.github/workflows/ci.yml:280-297` — this sentence read 268-285
+until `eeeaf17` pushed it twelve lines down — so the step is A2's to add, not mine to
+smuggle in, which is what they ruled: they declined to delegate it to me on the same roster
+row and landed `eeeaf17` instead — `helm-package:` (`Makefile:377-379`) plus a step in
+ci.yml's **image** job (`ci.yml:272-276`), not the helm job, and `phase-0.md:76` naming it.
 grep -v '^\.PHONY:' | wc -l` → 32, measured at `8a25380` and unchanged at `194aaa9`; the first
 version of this record said 30, and the message that reported it said 30 with 31 names listed.
 The pattern is the second fix to this sentence. As first written it read `'^\.PHONY$'`, which
