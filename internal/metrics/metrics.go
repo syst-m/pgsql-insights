@@ -89,7 +89,7 @@
 // which live on the store's rows and not on the api DTO, so the hub holds a
 // TagFamily interface and the render is the provider's. Its metric names are
 // provisional and marked as such on the interface itself, per R9.11's naming rule
-// as applied at D13.
+// as applied in chart/templates/prometheusrule.yaml's header.
 //
 // R9.2's configurable `metrics.prefix` is the config half of the same contract,
 // and IMPLEMENTATION.md §3.9's R9.2/R9.3 row assigns that config key to this
@@ -160,7 +160,7 @@ type PerQueryFamily interface {
 // inventing one here would be a number the spec does not have.
 //
 // PROVISIONAL metric names (dated 2026-11-28, written before the provider
-// exists). R9.6 names a *family* and no metric, which is D13/R9.11's case: name
+// exists). R9.6 names a *family* and no metric, which is R9.11's provisional-naming case: name
 // it, mark it provisional here, bound the blast radius. Five of the six are the
 // R9.4 aggregate list at internal/api/promql_catalogue.go:129-135 with `query`
 // → `tag` — the same derivation R9.5's names use, and the catalogue states the
