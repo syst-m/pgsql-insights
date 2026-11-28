@@ -1087,7 +1087,7 @@ func newRegistry(kc *kube.Client, opener collector.SQLOpener, ov collector.Overr
 			collector.NewLocksCollector(opener, sqlCfg),
 			collector.NewReplicationCollector(opener, sqlCfg),
 			collector.NewSettingsCollector(opener, sqlCfg),
-			collector.NewStatementsCollector(opener, sqlCfg),
+			collector.NewStatementsCollector(opener, sqlCfg).WithPlanSampler(collector.NewPlanSampler(collector.PlanConfig{Now: sqlCfg.Now})),
 			collector.NewWALCollector(opener, sqlCfg),
 		)
 	}
