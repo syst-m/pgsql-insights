@@ -2,7 +2,9 @@
 
 Landed `4f7c9ab` (code + proposal + the phase-6.md row) at `2026-11-28T04:05:04Z` and this
 record in its own commit, whose sha it cannot print without changing · by A5 · gate `rc=0`
-after `4f7c9ab`.
+after `4f7c9ab`. Amended by A1 in the commit carrying this file's next change, which closes the
+`WithPlanSampler` Deviations entry below to document `2eaa764:cmd/pgsi/main.go:1090`; that
+amendment's sha is the one this header cannot print, the same limit the sentence above names.
 
 `4f7c9ab` is an amend of `708cfd1`. The first commit measured `rc=1` and the failing tier was
 the id tier — the one summary line whose wording does not contain the word "wrong", so it is
@@ -96,12 +98,17 @@ so the artefact being created is one of the gate's inputs and no pre-commit run 
 
 ## Deviations from the spec
 
-**Nothing calls `WithPlanSampler` yet.** `cmd/pgsi/main.go:1090` is the only non-test
-`NewStatementsCollector(opener, sqlCfg)` call site and it does not pass a sampler, so a real
-deployment today still captures no plans — the collector's `plans` field is nil and
-`TestStatementsWithoutASamplerIssueNoPlanQueries` pins that path at two view queries and every
-row's `Plan` nil. Wiring the sampler into `newRegistry` is the remaining step and it is A1's
-`cmd/pgsi` change, not a collector change; the same gap is recorded for R2.8's `WithExcludeRole`.
+**Nothing calls `WithPlanSampler` yet — closed by A1 in `2eaa764:cmd/pgsi/main.go:1090`.** The
+append entry now chains `NewStatementsCollector(opener, sqlCfg).WithPlanSampler(NewPlanSampler(PlanConfig{Now: sqlCfg.Now}))`, so a real
+deployment captures plans at `internal/collector/plans.go:75`'s default of 5/minute, and the
+`Now` pass-through keeps the sampler on the collector's clock — the one clock
+`internal/collector/plans.go:145` asks for. `TestStatementsWithoutASamplerIssueNoPlanQueries`
+still passes: a collector built without a sampler is still a legal construction, because
+`internal/collector/statements.go:927` is a builder and not a constructor argument.
+`cmd/pgsi/budget_test.go` still measures 23 of 40 — its fixture answers every query with no
+rows, so `pick` selects nothing and the sampler issues nothing, the outcome
+`internal/collector/plans.go:43` predicts for this test. The same gap is still open for
+R2.8's `WithExcludeRole`: `cmd/pgsi` passes no role, so that belt stays unconfigured.
 
 **The 200-plans/minute setting vs R13.1's budget — priced by A3 after this record landed.**
 R3.10 exposes Cloud SQL's Enterprise Plus value of 200 plans/minute; 200 captures at three queries
